@@ -5,7 +5,7 @@ const puppeteer = require("puppeteer");
 const app = express();
 
 app.use(cors());
-app.use(express.json({ limit: "50mb" }));
+app.use(express.text({ type: "*/*", limit: "50mb" }));
 
 function esc(v = "") {
   return String(v ?? "")
@@ -16,11 +16,11 @@ function esc(v = "") {
 }
 
 function renderReportHTML(data) {
-  const topCannabinoids = Array.isArray(data.top_cannabinoids) ? data.top_cannabinoids : [];
-  const topTerpenes = Array.isArray(data.top_terpenes) ? data.top_terpenes : [];
-  const compliance = Array.isArray(data.compliance_indicators) ? data.compliance_indicators : [];
-  const positiveFlags = Array.isArray(data.positive_flags) ? data.positive_flags : [];
-  const warningFlags = Array.isArray(data.warning_flags) ? data.warning_flags : [];
+  const topCannabinoids = Array.isArray(data?.top_cannabinoids) ? data.top_cannabinoids : [];
+  const topTerpenes = Array.isArray(data?.top_terpenes) ? data.top_terpenes : [];
+  const compliance = Array.isArray(data?.compliance_indicators) ? data.compliance_indicators : [];
+  const positiveFlags = Array.isArray(data?.positive_flags) ? data.positive_flags : [];
+  const warningFlags = Array.isArray(data?.warning_flags) ? data.warning_flags : [];
 
   const cannabinoidRows = topCannabinoids.map(c => `
     <tr>
@@ -55,7 +55,7 @@ function renderReportHTML(data) {
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>${esc(data.product_name || "COA Report")}</title>
+<title>${esc(data?.product_name || "COA Report")}</title>
 <style>
   :root{
     --bg:#0b1110;
@@ -225,25 +225,25 @@ function renderReportHTML(data) {
   <div class="report">
     <section class="hero">
       <div class="brand">Alem Solutions · COA Intelligence Report</div>
-      <h1>${esc(data.product_name || "Cannabis Product")}</h1>
-      <div class="lead">${esc(data.opening_statement || "No opening statement available.")}</div>
+      <h1>${esc(data?.product_name || "Cannabis Product")}</h1>
+      <div class="lead">${esc(data?.opening_statement || "No opening statement available.")}</div>
 
       <div class="metrics">
         <div class="metric">
           <div class="label">Total THC</div>
-          <div class="value">${esc(data.thc_total || "Not reported")}</div>
+          <div class="value">${esc(data?.thc_total || "Not reported")}</div>
         </div>
         <div class="metric">
           <div class="label">Total CBD</div>
-          <div class="value">${esc(data.cbd_total || "Not reported")}</div>
+          <div class="value">${esc(data?.cbd_total || "Not reported")}</div>
         </div>
         <div class="metric">
           <div class="label">Total Terpenes</div>
-          <div class="value">${esc(data.total_terpenes || "Not reported")}</div>
+          <div class="value">${esc(data?.total_terpenes || "Not reported")}</div>
         </div>
         <div class="metric">
           <div class="label">Report Confidence</div>
-          <div class="value">${esc(data.report_confidence_score || "—")}</div>
+          <div class="value">${esc(data?.report_confidence_score || "—")}</div>
         </div>
       </div>
     </section>
@@ -252,18 +252,18 @@ function renderReportHTML(data) {
       <div class="card">
         <h2>Batch details</h2>
         <div class="meta">
-          <div class="meta-item"><div class="meta-label">Batch</div><div class="meta-value">${esc(data.batch_number || "Not reported")}</div></div>
-          <div class="meta-item"><div class="meta-label">COA date</div><div class="meta-value">${esc(data.coa_report_date || "Not reported")}</div></div>
-          <div class="meta-item"><div class="meta-label">Product type</div><div class="meta-value">${esc(data.product_type || "Not reported")}</div></div>
-          <div class="meta-item"><div class="meta-label">Laboratory</div><div class="meta-value">${esc(data.laboratory_name || "Not reported")}</div></div>
+          <div class="meta-item"><div class="meta-label">Batch</div><div class="meta-value">${esc(data?.batch_number || "Not reported")}</div></div>
+          <div class="meta-item"><div class="meta-label">COA date</div><div class="meta-value">${esc(data?.coa_report_date || "Not reported")}</div></div>
+          <div class="meta-item"><div class="meta-label">Product type</div><div class="meta-value">${esc(data?.product_type || "Not reported")}</div></div>
+          <div class="meta-item"><div class="meta-label">Laboratory</div><div class="meta-value">${esc(data?.laboratory_name || "Not reported")}</div></div>
         </div>
-        <div class="copy" style="margin-top:16px;">${esc(data.executive_summary || "No executive summary available.")}</div>
+        <div class="copy" style="margin-top:16px;">${esc(data?.executive_summary || "No executive summary available.")}</div>
       </div>
 
       <div class="card">
         <h2>Interpretive summary</h2>
-        <div class="copy"><strong>Overall profile:</strong> ${esc(data.overall_score || "Not reported")}</div>
-        <div class="copy" style="margin-top:14px;"><strong>Minor cannabinoids:</strong> ${esc(data.minor_cannabinoids || "Not reported")}</div>
+        <div class="copy"><strong>Overall profile:</strong> ${esc(data?.overall_score || "Not reported")}</div>
+        <div class="copy" style="margin-top:14px;"><strong>Minor cannabinoids:</strong> ${esc(data?.minor_cannabinoids || "Not reported")}</div>
       </div>
     </section>
 
@@ -308,7 +308,7 @@ function renderReportHTML(data) {
     <section class="grid">
       <div class="card">
         <h2>Contaminant & compliance overview</h2>
-        <div class="copy">${esc(data.contaminant_overview || "Not reported")}</div>
+        <div class="copy">${esc(data?.contaminant_overview || "Not reported")}</div>
         <table style="margin-top:14px;">
           <thead>
             <tr><th>Category</th><th>Status</th><th>Notes</th></tr>
@@ -321,21 +321,21 @@ function renderReportHTML(data) {
 
       <div class="card">
         <h2>Therapeutic potential</h2>
-        <div class="copy">${esc(data.therapeutic_potential || "Not reported")}</div>
+        <div class="copy">${esc(data?.therapeutic_potential || "Not reported")}</div>
         <h2 style="margin-top:18px;">Entourage effect</h2>
-        <div class="copy">${esc(data.entourage_effect || "Not reported")}</div>
+        <div class="copy">${esc(data?.entourage_effect || "Not reported")}</div>
       </div>
     </section>
 
     <section class="grid">
       <div class="card">
         <h2>Cultivation insights</h2>
-        <div class="copy">${esc(data.cultivation_insights || "Not reported")}</div>
+        <div class="copy">${esc(data?.cultivation_insights || "Not reported")}</div>
       </div>
 
       <div class="card">
         <h2>Best use cases</h2>
-        <div class="copy">${esc(data.best_use_cases || "Not reported")}</div>
+        <div class="copy">${esc(data?.best_use_cases || "Not reported")}</div>
       </div>
     </section>
 
@@ -343,18 +343,18 @@ function renderReportHTML(data) {
       <div class="card">
         <h2>Chemical fingerprint</h2>
         <div class="radar">
-          <div class="radar-item"><div class="radar-label">THC intensity</div><div class="radar-value">${esc(data.fingerprint_radar?.thc_intensity ?? "0")}</div></div>
-          <div class="radar-item"><div class="radar-label">CBD intensity</div><div class="radar-value">${esc(data.fingerprint_radar?.cbd_intensity ?? "0")}</div></div>
-          <div class="radar-item"><div class="radar-label">Minor richness</div><div class="radar-value">${esc(data.fingerprint_radar?.minor_cannabinoid_richness ?? "0")}</div></div>
-          <div class="radar-item"><div class="radar-label">Terpene intensity</div><div class="radar-value">${esc(data.fingerprint_radar?.terpene_intensity ?? "0")}</div></div>
-          <div class="radar-item"><div class="radar-label">Terpene diversity</div><div class="radar-value">${esc(data.fingerprint_radar?.terpene_diversity ?? "0")}</div></div>
-          <div class="radar-item"><div class="radar-label">Aromatic complexity</div><div class="radar-value">${esc(data.fingerprint_radar?.aromatic_complexity ?? "0")}</div></div>
+          <div class="radar-item"><div class="radar-label">THC intensity</div><div class="radar-value">${esc(data?.fingerprint_radar?.thc_intensity ?? "0")}</div></div>
+          <div class="radar-item"><div class="radar-label">CBD intensity</div><div class="radar-value">${esc(data?.fingerprint_radar?.cbd_intensity ?? "0")}</div></div>
+          <div class="radar-item"><div class="radar-label">Minor richness</div><div class="radar-value">${esc(data?.fingerprint_radar?.minor_cannabinoid_richness ?? "0")}</div></div>
+          <div class="radar-item"><div class="radar-label">Terpene intensity</div><div class="radar-value">${esc(data?.fingerprint_radar?.terpene_intensity ?? "0")}</div></div>
+          <div class="radar-item"><div class="radar-label">Terpene diversity</div><div class="radar-value">${esc(data?.fingerprint_radar?.terpene_diversity ?? "0")}</div></div>
+          <div class="radar-item"><div class="radar-label">Aromatic complexity</div><div class="radar-value">${esc(data?.fingerprint_radar?.aromatic_complexity ?? "0")}</div></div>
         </div>
       </div>
 
       <div class="card">
         <h2>Scientific literature notes</h2>
-        <div class="copy">${esc(data.scientific_references || "Not reported")}</div>
+        <div class="copy">${esc(data?.scientific_references || "Not reported")}</div>
       </div>
     </section>
 
@@ -367,30 +367,67 @@ function renderReportHTML(data) {
 `;
 }
 
+function parseIncomingBody(rawBody) {
+  if (!rawBody || typeof rawBody !== "string") {
+    throw new Error("Request body is empty or not text");
+  }
+
+  const trimmed = rawBody.trim();
+
+  // First: try parsing the whole body as JSON
+  let payload;
+  try {
+    payload = JSON.parse(trimmed);
+  } catch (err) {
+    throw new Error(`Request body is not valid JSON: ${err.message}`);
+  }
+
+  // Case 1: Bubble sends report_json as real object
+  if (payload.report_json && typeof payload.report_json === "object") {
+    return {
+      fileName: payload.file_name || `coa-${Date.now()}.pdf`,
+      data: payload.report_json
+    };
+  }
+
+  // Case 2: Bubble sends report_json_string as stringified JSON
+  if (payload.report_json_string && typeof payload.report_json_string === "string") {
+    try {
+      return {
+        fileName: payload.file_name || `coa-${Date.now()}.pdf`,
+        data: JSON.parse(payload.report_json_string)
+      };
+    } catch (err) {
+      throw new Error(`report_json_string is not valid JSON: ${err.message}`);
+    }
+  }
+
+  // Case 3: Bubble sends raw report JSON directly as top-level body
+  if (payload.product_name || payload.top_cannabinoids || payload.fingerprint_radar) {
+    return {
+      fileName: payload.file_name || `coa-${Date.now()}.pdf`,
+      data: payload
+    };
+  }
+
+  throw new Error("Missing valid report_json or report_json_string");
+}
+
 app.get("/", (req, res) => {
   res.send("Middleware is running");
 });
 
 app.post("/generate-pdf", async (req, res) => {
   try {
-    const fileName = req.body.file_name || `coa-${Date.now()}.pdf`;
+    console.log("RAW BODY PREVIEW:");
+    console.log(String(req.body).slice(0, 1000));
 
-    let data = {};
-    if (req.body.report_json && typeof req.body.report_json === "object") {
-      data = req.body.report_json;
-    } else if (req.body.report_json_string && typeof req.body.report_json_string === "string") {
-      data = JSON.parse(req.body.report_json_string);
-    } else {
-      return res.status(400).json({
-        success: false,
-        error: "Missing report_json or report_json_string"
-      });
-    }
+    const { fileName, data } = parseIncomingBody(req.body);
 
     const html = renderReportHTML(data);
 
     const browser = await puppeteer.launch({
-      headless: "new",
+      headless: true,
       args: ["--no-sandbox", "--disable-setuid-sandbox"]
     });
 
