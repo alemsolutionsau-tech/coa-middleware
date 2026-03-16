@@ -3,10 +3,6 @@ const cors = require("cors");
 const puppeteer = require("puppeteer");
 const fs = require("fs");
 const path = require("path");
-const initPdfPath = path.join(reportsDir, "coa-init.pdf");
-if (!fs.existsSync(initPdfPath)) {
-  fs.writeFileSync(initPdfPath, "");
-}
 
 const app = express();
 
@@ -23,6 +19,10 @@ if (!fs.existsSync(reportsDir)) {
   fs.mkdirSync(reportsDir, { recursive: true });
 }
 
+const initPdfPath = path.join(reportsDir, "coa-init.pdf");
+if (!fs.existsSync(initPdfPath)) {
+  fs.writeFileSync(initPdfPath, "");
+}
 app.use("/reports", express.static(reportsDir));
 
 function esc(v = "") {
