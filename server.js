@@ -1,11 +1,25 @@
 const express = require("express");
 const cors = require("cors");
 const puppeteer = require("puppeteer");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 
 app.use(cors());
 app.use(express.text({ type: "*/*", limit: "50mb" }));
+
+const publicDir = path.join(__dirname, "public");
+const reportsDir = path.join(publicDir, "reports");
+
+if (!fs.existsSync(publicDir)) {
+  fs.mkdirSync(publicDir);
+}
+if (!fs.existsSync(reportsDir)) {
+  fs.mkdirSync(reportsDir, { recursive: true });
+}
+
+app.use("/reports", express.static(reportsDir));
 
 function esc(v = "") {
   return String(v ?? "")
@@ -13,6 +27,13 @@ function esc(v = "") {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function sanitizeFileName(name = "") {
+  return String(name)
+    .replace(/[^a-zA-Z0-9-_\.]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
 }
 
 function renderReportHTML(data) {
@@ -374,7 +395,6 @@ function parseIncomingBody(rawBody) {
 
   const trimmed = rawBody.trim();
 
-  // First: try parsing the whole body as JSON
   let payload;
   try {
     payload = JSON.parse(trimmed);
@@ -382,19 +402,17 @@ function parseIncomingBody(rawBody) {
     throw new Error(`Request body is not valid JSON: ${err.message}`);
   }
 
-  // Case 1: Bubble sends report_json as real object
   if (payload.report_json && typeof payload.report_json === "object") {
     return {
-      fileName: payload.file_name || `coa-${Date.now()}.pdf`,
+      fileName: sanitizeFileName(payload.file_name || `coa-${Date.now()}.pdf`),
       data: payload.report_json
     };
   }
 
-  // Case 2: Bubble sends report_json_string as stringified JSON
   if (payload.report_json_string && typeof payload.report_json_string === "string") {
     try {
       return {
-        fileName: payload.file_name || `coa-${Date.now()}.pdf`,
+        fileName: sanitizeFileName(payload.file_name || `coa-${Date.now()}.pdf`),
         data: JSON.parse(payload.report_json_string)
       };
     } catch (err) {
@@ -402,10 +420,9 @@ function parseIncomingBody(rawBody) {
     }
   }
 
-  // Case 3: Bubble sends raw report JSON directly as top-level body
   if (payload.product_name || payload.top_cannabinoids || payload.fingerprint_radar) {
     return {
-      fileName: payload.file_name || `coa-${Date.now()}.pdf`,
+      fileName: sanitizeFileName(payload.file_name || `coa-${Date.now()}.pdf`),
       data: payload
     };
   }
@@ -446,12 +463,18 @@ app.post("/generate-pdf", async (req, res) => {
       }
     });
 
+    const filePath = path.join(reportsDir, fileName);
+    fs.writeFileSync(filePath, pdf);
+
     await browser.close();
+
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
+    const pdfUrl = `${baseUrl}/reports/${encodeURIComponent(fileName)}`;
 
     return res.json({
       success: true,
       file_name: fileName,
-      pdf_base64: pdf.toString("base64")
+      pdf_url: pdfUrl
     });
   } catch (error) {
     console.error("Middleware error:", error.message);
