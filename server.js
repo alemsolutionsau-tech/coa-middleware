@@ -31,7 +31,7 @@ function esc(v = "") {
 
 function sanitizeFileName(name = "") {
   return String(name)
-    .replace(/[^a-zA-Z0-9-_\.]/g, "_")
+    .replace(/[^a-zA-Z0-9-_.]/g, "_")
     .replace(/_+/g, "_")
     .replace(/^_+|_+$/g, "");
 }
@@ -389,17 +389,25 @@ function renderReportHTML(data) {
 }
 
 function parseIncomingBody(rawBody) {
-  if (!rawBody || typeof rawBody !== "string") {
-    throw new Error("Request body is empty or not text");
+  if (rawBody === undefined || rawBody === null) {
+    throw new Error("Request body is empty");
   }
 
-  const trimmed = rawBody.trim();
+  const trimmed = String(rawBody).trim();
+
+  if (!trimmed || trimmed === "null" || trimmed === "undefined") {
+    throw new Error("Request body is empty or null");
+  }
 
   let payload;
   try {
     payload = JSON.parse(trimmed);
   } catch (err) {
     throw new Error(`Request body is not valid JSON: ${err.message}`);
+  }
+
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("Parsed JSON is null or not a valid object");
   }
 
   if (payload.report_json && typeof payload.report_json === "object") {
@@ -411,9 +419,15 @@ function parseIncomingBody(rawBody) {
 
   if (payload.report_json_string && typeof payload.report_json_string === "string") {
     try {
+      const parsedInner = JSON.parse(payload.report_json_string);
+
+      if (!parsedInner || typeof parsedInner !== "object" || Array.isArray(parsedInner)) {
+        throw new Error("report_json_string parsed to null or invalid object");
+      }
+
       return {
         fileName: sanitizeFileName(payload.file_name || `coa-${Date.now()}.pdf`),
-        data: JSON.parse(payload.report_json_string)
+        data: parsedInner
       };
     } catch (err) {
       throw new Error(`report_json_string is not valid JSON: ${err.message}`);
@@ -437,7 +451,7 @@ app.get("/", (req, res) => {
 app.post("/generate-pdf", async (req, res) => {
   try {
     console.log("RAW BODY PREVIEW:");
-    console.log(String(req.body).slice(0, 1000));
+    console.log(req.body ? String(req.body).slice(0, 1000) : "[empty body]");
 
     const { fileName, data } = parseIncomingBody(req.body);
 
