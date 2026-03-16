@@ -376,9 +376,9 @@ app.post("/generate-pdf", async (req, res) => {
     const fileName = req.body.file_name || `coa-${Date.now()}.pdf`;
 
     let data = {};
-    if (req.body.report_json) {
+    if (req.body.report_json && typeof req.body.report_json === "object") {
       data = req.body.report_json;
-    } else if (req.body.report_json_string) {
+    } else if (req.body.report_json_string && typeof req.body.report_json_string === "string") {
       data = JSON.parse(req.body.report_json_string);
     } else {
       return res.status(400).json({
