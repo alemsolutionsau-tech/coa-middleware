@@ -7,6 +7,7 @@
     "postinstall": "npx puppeteer browsers install chrome"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.99.2",
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "puppeteer": "^24.10.2"

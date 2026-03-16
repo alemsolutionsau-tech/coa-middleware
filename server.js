@@ -1,29 +1,17 @@
 const express = require("express");
 const cors = require("cors");
 const puppeteer = require("puppeteer");
-const fs = require("fs");
-const path = require("path");
+const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 
 app.use(cors());
 app.use(express.text({ type: "*/*", limit: "50mb" }));
 
-const publicDir = path.join(__dirname, "public");
-const reportsDir = path.join(publicDir, "reports");
-
-if (!fs.existsSync(publicDir)) {
-  fs.mkdirSync(publicDir);
-}
-if (!fs.existsSync(reportsDir)) {
-  fs.mkdirSync(reportsDir, { recursive: true });
-}
-
-const initPdfPath = path.join(reportsDir, "coa-init.pdf");
-if (!fs.existsSync(initPdfPath)) {
-  fs.writeFileSync(initPdfPath, "");
-}
-app.use("/reports", express.static(reportsDir));
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
 function esc(v = "") {
   return String(v ?? "")
@@ -34,7 +22,7 @@ function esc(v = "") {
 }
 
 function sanitizeFileName(name = "") {
-  return String(name)
+  return String(name || "")
     .replace(/[^a-zA-Z0-9-_.]/g, "_")
     .replace(/_+/g, "_")
     .replace(/^_+|_+$/g, "");
@@ -416,31 +404,32 @@ function parseIncomingBody(rawBody) {
 
   if (payload.report_json && typeof payload.report_json === "object") {
     return {
-      fileName: sanitizeFileName(payload.file_name || `coa-${Date.now()}.pdf`),
+      fileName: sanitizeFileName(payload.file_name || payload.report_json?.product_name || `coa-${Date.now()}`) + ".pdf",
       data: payload.report_json
     };
   }
 
   if (payload.report_json_string && typeof payload.report_json_string === "string") {
+    let parsedInner;
     try {
-      const parsedInner = JSON.parse(payload.report_json_string);
-
-      if (!parsedInner || typeof parsedInner !== "object" || Array.isArray(parsedInner)) {
-        throw new Error("report_json_string parsed to null or invalid object");
-      }
-
-      return {
-        fileName: sanitizeFileName(payload.file_name || `coa-${Date.now()}.pdf`),
-        data: parsedInner
-      };
+      parsedInner = JSON.parse(payload.report_json_string);
     } catch (err) {
       throw new Error(`report_json_string is not valid JSON: ${err.message}`);
     }
+
+    if (!parsedInner || typeof parsedInner !== "object" || Array.isArray(parsedInner)) {
+      throw new Error("report_json_string parsed to null or invalid object");
+    }
+
+    return {
+      fileName: sanitizeFileName(payload.file_name || parsedInner?.product_name || `coa-${Date.now()}`) + ".pdf",
+      data: parsedInner
+    };
   }
 
   if (payload.product_name || payload.top_cannabinoids || payload.fingerprint_radar) {
     return {
-      fileName: sanitizeFileName(payload.file_name || `coa-${Date.now()}.pdf`),
+      fileName: sanitizeFileName(payload.file_name || payload.product_name || `coa-${Date.now()}`) + ".pdf",
       data: payload
     };
   }
@@ -449,7 +438,20 @@ function parseIncomingBody(rawBody) {
 }
 
 app.get("/", (req, res) => {
-  res.send("Middleware is running");
+  res.json({
+    success: true,
+    message: "Middleware is running"
+  });
+});
+
+app.get("/health", (req, res) => {
+  res.json({
+    success: true,
+    status: "ok",
+    hasSupabaseUrl: !!process.env.SUPABASE_URL,
+    hasSupabaseKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    bucket: process.env.SUPABASE_BUCKET || null
+  });
 });
 
 app.post("/generate-report", async (req, res) => {
@@ -458,9 +460,9 @@ app.post("/generate-report", async (req, res) => {
   try {
     console.log("STEP 1: request received");
     console.log("RAW BODY PREVIEW:");
-    console.log(JSON.stringify(req.body)?.slice(0, 3000));
+    console.log(String(req.body).slice(0, 3000));
 
-    const data = req.body;
+    const { data, fileName } = parseIncomingBody(req.body);
 
     console.log("STEP 2: rendering HTML");
     const html = renderReportHTML(data);
@@ -489,17 +491,38 @@ app.post("/generate-report", async (req, res) => {
       }
     });
 
-    console.log("STEP 7: closing browser");
+    console.log("STEP 7: uploading PDF to Supabase");
+    const { error: uploadError } = await supabase.storage
+      .from(process.env.SUPABASE_BUCKET)
+      .upload(fileName, pdfBuffer, {
+        contentType: "application/pdf",
+        upsert: true
+      });
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from(process.env.SUPABASE_BUCKET)
+      .getPublicUrl(fileName);
+
+    const pdfUrl = publicUrlData?.publicUrl;
+
+    if (!pdfUrl) {
+      throw new Error("Could not generate public PDF URL");
+    }
+
+    console.log("STEP 8: closing browser");
     await browser.close();
     browser = null;
 
-    console.log("STEP 8: sending response");
-    res.set({
-      "Content-Type": "application/pdf",
-      "Content-Disposition": 'inline; filename="coa-report.pdf"'
+    console.log("STEP 9: sending response with pdf_url");
+    return res.json({
+      success: true,
+      file_name: fileName,
+      pdf_url: pdfUrl
     });
-
-    return res.send(pdfBuffer);
 
   } catch (error) {
     console.error("ERROR IN /generate-report:");
