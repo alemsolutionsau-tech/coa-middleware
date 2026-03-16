@@ -3,6 +3,10 @@ const cors = require("cors");
 const puppeteer = require("puppeteer");
 const fs = require("fs");
 const path = require("path");
+const initPdfPath = path.join(reportsDir, "coa-init.pdf");
+if (!fs.existsSync(initPdfPath)) {
+  fs.writeFileSync(initPdfPath, "");
+}
 
 const app = express();
 
@@ -452,6 +456,24 @@ app.post("/generate-pdf", async (req, res) => {
   try {
     console.log("RAW BODY PREVIEW:");
     console.log(req.body ? String(req.body).slice(0, 1000) : "[empty body]");
+
+    // Bubble sometimes sends a second null/empty request during initialization.
+    // Return a harmless success response so initialization can complete.
+    if (
+      req.body === undefined ||
+      req.body === null ||
+      String(req.body).trim() === "" ||
+      String(req.body).trim() === "null" ||
+      String(req.body).trim() === "undefined"
+    ) {
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
+      return res.json({
+        success: true,
+        file_name: "coa-init.pdf",
+        pdf_url: `${baseUrl}/reports/coa-init.pdf`,
+        note: "Initialization fallback response"
+      });
+    }
 
     const { fileName, data } = parseIncomingBody(req.body);
 
