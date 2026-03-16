@@ -452,72 +452,70 @@ app.get("/", (req, res) => {
   res.send("Middleware is running");
 });
 
-app.post("/generate-pdf", async (req, res) => {
+app.post("/generate-report", async (req, res) => {
+  let browser;
+
   try {
+    console.log("STEP 1: request received");
     console.log("RAW BODY PREVIEW:");
-    console.log(req.body ? String(req.body).slice(0, 1000) : "[empty body]");
+    console.log(JSON.stringify(req.body)?.slice(0, 3000));
 
-    // Bubble sometimes sends a second null/empty request during initialization.
-    // Return a harmless success response so initialization can complete.
-    if (
-      req.body === undefined ||
-      req.body === null ||
-      String(req.body).trim() === "" ||
-      String(req.body).trim() === "null" ||
-      String(req.body).trim() === "undefined"
-    ) {
-      const baseUrl = `${req.protocol}://${req.get("host")}`;
-      return res.json({
-        success: true,
-        file_name: "coa-init.pdf",
-        pdf_url: `${baseUrl}/reports/coa-init.pdf`,
-        note: "Initialization fallback response"
-      });
-    }
+    const data = req.body;
 
-    const { fileName, data } = parseIncomingBody(req.body);
-
+    console.log("STEP 2: rendering HTML");
     const html = renderReportHTML(data);
 
-    const browser = await puppeteer.launch({
-      headless: true,
+    console.log("STEP 3: launching puppeteer");
+    browser = await puppeteer.launch({
+      headless: "new",
       args: ["--no-sandbox", "--disable-setuid-sandbox"]
     });
 
+    console.log("STEP 4: opening new page");
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0" });
-    await new Promise(resolve => setTimeout(resolve, 500));
 
-    const pdf = await page.pdf({
+    console.log("STEP 5: setting HTML content");
+    await page.setContent(html, { waitUntil: "networkidle0" });
+
+    console.log("STEP 6: generating PDF");
+    const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
       margin: {
-        top: "10mm",
-        right: "10mm",
-        bottom: "12mm",
-        left: "10mm"
+        top: "20px",
+        right: "20px",
+        bottom: "20px",
+        left: "20px"
       }
     });
 
-    const filePath = path.join(reportsDir, fileName);
-    fs.writeFileSync(filePath, pdf);
-
+    console.log("STEP 7: closing browser");
     await browser.close();
+    browser = null;
 
-    const baseUrl = `${req.protocol}://${req.get("host")}`;
-    const pdfUrl = `${baseUrl}/reports/${encodeURIComponent(fileName)}`;
-
-    return res.json({
-      success: true,
-      file_name: fileName,
-      pdf_url: pdfUrl
+    console.log("STEP 8: sending response");
+    res.set({
+      "Content-Type": "application/pdf",
+      "Content-Disposition": 'inline; filename="coa-report.pdf"'
     });
-  } catch (error) {
-    console.error("Middleware error:", error.message);
 
-    return res.status(400).json({
+    return res.send(pdfBuffer);
+
+  } catch (error) {
+    console.error("ERROR IN /generate-report:");
+    console.error(error);
+
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (closeErr) {
+        console.error("ERROR CLOSING BROWSER:", closeErr);
+      }
+    }
+
+    return res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message || "Unknown server error"
     });
   }
 });
