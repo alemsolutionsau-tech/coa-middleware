@@ -162,6 +162,10 @@ function renderRadarStats(radar = {}) {
   `;
 }
 
+function renderDivider() {
+  return `<div class="divider"></div>`;
+}
+
 function renderReportHTML(data) {
   const topCannabinoids = Array.isArray(data?.top_cannabinoids) ? data.top_cannabinoids : [];
   const topTerpenes = Array.isArray(data?.top_terpenes) ? data.top_terpenes : [];
@@ -188,13 +192,12 @@ function renderReportHTML(data) {
   :root{
     --bg:#09100f;
     --bg-soft:#0f1716;
-    --panel:rgba(255,255,255,.035);
-    --panel-2:rgba(255,255,255,.025);
-    --line:rgba(255,255,255,.08);
+    --panel:rgba(255,255,255,.03);
+    --line:rgba(255,255,255,.07);
     --line-strong:rgba(255,255,255,.14);
     --text:#edf3ef;
-    --muted:#99ada4;
-    --soft:#d7e2dc;
+    --muted:#97aca2;
+    --soft:#d8e2dd;
     --green:#9bf19a;
     --green-deep:#6bcf72;
     --amber:#f0ba6d;
@@ -203,35 +206,35 @@ function renderReportHTML(data) {
 
   *{box-sizing:border-box}
 
-  body{
+  html, body{
     margin:0;
     padding:0;
+    background:var(--bg);
+    color:var(--text);
     font-family:Arial, Helvetica, sans-serif;
+  }
+
+  body{
     background:
       radial-gradient(circle at top left, rgba(107,207,114,.08), transparent 28%),
-      radial-gradient(circle at top right, rgba(240,186,109,.06), transparent 22%),
+      radial-gradient(circle at top right, rgba(240,186,109,.05), transparent 22%),
       var(--bg);
-    color:var(--text);
   }
 
   .report{
+    width:100%;
     max-width:1100px;
     margin:0 auto;
-  }
-
-  .hero,
-  .card,
-  .statement,
-  .section-band{
-    background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02));
-    border:1px solid var(--line);
-    border-radius:26px;
-    box-shadow:0 10px 40px rgba(0,0,0,.18);
+    padding:28px 28px 36px;
   }
 
   .hero{
-    padding:34px;
-    margin-bottom:20px;
+    background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.015));
+    border:1px solid var(--line-strong);
+    border-radius:28px;
+    box-shadow:0 10px 40px rgba(0,0,0,.16);
+    padding:48px 34px;
+    margin-bottom:18px;
     position:relative;
     overflow:hidden;
   }
@@ -239,9 +242,9 @@ function renderReportHTML(data) {
   .hero::after{
     content:"";
     position:absolute;
-    inset:auto -80px -90px auto;
-    width:260px;
-    height:260px;
+    inset:auto -90px -110px auto;
+    width:280px;
+    height:280px;
     border-radius:50%;
     background:radial-gradient(circle, rgba(155,241,154,.09), transparent 65%);
     pointer-events:none;
@@ -265,38 +268,30 @@ function renderReportHTML(data) {
     font-size:11px;
     text-transform:uppercase;
     letter-spacing:.14em;
-    margin-bottom:16px;
+    margin-bottom:18px;
   }
 
   h1{
-    margin:0 0 8px;
-    font-size:42px;
-    line-height:1.02;
-    letter-spacing:-.03em;
+    margin:0 0 10px;
+    font-size:48px;
+    line-height:1.01;
+    letter-spacing:-0.04em;
+    color:var(--white);
+  }
+
+  h2{
+    margin:0 0 12px;
+    font-size:22px;
+    letter-spacing:-.02em;
     color:var(--white);
   }
 
   .subhead{
-    font-size:15px;
+    font-size:16px;
     color:var(--muted);
-    line-height:1.6;
-    margin-bottom:20px;
+    line-height:1.7;
+    margin-bottom:22px;
     max-width:760px;
-  }
-
-  .chemotype-block{
-    display:grid;
-    grid-template-columns:1.3fr .9fr;
-    gap:18px;
-    margin-bottom:18px;
-  }
-
-  .chemotype-card,
-  .descriptor-card{
-    background:rgba(255,255,255,.035);
-    border:1px solid var(--line);
-    border-radius:20px;
-    padding:18px;
   }
 
   .section-kicker{
@@ -307,16 +302,32 @@ function renderReportHTML(data) {
     margin-bottom:10px;
   }
 
+  .chemotype-block{
+    display:grid;
+    grid-template-columns:1.25fr .95fr;
+    gap:20px;
+    margin-bottom:20px;
+  }
+
+  .chemotype-card,
+  .descriptor-card{
+    background:rgba(255,255,255,.025);
+    border:1px solid rgba(255,255,255,.07);
+    border-radius:20px;
+    padding:18px 18px 16px;
+  }
+
   .chemotype-title{
-    font-size:26px;
+    font-size:28px;
     font-weight:800;
-    line-height:1.12;
-    margin-bottom:8px;
+    line-height:1.1;
+    margin-bottom:10px;
+    color:var(--white);
   }
 
   .chemotype-copy{
-    font-size:14px;
-    line-height:1.7;
+    font-size:15px;
+    line-height:1.8;
     color:#dbe6e0;
   }
 
@@ -324,21 +335,14 @@ function renderReportHTML(data) {
     display:grid;
     grid-template-columns:repeat(4,1fr);
     gap:12px;
-    margin-top:8px;
+    margin-top:10px;
   }
 
   .metric{
     padding:16px;
-    border:1px solid var(--line);
+    border:1px solid rgba(255,255,255,.07);
     border-radius:18px;
-    background:rgba(255,255,255,.035);
-  }
-
-  .hero-metric .value{
-    font-size:30px;
-    font-weight:800;
-    line-height:1.1;
-    letter-spacing:-.03em;
+    background:rgba(255,255,255,.03);
   }
 
   .label{
@@ -352,14 +356,45 @@ function renderReportHTML(data) {
   .value{
     font-size:24px;
     font-weight:800;
+    color:var(--white);
   }
 
-  .band{
-    margin-bottom:20px;
+  .hero-metric .value{
+    font-size:30px;
+    letter-spacing:-.03em;
+    line-height:1.1;
   }
 
   .section-band{
-    padding:18px 20px;
+    background:transparent;
+    border:none;
+    border-radius:0;
+    box-shadow:none;
+    padding:8px 0;
+    margin-bottom:8px;
+  }
+
+  .statement{
+    background:transparent;
+    border:none;
+    border-radius:0;
+    box-shadow:none;
+    padding:10px 0;
+    margin-bottom:8px;
+  }
+
+  .statement .quote{
+    font-size:20px;
+    line-height:1.8;
+    color:var(--white);
+    margin-bottom:16px;
+    max-width:980px;
+  }
+
+  .quote-secondary{
+    font-size:15px;
+    line-height:1.85;
+    color:#d8e3dd;
   }
 
   .badge-row{
@@ -376,7 +411,7 @@ function renderReportHTML(data) {
     border-radius:999px;
     font-size:12px;
     font-weight:700;
-    border:1px solid var(--line);
+    border:1px solid rgba(255,255,255,.06);
     background:rgba(255,255,255,.03);
     color:var(--soft);
   }
@@ -401,44 +436,31 @@ function renderReportHTML(data) {
     font-size:13px;
   }
 
-  .statement{
-    padding:24px;
-    margin-bottom:20px;
+  .divider{
+    height:1px;
+    background:rgba(255,255,255,.08);
+    margin:18px 0;
   }
 
-  .statement .quote{
-    font-size:18px;
-    line-height:1.7;
-    color:var(--white);
-    margin-bottom:16px;
-  }
-
-  .quote-secondary{
-    font-size:14px;
-    line-height:1.8;
-    color:#d8e3dd;
-  }
-
-  .grid{
+  .grid,
+  .story-columns{
     display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:18px;
-    margin-bottom:20px;
+    grid-template-columns:1fr;
+    gap:0;
+    margin-bottom:8px;
   }
 
   .card{
-    padding:24px;
-  }
-
-  h2{
-    margin:0 0 14px;
-    font-size:19px;
-    letter-spacing:-.02em;
+    background:transparent;
+    border:none;
+    border-radius:0;
+    box-shadow:none;
+    padding:10px 0;
   }
 
   .copy{
-    font-size:14px;
-    line-height:1.75;
+    font-size:15px;
+    line-height:1.85;
     color:#dbe6e0;
   }
 
@@ -448,15 +470,15 @@ function renderReportHTML(data) {
 
   .meta{
     display:grid;
-    grid-template-columns:1fr 1fr;
+    grid-template-columns:repeat(4,1fr);
     gap:10px;
   }
 
   .meta-item{
     padding:12px;
-    border:1px solid var(--line);
+    border:1px solid rgba(255,255,255,.06);
     border-radius:16px;
-    background:rgba(255,255,255,.03);
+    background:rgba(255,255,255,.02);
   }
 
   .meta-label{
@@ -471,17 +493,19 @@ function renderReportHTML(data) {
     font-size:14px;
     font-weight:600;
     line-height:1.45;
+    color:var(--white);
   }
 
   table{
     width:100%;
     border-collapse:collapse;
     font-size:13px;
+    margin-top:10px;
   }
 
   th, td{
     text-align:left;
-    padding:10px 8px;
+    padding:11px 8px;
     border-bottom:1px solid rgba(255,255,255,.06);
     vertical-align:top;
   }
@@ -493,13 +517,6 @@ function renderReportHTML(data) {
     letter-spacing:.08em;
   }
 
-  .story-columns{
-    display:grid;
-    grid-template-columns:1.15fr .85fr;
-    gap:18px;
-    margin-bottom:20px;
-  }
-
   .comparison-grid{
     display:grid;
     grid-template-columns:repeat(2,1fr);
@@ -507,8 +524,8 @@ function renderReportHTML(data) {
   }
 
   .comparison-card{
-    border:1px solid var(--line);
-    background:rgba(255,255,255,.03);
+    border:1px solid rgba(255,255,255,.06);
+    background:rgba(255,255,255,.02);
     border-radius:18px;
     padding:16px;
   }
@@ -530,32 +547,32 @@ function renderReportHTML(data) {
 
   .comparison-notes{
     font-size:13px;
-    line-height:1.6;
+    line-height:1.65;
     color:#d8e3dd;
   }
 
   .fingerprint-list{
     display:flex;
     flex-direction:column;
-    gap:12px;
+    gap:14px;
+    margin-top:8px;
   }
 
   .fingerprint-row{
     display:grid;
-    grid-template-columns:140px 1fr 38px;
-    gap:10px;
+    grid-template-columns:150px 1fr 42px;
+    gap:12px;
     align-items:center;
   }
 
   .fingerprint-label{
-    font-size:12px;
+    font-size:13px;
     color:var(--soft);
   }
 
   .fingerprint-bar{
-    position:relative;
     width:100%;
-    height:10px;
+    height:14px;
     border-radius:999px;
     background:rgba(255,255,255,.06);
     overflow:hidden;
@@ -573,20 +590,21 @@ function renderReportHTML(data) {
     font-size:13px;
     font-weight:800;
     text-align:right;
+    color:var(--white);
   }
 
   .footer{
-    margin-top:20px;
+    margin-top:18px;
     font-size:11px;
     color:#8ea19a;
     line-height:1.75;
     text-align:center;
-    padding:10px 20px;
+    padding:12px 0 0;
   }
 
   @page{
-  margin:0;
-   }
+    margin:0;
+  }
 </style>
 </head>
 <body>
@@ -594,7 +612,7 @@ function renderReportHTML(data) {
 
     <section class="hero">
       <div class="brand">Alem Solutions · COA Intelligence Report</div>
-      <div class="eyebrow">ULTRA PREMIUM TEST VERSION</div>
+      <div class="eyebrow">Chemical Intelligence Dossier</div>
       <h1>${esc(data?.product_name || "Cannabis Product")}</h1>
       <div class="subhead">
         ${esc(data?.executive_summary || "A premium interpretive layer derived from certificate of analysis data.")}
@@ -617,21 +635,27 @@ function renderReportHTML(data) {
       ${renderMetricCards(data)}
     </section>
 
-    <section class="band section-band">
+    <section class="section-band">
       <div class="section-kicker">Aroma profile</div>
       <div class="badge-row">${renderBadges(aromaProfile, "neutral")}</div>
     </section>
 
-    <section class="band section-band">
+    ${renderDivider()}
+
+    <section class="section-band">
       <div class="section-kicker">WOW highlights</div>
       <div class="badge-row">${renderBadges(wowHighlights, "good")}</div>
     </section>
+
+    ${renderDivider()}
 
     <section class="statement">
       <div class="section-kicker">Chemical story</div>
       <div class="quote">${esc(data?.chemical_story || data?.opening_statement || "No chemical story available.")}</div>
       <div class="quote-secondary"><strong>Overall profile:</strong> ${esc(data?.overall_score || "Not reported")}</div>
     </section>
+
+    ${renderDivider()}
 
     <section class="grid">
       <div class="card">
@@ -647,6 +671,8 @@ function renderReportHTML(data) {
       </div>
     </section>
 
+    ${renderDivider()}
+
     <section class="grid">
       <div class="card">
         <h2>Positive flags</h2>
@@ -658,6 +684,8 @@ function renderReportHTML(data) {
         <div class="badge-row">${renderBadges(warningFlags, "warn")}</div>
       </div>
     </section>
+
+    ${renderDivider()}
 
     <section class="story-columns">
       <div class="card">
@@ -687,6 +715,8 @@ function renderReportHTML(data) {
       </div>
     </section>
 
+    ${renderDivider()}
+
     <section class="grid">
       <div class="card">
         <h2>Lab quality & compliance</h2>
@@ -710,6 +740,8 @@ function renderReportHTML(data) {
       </div>
     </section>
 
+    ${renderDivider()}
+
     <section class="grid">
       <div class="card">
         <h2>Experience profile</h2>
@@ -719,15 +751,19 @@ function renderReportHTML(data) {
       </div>
 
       <div class="card">
-        <h2>Chemical fingerprint</h2>
+        <h2>Chemical signature</h2>
         ${renderRadarStats(data?.fingerprint_radar || {})}
       </div>
     </section>
 
-    <section class="card" style="margin-bottom:20px;">
+    ${renderDivider()}
+
+    <section class="card" style="margin-bottom:8px;">
       <h2>Comparative classification</h2>
       ${renderComparisonCards(comparativeClassification)}
     </section>
+
+    ${renderDivider()}
 
     <section class="grid">
       <div class="card">
@@ -848,20 +884,36 @@ app.post("/generate-report", async (req, res) => {
     console.log("STEP 4: opening new page");
     const page = await browser.newPage();
 
+    await page.setViewport({
+      width: 1200,
+      height: 1600,
+      deviceScaleFactor: 1
+    });
+
     console.log("STEP 5: setting HTML content");
     await page.setContent(html, { waitUntil: "networkidle0" });
+    await page.emulateMediaType("screen");
+
+    const pageHeight = await page.evaluate(() => {
+      const body = document.body;
+      const html = document.documentElement;
+      return Math.max(
+        body.scrollHeight,
+        body.offsetHeight,
+        html.clientHeight,
+        html.scrollHeight,
+        html.offsetHeight
+      );
+    });
+
+    const pdfHeight = Math.max(pageHeight + 20, 1400);
 
     console.log("STEP 6: generating PDF");
     const pdfBuffer = await page.pdf({
-      width: "1100px",
-      height: "auto",
       printBackground: true,
-      margin: {
-        top: "0px",
-        right: "0px",
-        bottom: "0px",
-        left: "0px"
-      }
+      width: "1100px",
+      height: `${pdfHeight}px`,
+      pageRanges: "1"
     });
 
     console.log("STEP 7: uploading PDF to Supabase");
@@ -918,5 +970,5 @@ app.post("/generate-report", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(\`Server running on port \${PORT}\`);
 });
