@@ -744,6 +744,7 @@ app.get("/routes-check", (req, res) => {
       "/extract-from-url",
       "/extract-and-save",
       "/extract-parse-and-save",
+      "/full-coa-pipeline",
       "/generate-report",
     ],
   });
@@ -1080,7 +1081,6 @@ app.post("/full-coa-pipeline", async (req, res) => {
     });
   }
 });
-
 app.post("/generate-report", async (req, res) => {
   let browser;
 
