@@ -7,9 +7,13 @@
     "postinstall": "npx puppeteer browsers install chrome"
   },
   "dependencies": {
+    "@azure/ai-form-recognizer": "^5.1.0",
     "@supabase/supabase-js": "^2.99.2",
+    "axios": "^1.13.6",
     "cors": "^2.8.5",
+    "dotenv": "^17.3.1",
     "express": "^5.1.0",
+    "openai": "^6.31.0",
     "puppeteer": "^24.10.2"
   }
 }

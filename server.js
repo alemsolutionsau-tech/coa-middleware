@@ -1,12 +1,45 @@
+require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 const puppeteer = require("puppeteer");
+const axios = require("axios");
+const OpenAI = require("openai");
+const {
+  DocumentAnalysisClient,
+  AzureKeyCredential,
+} = require("@azure/ai-form-recognizer");
+
 const supabase = require("./supabase");
 
 const app = express();
 
 app.use(cors());
-app.use(express.text({ type: "*/*", limit: "50mb" }));
+app.use(express.json({ limit: "20mb" }));
+app.use(express.urlencoded({ extended: true }));
+
+const PORT = process.env.PORT || 3000;
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5";
+
+if (
+  !process.env.AZURE_DOC_INTELLIGENCE_ENDPOINT ||
+  !process.env.AZURE_DOC_INTELLIGENCE_KEY
+) {
+  throw new Error("Missing Azure Document Intelligence environment variables");
+}
+
+if (!process.env.OPENAI_API_KEY) {
+  throw new Error("Missing OPENAI_API_KEY in .env");
+}
+
+const azureClient = new DocumentAnalysisClient(
+  process.env.AZURE_DOC_INTELLIGENCE_ENDPOINT,
+  new AzureKeyCredential(process.env.AZURE_DOC_INTELLIGENCE_KEY)
+);
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 function esc(v = "") {
   return String(v ?? "")
@@ -33,1042 +66,32 @@ function getSafeArray(arr) {
   return Array.isArray(arr) ? arr : [];
 }
 
-function renderBadges(items = [], type = "neutral") {
-  if (!Array.isArray(items) || !items.length) {
-    return `<span class="muted-inline">None reported</span>`;
-  }
-
-  return items
-    .map((x) => `<span class="badge ${type}">${esc(x)}</span>`)
-    .join("");
-}
-
-function renderMetricCards(data) {
-  return `
-    <div class="metrics">
-      <div class="metric hero-metric">
-        <div class="label">Total THC</div>
-        <div class="value">${esc(data?.thc_total || "Not reported")}</div>
-      </div>
-      <div class="metric hero-metric">
-        <div class="label">Total CBD</div>
-        <div class="value">${esc(data?.cbd_total || "Not reported")}</div>
-      </div>
-      <div class="metric hero-metric">
-        <div class="label">Total Terpenes</div>
-        <div class="value">${esc(data?.total_terpenes || "Not reported")}</div>
-      </div>
-      <div class="metric hero-metric">
-        <div class="label">Confidence</div>
-        <div class="value">${esc(data?.report_confidence_score || "—")}</div>
-      </div>
-    </div>
-  `;
-}
-
-function renderMetaGrid(data) {
-  return `
-    <div class="meta">
-      <div class="meta-item"><div class="meta-label">Batch</div><div class="meta-value">${esc(data?.batch_number || "Not reported")}</div></div>
-      <div class="meta-item"><div class="meta-label">COA date</div><div class="meta-value">${esc(data?.coa_report_date || "Not reported")}</div></div>
-      <div class="meta-item"><div class="meta-label">Product type</div><div class="meta-value">${esc(data?.product_type || "Not reported")}</div></div>
-      <div class="meta-item"><div class="meta-label">Laboratory</div><div class="meta-value">${esc(data?.laboratory_name || "Not reported")}</div></div>
-      <div class="meta-item"><div class="meta-label">Sample date</div><div class="meta-value">${esc(data?.sample_date || "Not reported")}</div></div>
-      <div class="meta-item"><div class="meta-label">Received date</div><div class="meta-value">${esc(data?.received_date || "Not reported")}</div></div>
-      <div class="meta-item"><div class="meta-label">Certificate ID</div><div class="meta-value">${esc(data?.certificate_id || "Not reported")}</div></div>
-      <div class="meta-item"><div class="meta-label">Total cannabinoids</div><div class="meta-value">${esc(data?.total_cannabinoids || "Not reported")}</div></div>
-    </div>
-  `;
-}
-
-function renderTableRows(items, type) {
-  if (!Array.isArray(items) || !items.length) {
-    if (type === "cannabinoids") {
-      return `<tr><td colspan="4">No explicit cannabinoid rows available.</td></tr>`;
-    }
-    if (type === "terpenes") {
-      return `<tr><td colspan="3">No explicit terpene rows available.</td></tr>`;
-    }
-    return `<tr><td colspan="3">No explicit rows available.</td></tr>`;
-  }
-
-  if (type === "cannabinoids") {
-    return items.map((c) => `
-      <tr>
-        <td>${esc(c.name)}</td>
-        <td>${esc(c.value)}</td>
-        <td>${esc(c.unit)}</td>
-        <td>${esc(c.notes)}</td>
-      </tr>
-    `).join("");
-  }
-
-  if (type === "terpenes") {
-    return items.map((t) => `
-      <tr>
-        <td>${esc(t.name)}</td>
-        <td>${esc(t.value)}</td>
-        <td>${esc(t.unit)}</td>
-      </tr>
-    `).join("");
-  }
-
-  return items.map((x) => `
-    <tr>
-      <td>${esc(x.label)}</td>
-      <td>${esc(x.status)}</td>
-      <td>${esc(x.notes)}</td>
-    </tr>
-  `).join("");
-}
-
-function renderComparisonCards(items = []) {
-  if (!Array.isArray(items) || !items.length) {
-    return `<div class="copy">No comparative classification available.</div>`;
-  }
-
-  return `
-    <div class="comparison-grid">
-      ${items.map((item) => `
-        <div class="comparison-card">
-          <div class="comparison-metric">${esc(item.metric)}</div>
-          <div class="comparison-level">${esc(item.level)}</div>
-          <div class="comparison-notes">${esc(item.notes)}</div>
-        </div>
-      `).join("")}
-    </div>
-  `;
-}
-
-function buildFingerprintId(data) {
-  const chemotype = String(data?.chemotype_identity || "UNCLASSIFIED")
-    .toUpperCase()
-    .replace(/[^A-Z0-9 ]/g, " ")
-    .trim()
-    .split(/\s+/)
-    .slice(0, 3)
-    .map((x) => x.slice(0, 3))
-    .join("-");
-
-  const thc = Math.round(Number(data?.fingerprint_radar?.thc_intensity ?? 0));
-  const terp = Math.round(Number(data?.fingerprint_radar?.terpene_intensity ?? 0));
-  const aroma = Math.round(Number(data?.fingerprint_radar?.aromatic_complexity ?? 0));
-
-  return `${chemotype || "UNK"}-${thc}-${terp}-${aroma}`;
-}
-
-function renderRadarSVG(radar = {}) {
-  const labels = [
-    { key: "thc_intensity", label: "THC" },
-    { key: "cbd_intensity", label: "CBD" },
-    { key: "minor_cannabinoid_richness", label: "Minors" },
-    { key: "terpene_intensity", label: "Terpenes" },
-    { key: "terpene_diversity", label: "Diversity" },
-    { key: "aromatic_complexity", label: "Aroma" }
-  ];
-
-  const size = 360;
-  const cx = 180;
-  const cy = 180;
-  const levels = [20, 40, 60, 80, 100];
-
-  function pointFor(index, value, radiusScale = 1) {
-    const angle = (-Math.PI / 2) + (index * 2 * Math.PI / labels.length);
-    const radius = (value / 100) * 115 * radiusScale;
-    const x = cx + Math.cos(angle) * radius;
-    const y = cy + Math.sin(angle) * radius;
-    return { x, y };
-  }
-
-  const gridPolygons = levels.map((level) => {
-    const points = labels.map((_, i) => {
-      const p = pointFor(i, level);
-      return `${p.x},${p.y}`;
-    }).join(" ");
-    return `<polygon points="${points}" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="1"/>`;
-  }).join("");
-
-  const axisLines = labels.map((_, i) => {
-    const p = pointFor(i, 100, 1);
-    return `<line x1="${cx}" y1="${cy}" x2="${p.x}" y2="${p.y}" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>`;
-  }).join("");
-
-  const dataPoints = labels.map((item, i) => {
-    const value = Number(radar?.[item.key] ?? 0);
-    const p = pointFor(i, value);
-    return `${p.x},${p.y}`;
-  }).join(" ");
-
-  const dots = labels.map((item, i) => {
-    const value = Number(radar?.[item.key] ?? 0);
-    const p = pointFor(i, value);
-    return `<circle cx="${p.x}" cy="${p.y}" r="4" fill="#9bf19a" stroke="#07100f" stroke-width="2"/>`;
-  }).join("");
-
-  const labelNodes = labels.map((item, i) => {
-    const p = pointFor(i, 100, 1.24);
-    return `
-      <text x="${p.x}" y="${p.y}" fill="rgba(255,255,255,0.82)" font-size="12" text-anchor="middle" dominant-baseline="middle">
-        ${esc(item.label)}
-      </text>
-    `;
-  }).join("");
-
-  return `
-    <div class="radar-wrap">
-      <svg viewBox="0 0 ${size} ${size}" class="radar-svg" aria-label="Chemical signature radar chart">
-        ${gridPolygons}
-        ${axisLines}
-        <polygon points="${dataPoints}" fill="rgba(155,241,154,0.18)" stroke="#9bf19a" stroke-width="2.2"/>
-        ${dots}
-        ${labelNodes}
-        <circle cx="${cx}" cy="${cy}" r="2.5" fill="rgba(255,255,255,0.45)"/>
-      </svg>
-    </div>
-  `;
-}
-
-function renderFingerprintStatRows(radar = {}) {
-  const rows = [
-    ["THC intensity", radar?.thc_intensity ?? 0],
-    ["CBD intensity", radar?.cbd_intensity ?? 0],
-    ["Minor richness", radar?.minor_cannabinoid_richness ?? 0],
-    ["Terpene intensity", radar?.terpene_intensity ?? 0],
-    ["Terpene diversity", radar?.terpene_diversity ?? 0],
-    ["Aromatic complexity", radar?.aromatic_complexity ?? 0]
-  ];
-
-  return `
-    <div class="fingerprint-list">
-      ${rows.map(([label, value]) => `
-        <div class="fingerprint-row">
-          <div class="fingerprint-label">${esc(label)}</div>
-          <div class="fingerprint-bar-wrap">
-            <div class="fingerprint-bar">
-              <span style="width:${Math.max(0, Math.min(100, Number(value) || 0))}%"></span>
-            </div>
-          </div>
-          <div class="fingerprint-value">${esc(value)}</div>
-        </div>
-      `).join("")}
-    </div>
-  `;
-}
-
-function renderTerpeneSpectrum(topTerpenes = []) {
-  const items = getSafeArray(topTerpenes).slice(0, 8);
-  if (!items.length) {
-    return `<div class="copy">No terpene spectrum available.</div>`;
-  }
-
-  const total = items.reduce((sum, item) => sum + numberFromPercentString(item.value), 0) || 1;
-
-  const palette = [
-    "#9bf19a",
-    "#83e7b9",
-    "#67d8d4",
-    "#79bff3",
-    "#b4a2ff",
-    "#f0ba6d",
-    "#f59aa8",
-    "#c9d48b"
-  ];
-
-  const bar = items.map((item, idx) => {
-    const width = (numberFromPercentString(item.value) / total) * 100;
-    return `<span style="width:${width}%; background:${palette[idx % palette.length]};"></span>`;
-  }).join("");
-
-  const legend = items.map((item, idx) => `
-    <div class="spectrum-legend-item">
-      <span class="spectrum-dot" style="background:${palette[idx % palette.length]};"></span>
-      <span class="spectrum-name">${esc(item.name)}</span>
-      <span class="spectrum-val">${esc(item.value)} ${esc(item.unit || "")}</span>
-    </div>
-  `).join("");
-
-  return `
-    <div class="spectrum-bar">${bar}</div>
-    <div class="spectrum-legend">${legend}</div>
-  `;
-}
-
-function renderDivider() {
-  return `<div class="divider"></div>`;
-}
-
-function renderReportHTML(data) {
-  const topCannabinoids = getSafeArray(data?.top_cannabinoids);
-  const topTerpenes = getSafeArray(data?.top_terpenes);
-  const compliance = getSafeArray(data?.compliance_indicators);
-  const positiveFlags = getSafeArray(data?.positive_flags);
-  const warningFlags = getSafeArray(data?.warning_flags);
-  const aromaProfile = getSafeArray(data?.aroma_profile);
-  const wowHighlights = getSafeArray(data?.wow_highlights);
-  const comparativeClassification = getSafeArray(data?.comparative_classification);
-
-  const cannabinoidRows = renderTableRows(topCannabinoids, "cannabinoids");
-  const terpeneRows = renderTableRows(topTerpenes, "terpenes");
-  const complianceRows = renderTableRows(compliance, "compliance");
-  const fingerprintId = buildFingerprintId(data);
-
-  return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<title>${esc(data?.product_name || "COA Intelligence Report")}</title>
-<style>
-  :root{
-    --bg:#09100f;
-    --bg-soft:#0f1716;
-    --panel:rgba(255,255,255,.025);
-    --line:rgba(255,255,255,.07);
-    --line-strong:rgba(255,255,255,.14);
-    --text:#edf3ef;
-    --muted:#97aca2;
-    --soft:#d8e2dd;
-    --green:#9bf19a;
-    --green-deep:#6bcf72;
-    --amber:#f0ba6d;
-    --white:rgba(255,255,255,.98);
-  }
-
-  *{box-sizing:border-box}
-
-  html, body{
-    margin:0;
-    padding:0;
-    background:var(--bg);
-    color:var(--text);
-    font-family:Arial, Helvetica, sans-serif;
-    -webkit-print-color-adjust:exact;
-    print-color-adjust:exact;
-  }
-
-  body{
-    background:#09100f;
-  }
-
-  .report{
-    width:100%;
-    padding:42px 58px 54px;
-  }
-
-  .hero{
-    position:relative;
-    overflow:hidden;
-    padding:52px 48px 42px;
-    margin-bottom:24px;
-    border-radius:34px;
-    background:
-      radial-gradient(circle at 18% 20%, rgba(155,241,154,.13), transparent 26%),
-      radial-gradient(circle at 82% 14%, rgba(240,186,109,.10), transparent 18%),
-      linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.015));
-    border:1px solid var(--line-strong);
-    box-shadow:0 10px 44px rgba(0,0,0,.18);
-  }
-
-  .hero-top{
-    display:grid;
-    grid-template-columns:1.35fr .85fr;
-    gap:28px;
-    align-items:start;
-    margin-bottom:24px;
-  }
-
-  .brand{
-    font-size:11px;
-    letter-spacing:.18em;
-    text-transform:uppercase;
-    color:var(--muted);
-    margin-bottom:12px;
-  }
-
-  .eyebrow{
-    display:inline-block;
-    padding:7px 12px;
-    border-radius:999px;
-    background:rgba(255,255,255,.05);
-    border:1px solid rgba(255,255,255,.08);
-    color:var(--soft);
-    font-size:11px;
-    text-transform:uppercase;
-    letter-spacing:.14em;
-    margin-bottom:18px;
-  }
-
-  h1{
-    margin:0 0 10px;
-    font-size:56px;
-    line-height:1;
-    letter-spacing:-0.05em;
-    color:var(--white);
-  }
-
-  h2{
-    margin:0 0 12px;
-    font-size:22px;
-    line-height:1.15;
-    letter-spacing:-.02em;
-    color:var(--white);
-  }
-
-  .subhead{
-    font-size:17px;
-    color:var(--muted);
-    line-height:1.72;
-    max-width:760px;
-  }
-
-  .hero-product-sheet{
-    background:rgba(255,255,255,.03);
-    border:1px solid rgba(255,255,255,.08);
-    border-radius:22px;
-    padding:18px;
-  }
-
-  .hero-sheet-grid{
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:10px;
-  }
-
-  .hero-sheet-item{
-    padding:10px 0;
-    border-bottom:1px solid rgba(255,255,255,.06);
-  }
-
-  .hero-sheet-item:last-child,
-  .hero-sheet-item:nth-last-child(2){
-    border-bottom:none;
-  }
-
-  .sheet-k{
-    font-size:11px;
-    letter-spacing:.1em;
-    text-transform:uppercase;
-    color:var(--muted);
-    margin-bottom:6px;
-  }
-
-  .sheet-v{
-    font-size:14px;
-    color:var(--white);
-    font-weight:700;
-    line-height:1.45;
-  }
-
-  .chemotype-strip{
-    display:grid;
-    grid-template-columns:1.15fr .85fr;
-    gap:20px;
-    margin-bottom:22px;
-  }
-
-  .chemotype-panel,
-  .descriptor-panel{
-    background:rgba(255,255,255,.025);
-    border:1px solid rgba(255,255,255,.07);
-    border-radius:22px;
-    padding:18px 18px 16px;
-  }
-
-  .section-kicker{
-    font-size:11px;
-    text-transform:uppercase;
-    letter-spacing:.14em;
-    color:var(--muted);
-    margin-bottom:10px;
-  }
-
-  .chemotype-title{
-    font-size:30px;
-    font-weight:800;
-    line-height:1.08;
-    margin-bottom:10px;
-    color:var(--white);
-  }
-
-  .chemotype-copy{
-    font-size:15px;
-    line-height:1.82;
-    color:#dbe6e0;
-  }
-
-  .metrics{
-    display:grid;
-    grid-template-columns:repeat(4,1fr);
-    gap:12px;
-  }
-
-  .metric{
-    padding:16px;
-    border:1px solid rgba(255,255,255,.07);
-    border-radius:18px;
-    background:rgba(255,255,255,.03);
-  }
-
-  .label{
-    font-size:11px;
-    text-transform:uppercase;
-    color:var(--muted);
-    letter-spacing:.1em;
-    margin-bottom:8px;
-  }
-
-  .value{
-    font-size:24px;
-    font-weight:800;
-    color:var(--white);
-  }
-
-  .hero-metric .value{
-    font-size:31px;
-    letter-spacing:-.03em;
-    line-height:1.1;
-  }
-
-  .section-band,
-  .story-block,
-  .flow-section{
-    margin-bottom:8px;
-  }
-
-  .badge-row{
-    display:flex;
-    flex-wrap:wrap;
-    gap:10px;
-  }
-
-  .badge{
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    padding:9px 13px;
-    border-radius:999px;
-    font-size:12px;
-    font-weight:700;
-    border:1px solid rgba(255,255,255,.06);
-    background:rgba(255,255,255,.03);
-    color:var(--soft);
-  }
-
-  .badge.good{
-    background:rgba(155,241,154,.11);
-    color:var(--green);
-  }
-
-  .badge.warn{
-    background:rgba(240,186,109,.12);
-    color:var(--amber);
-  }
-
-  .badge.neutral{
-    background:rgba(255,255,255,.04);
-    color:#dce7e1;
-  }
-
-  .muted-inline{
-    color:var(--muted);
-    font-size:13px;
-  }
-
-  .story-block{
-    padding:4px 0;
-  }
-
-  .story-quote{
-    font-size:21px;
-    line-height:1.84;
-    color:var(--white);
-    max-width:1020px;
-    margin-bottom:16px;
-  }
-
-  .story-support{
-    font-size:15px;
-    line-height:1.88;
-    color:#d8e3dd;
-  }
-
-  .divider{
-    height:1px;
-    background:rgba(255,255,255,.08);
-    margin:18px 0;
-  }
-
-  .two-col{
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:26px;
-  }
-
-  .three-col{
-    display:grid;
-    grid-template-columns:1fr 1fr 1fr;
-    gap:18px;
-  }
-
-  .card{
-    padding:4px 0;
-  }
-
-  .copy{
-    font-size:15px;
-    line-height:1.88;
-    color:#dbe6e0;
-  }
-
-  .copy strong{
-    color:var(--white);
-  }
-
-  .meta{
-    display:grid;
-    grid-template-columns:repeat(4,1fr);
-    gap:10px;
-  }
-
-  .meta-item{
-    padding:12px 0 14px;
-    border:none;
-    border-bottom:1px solid rgba(255,255,255,.08);
-    background:transparent;
-  }
-
-  .meta-label{
-    font-size:11px;
-    text-transform:uppercase;
-    color:var(--muted);
-    letter-spacing:.08em;
-    margin-bottom:6px;
-  }
-
-  .meta-value{
-    font-size:14px;
-    font-weight:700;
-    line-height:1.45;
-    color:var(--white);
-  }
-
-  table{
-    width:100%;
-    border-collapse:collapse;
-    font-size:13px;
-    margin-top:12px;
-  }
-
-  th, td{
-    text-align:left;
-    padding:11px 8px;
-    vertical-align:top;
-  }
-
-  th{
-    font-size:11px;
-    color:var(--muted);
-    text-transform:uppercase;
-    letter-spacing:.08em;
-    border-bottom:1px solid rgba(255,255,255,.2);
-  }
-
-  td{
-    border-bottom:1px solid rgba(255,255,255,.06);
-  }
-
-  .spectrum-bar{
-    display:flex;
-    width:100%;
-    height:16px;
-    border-radius:999px;
-    overflow:hidden;
-    background:rgba(255,255,255,.05);
-    border:1px solid rgba(255,255,255,.06);
-    margin:10px 0 16px;
-  }
-
-  .spectrum-bar span{
-    display:block;
-    height:100%;
-  }
-
-  .spectrum-legend{
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:10px 18px;
-  }
-
-  .spectrum-legend-item{
-    display:flex;
-    align-items:center;
-    gap:8px;
-    font-size:13px;
-    line-height:1.5;
-  }
-
-  .spectrum-dot{
-    width:10px;
-    height:10px;
-    border-radius:50%;
-    flex:0 0 auto;
-  }
-
-  .spectrum-name{
-    color:var(--white);
-    font-weight:700;
-  }
-
-  .spectrum-val{
-    color:var(--muted);
-    margin-left:auto;
-  }
-
-  .comparison-grid{
-    display:grid;
-    grid-template-columns:repeat(2,1fr);
-    gap:12px;
-    margin-top:8px;
-  }
-
-  .comparison-card{
-    border:1px solid rgba(255,255,255,.06);
-    background:rgba(255,255,255,.02);
-    border-radius:18px;
-    padding:16px;
-  }
-
-  .comparison-metric{
-    font-size:11px;
-    text-transform:uppercase;
-    color:var(--muted);
-    letter-spacing:.08em;
-    margin-bottom:8px;
-  }
-
-  .comparison-level{
-    font-size:24px;
-    font-weight:800;
-    margin-bottom:8px;
-    color:var(--white);
-  }
-
-  .comparison-notes{
-    font-size:13px;
-    line-height:1.65;
-    color:#d8e3dd;
-  }
-
-  .signature-wrap{
-    display:grid;
-    grid-template-columns:420px 1fr;
-    gap:28px;
-    align-items:start;
-    margin-top:8px;
-  }
-
-  .fingerprint-id{
-    display:inline-block;
-    margin-top:12px;
-    padding:9px 12px;
-    border-radius:999px;
-    background:rgba(255,255,255,.035);
-    border:1px solid rgba(255,255,255,.08);
-    color:var(--soft);
-    font-size:12px;
-    font-weight:700;
-    letter-spacing:.12em;
-    text-transform:uppercase;
-  }
-
-  .radar-wrap{
-    width:100%;
-    max-width:420px;
-  }
-
-  .radar-svg{
-    width:100%;
-    height:auto;
-    display:block;
-  }
-
-  .fingerprint-list{
-    display:flex;
-    flex-direction:column;
-    gap:14px;
-    margin-top:8px;
-  }
-
-  .fingerprint-row{
-    display:grid;
-    grid-template-columns:150px 1fr 42px;
-    gap:12px;
-    align-items:center;
-  }
-
-  .fingerprint-label{
-    font-size:13px;
-    color:var(--soft);
-  }
-
-  .fingerprint-bar{
-    width:100%;
-    height:14px;
-    border-radius:999px;
-    background:rgba(255,255,255,.06);
-    overflow:hidden;
-    border:1px solid rgba(255,255,255,.04);
-  }
-
-  .fingerprint-bar span{
-    display:block;
-    height:100%;
-    border-radius:999px;
-    background:linear-gradient(90deg, var(--green-deep), var(--green));
-  }
-
-  .fingerprint-value{
-    font-size:13px;
-    font-weight:800;
-    text-align:right;
-    color:var(--white);
-  }
-
-  .footer{
-    margin-top:18px;
-    font-size:11px;
-    color:#8ea19a;
-    line-height:1.75;
-    text-align:center;
-    padding:12px 0 0;
-  }
-
-  @page{
-    margin:0;
-  }
-</style>
-</head>
-<body>
-  <div class="report">
-
-    <section class="hero">
-      <div class="hero-top">
-        <div>
-          <div class="brand">Alem Solutions · COA Intelligence Report</div>
-          <div class="eyebrow">Chemical Intelligence Dossier</div>
-          <h1>${esc(data?.product_name || "Cannabis Product")}</h1>
-          <div class="subhead">
-            ${esc(data?.executive_summary || "A premium interpretive layer derived from certificate of analysis data.")}
-          </div>
-        </div>
-
-        <div class="hero-product-sheet">
-          <div class="section-kicker">Luxury product sheet</div>
-          <div class="hero-sheet-grid">
-            <div class="hero-sheet-item">
-              <div class="sheet-k">Chemotype</div>
-              <div class="sheet-v">${esc(data?.chemotype_identity || "Not reported")}</div>
-            </div>
-            <div class="hero-sheet-item">
-              <div class="sheet-k">Descriptor</div>
-              <div class="sheet-v">${esc(data?.chemotype_descriptor || "Not reported")}</div>
-            </div>
-            <div class="hero-sheet-item">
-              <div class="sheet-k">Batch</div>
-              <div class="sheet-v">${esc(data?.batch_number || "Not reported")}</div>
-            </div>
-            <div class="hero-sheet-item">
-              <div class="sheet-k">Lab</div>
-              <div class="sheet-v">${esc(data?.laboratory_name || "Not reported")}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="chemotype-strip">
-        <div class="chemotype-panel">
-          <div class="section-kicker">Chemotype identity</div>
-          <div class="chemotype-title">${esc(data?.chemotype_identity || data?.overall_score || "Profile not classified")}</div>
-          <div class="chemotype-copy">${esc(data?.opening_statement || "No opening statement available.")}</div>
-        </div>
-
-        <div class="descriptor-panel">
-          <div class="section-kicker">Profile descriptor</div>
-          <div class="chemotype-title" style="font-size:21px;">${esc(data?.chemotype_descriptor || "No descriptor available.")}</div>
-          <div class="chemotype-copy">${esc(data?.aromatic_profile_summary || "No aromatic profile summary available.")}</div>
-        </div>
-      </div>
-
-      ${renderMetricCards(data)}
-    </section>
-
-    <section class="story-block">
-      <div class="section-kicker">Chemical story</div>
-      <div class="story-quote">${esc(data?.chemical_story || data?.opening_statement || "No chemical story available.")}</div>
-      <div class="story-support"><strong>Overall profile:</strong> ${esc(data?.overall_score || "Not reported")}</div>
-    </section>
-
-    ${renderDivider()}
-
-    <section class="section-band">
-      <div class="section-kicker">WOW highlights</div>
-      <div class="badge-row">${renderBadges(wowHighlights, "good")}</div>
-    </section>
-
-    ${renderDivider()}
-
-    <section class="section-band">
-      <div class="section-kicker">Aroma profile</div>
-      <div class="badge-row">${renderBadges(aromaProfile, "neutral")}</div>
-    </section>
-
-    ${renderDivider()}
-
-    <section class="flow-section">
-      <div class="two-col">
-        <div class="card">
-          <h2>Interpretive summary</h2>
-          <div class="copy"><strong>Cannabinoid architecture:</strong> ${esc(data?.cannabinoid_architecture || "Not reported")}</div>
-          <div class="copy" style="margin-top:14px;"><strong>Terpene architecture:</strong> ${esc(data?.terpene_architecture || "Not reported")}</div>
-          <div class="copy" style="margin-top:14px;"><strong>Minor cannabinoids:</strong> ${esc(data?.minor_cannabinoids || "Not reported")}</div>
-        </div>
-
-        <div class="card">
-          <h2>Batch & document details</h2>
-          ${renderMetaGrid(data)}
-        </div>
-      </div>
-    </section>
-
-    ${renderDivider()}
-
-    <section class="flow-section">
-      <div class="two-col">
-        <div class="card">
-          <h2>Cannabinoid architecture</h2>
-          <div class="copy">${esc(data?.cannabinoid_architecture || "Not reported")}</div>
-          <table>
-            <thead>
-              <tr><th>Name</th><th>Value</th><th>Unit</th><th>Notes</th></tr>
-            </thead>
-            <tbody>
-              ${cannabinoidRows}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="card">
-          <h2>Aromatic map</h2>
-          <div class="copy">${esc(data?.terpene_architecture || "Not reported")}</div>
-          ${renderTerpeneSpectrum(topTerpenes)}
-          <table>
-            <thead>
-              <tr><th>Name</th><th>Value</th><th>Unit</th></tr>
-            </thead>
-            <tbody>
-              ${terpeneRows}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    ${renderDivider()}
-
-    <section class="flow-section">
-      <div class="two-col">
-        <div class="card">
-          <h2>Cultivation & post-harvest signals</h2>
-          <div class="copy"><strong>Cultivation insights:</strong> ${esc(data?.cultivation_insights || "Not reported")}</div>
-          <div class="copy" style="margin-top:14px;"><strong>Entourage effect:</strong> ${esc(data?.entourage_effect || "Not reported")}</div>
-          <div class="copy" style="margin-top:14px;"><strong>Therapeutic potential:</strong> ${esc(data?.therapeutic_potential || "Not reported")}</div>
-        </div>
-
-        <div class="card">
-          <h2>Experience profile</h2>
-          <div class="copy">${esc(data?.experience_profile || "Not reported")}</div>
-          <h2 style="margin-top:18px;">Best use cases</h2>
-          <div class="copy">${esc(data?.best_use_cases || "Not reported")}</div>
-        </div>
-      </div>
-    </section>
-
-    ${renderDivider()}
-
-    <section class="flow-section">
-      <div class="section-kicker">Positive and cautionary signals</div>
-      <div class="two-col">
-        <div class="card">
-          <h2>Positive flags</h2>
-          <div class="badge-row">${renderBadges(positiveFlags, "good")}</div>
-        </div>
-
-        <div class="card">
-          <h2>Watchouts</h2>
-          <div class="badge-row">${renderBadges(warningFlags, "warn")}</div>
-        </div>
-      </div>
-    </section>
-
-    ${renderDivider()}
-
-    <section class="flow-section">
-      <h2>Chemical signature</h2>
-      <div class="signature-wrap">
-        <div>
-          ${renderRadarSVG(data?.fingerprint_radar || {})}
-          <div class="fingerprint-id">Fingerprint ID · ${esc(fingerprintId)}</div>
-        </div>
-        <div>
-          ${renderFingerprintStatRows(data?.fingerprint_radar || {})}
-        </div>
-      </div>
-    </section>
-
-    ${renderDivider()}
-
-    <section class="flow-section">
-      <h2>Comparative classification</h2>
-      ${renderComparisonCards(comparativeClassification)}
-    </section>
-
-    ${renderDivider()}
-
-    <section class="flow-section">
-      <div class="two-col">
-        <div class="card">
-          <h2>Lab quality & compliance</h2>
-          <div class="copy"><strong>Lab quality summary:</strong> ${esc(data?.lab_quality_summary || "Not reported")}</div>
-          <div class="copy" style="margin-top:14px;"><strong>Contaminant overview:</strong> ${esc(data?.contaminant_overview || "Not reported")}</div>
-          <table style="margin-top:14px;">
-            <thead>
-              <tr><th>Category</th><th>Status</th><th>Notes</th></tr>
-            </thead>
-            <tbody>
-              ${complianceRows}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="card">
-          <h2>Scientific literature notes</h2>
-          <div class="copy">${esc(data?.scientific_references || "Not reported")}</div>
-
-          <h2 style="margin-top:18px;">Reader snapshot</h2>
-          <div class="copy"><strong>Chemotype:</strong> ${esc(data?.chemotype_identity || "Not reported")}</div>
-          <div class="copy" style="margin-top:12px;"><strong>Descriptor:</strong> ${esc(data?.chemotype_descriptor || "Not reported")}</div>
-          <div class="copy" style="margin-top:12px;"><strong>Aroma summary:</strong> ${esc(data?.aromatic_profile_summary || "Not reported")}</div>
-        </div>
-      </div>
-    </section>
-
-    <div class="footer">
-      This report is an educational interpretive layer based on certificate of analysis data and does not replace physician advice, pharmacist counselling, regulatory review, or direct laboratory confirmation.
-    </div>
-  </div>
-</body>
-</html>
-`;
+function detectMimeType(url = "", headerContentType = "") {
+  const lowerUrl = String(url || "").toLowerCase();
+  const lowerHeader = String(headerContentType || "").toLowerCase();
+
+  if (lowerHeader.includes("application/pdf") || lowerUrl.endsWith(".pdf")) {
+    return "application/pdf";
+  }
+  if (lowerHeader.includes("image/png") || lowerUrl.endsWith(".png")) {
+    return "image/png";
+  }
+  if (
+    lowerHeader.includes("image/jpeg") ||
+    lowerUrl.endsWith(".jpg") ||
+    lowerUrl.endsWith(".jpeg")
+  ) {
+    return "image/jpeg";
+  }
+  if (
+    lowerHeader.includes("image/tiff") ||
+    lowerUrl.endsWith(".tif") ||
+    lowerUrl.endsWith(".tiff")
+  ) {
+    return "image/tiff";
+  }
+
+  return "application/octet-stream";
 }
 
 function parseIncomingBody(rawBody) {
@@ -1076,17 +99,20 @@ function parseIncomingBody(rawBody) {
     throw new Error("Request body is empty");
   }
 
-  const trimmed = String(rawBody).trim();
+  let payload = rawBody;
 
-  if (!trimmed || trimmed === "null" || trimmed === "undefined") {
-    throw new Error("Request body is empty or null");
-  }
+  if (typeof rawBody === "string") {
+    const trimmed = rawBody.trim();
 
-  let payload;
-  try {
-    payload = JSON.parse(trimmed);
-  } catch (err) {
-    throw new Error(`Request body is not valid JSON: ${err.message}`);
+    if (!trimmed || trimmed === "null" || trimmed === "undefined") {
+      throw new Error("Request body is empty or null");
+    }
+
+    try {
+      payload = JSON.parse(trimmed);
+    } catch (err) {
+      throw new Error(`Request body is not valid JSON: ${err.message}`);
+    }
   }
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -1095,8 +121,11 @@ function parseIncomingBody(rawBody) {
 
   if (payload.report_json && typeof payload.report_json === "object") {
     return {
-      fileName: sanitizeFileName(payload.file_name || payload.report_json?.product_name || `coa-${Date.now()}`) + ".pdf",
-      data: payload.report_json
+      fileName:
+        sanitizeFileName(
+          payload.file_name || payload.report_json?.product_name || `coa-${Date.now()}`
+        ) + ".pdf",
+      data: payload.report_json,
     };
   }
 
@@ -1113,25 +142,569 @@ function parseIncomingBody(rawBody) {
     }
 
     return {
-      fileName: sanitizeFileName(payload.file_name || parsedInner?.product_name || `coa-${Date.now()}`) + ".pdf",
-      data: parsedInner
+      fileName:
+        sanitizeFileName(
+          payload.file_name || parsedInner?.product_name || `coa-${Date.now()}`
+        ) + ".pdf",
+      data: parsedInner,
     };
   }
 
-  if (payload.product_name || payload.top_cannabinoids || payload.fingerprint_radar) {
+  if (payload.product_name || payload.top_cannabinoids || payload.top_terpenes) {
     return {
-      fileName: sanitizeFileName(payload.file_name || payload.product_name || `coa-${Date.now()}`) + ".pdf",
-      data: payload
+      fileName:
+        sanitizeFileName(payload.file_name || payload.product_name || `coa-${Date.now()}`) +
+        ".pdf",
+      data: payload,
     };
   }
 
   throw new Error("Missing valid report_json or report_json_string");
 }
 
+function renderList(items = [], emptyText = "Not reported") {
+  if (!Array.isArray(items) || !items.length) return `<div class="muted">${esc(emptyText)}</div>`;
+  return `<ul>${items.map((x) => `<li>${esc(typeof x === "string" ? x : JSON.stringify(x))}</li>`).join("")}</ul>`;
+}
+
+function renderMetric(label, value) {
+  return `
+    <div class="metric">
+      <div class="metric-label">${esc(label)}</div>
+      <div class="metric-value">${esc(value || "Not reported")}</div>
+    </div>
+  `;
+}
+
+function renderCannabinoidTable(items = []) {
+  const rows = getSafeArray(items);
+  if (!rows.length) {
+    return `<div class="muted">No cannabinoid rows reported.</div>`;
+  }
+
+  return `
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Value</th>
+          <th>Unit</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows
+          .map(
+            (item) => `
+          <tr>
+            <td>${esc(item?.name)}</td>
+            <td>${esc(item?.value)}</td>
+            <td>${esc(item?.unit)}</td>
+            <td>${esc(item?.notes)}</td>
+          </tr>
+        `
+          )
+          .join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderTerpeneTable(items = []) {
+  const rows = getSafeArray(items);
+  if (!rows.length) {
+    return `<div class="muted">No terpene rows reported.</div>`;
+  }
+
+  return `
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Value</th>
+          <th>Unit</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows
+          .map(
+            (item) => `
+          <tr>
+            <td>${esc(item?.name)}</td>
+            <td>${esc(item?.value)}</td>
+            <td>${esc(item?.unit)}</td>
+          </tr>
+        `
+          )
+          .join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderReportHTML(data = {}) {
+  const topCannabinoids = getSafeArray(data?.top_cannabinoids);
+  const topTerpenes = getSafeArray(data?.top_terpenes);
+
+  const thcNumber = numberFromPercentString(data?.thc_total);
+  const cbdNumber = numberFromPercentString(data?.cbd_total);
+  const terpNumber = numberFromPercentString(data?.total_terpenes);
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>${esc(data?.product_name || "COA Intelligence Report")}</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0;
+    background: #0b1110;
+    color: #edf3ef;
+    font-family: Arial, Helvetica, sans-serif;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .page {
+    width: 100%;
+    padding: 36px 42px 42px;
+  }
+  .hero {
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 24px;
+    padding: 28px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+  }
+  .brand {
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #97aca2;
+    margin-bottom: 10px;
+  }
+  h1 {
+    margin: 0 0 10px;
+    font-size: 42px;
+    line-height: 1.05;
+  }
+  h2 {
+    margin: 0 0 12px;
+    font-size: 22px;
+  }
+  .sub {
+    color: #cad7d1;
+    line-height: 1.7;
+    font-size: 15px;
+  }
+  .section {
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+  }
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-top: 18px;
+  }
+  .metric {
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    padding: 14px;
+    background: rgba(255,255,255,0.03);
+  }
+  .metric-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #97aca2;
+    margin-bottom: 8px;
+  }
+  .metric-value {
+    font-size: 24px;
+    font-weight: 700;
+  }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  .card {
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 18px;
+    padding: 18px;
+    background: rgba(255,255,255,0.02);
+  }
+  .muted {
+    color: #97aca2;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .copy {
+    color: #dbe6e0;
+    line-height: 1.75;
+    font-size: 14px;
+  }
+  .meta-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 16px;
+  }
+  .meta-item {
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    padding-bottom: 8px;
+  }
+  .meta-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #97aca2;
+    margin-bottom: 6px;
+  }
+  .meta-value {
+    font-size: 14px;
+    font-weight: 700;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 8px;
+    vertical-align: top;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  th {
+    color: #97aca2;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .bar-wrap {
+    margin-top: 12px;
+  }
+  .bar-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    margin-bottom: 6px;
+    color: #dbe6e0;
+  }
+  .bar {
+    height: 12px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.07);
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.05);
+  }
+  .bar > span {
+    display: block;
+    height: 100%;
+    background: linear-gradient(90deg, #6bcf72, #9bf19a);
+  }
+  ul {
+    margin: 8px 0 0 18px;
+    padding: 0;
+    line-height: 1.7;
+  }
+  .footer {
+    margin-top: 24px;
+    color: #97aca2;
+    font-size: 11px;
+    line-height: 1.7;
+    text-align: center;
+  }
+  @page { margin: 0; }
+</style>
+</head>
+<body>
+  <div class="page">
+    <div class="hero">
+      <div class="brand">Alem Solutions · COA Intelligence Report</div>
+      <h1>${esc(data?.product_name || "Cannabis Product")}</h1>
+      <div class="sub">${esc(data?.opening_statement || data?.overall_score || "Interpretive certificate of analysis summary.")}</div>
+
+      <div class="metrics">
+        ${renderMetric("Total THC", data?.thc_total)}
+        ${renderMetric("Total CBD", data?.cbd_total)}
+        ${renderMetric("Total Terpenes", data?.total_terpenes)}
+        ${renderMetric("Laboratory", data?.laboratory_name)}
+      </div>
+    </div>
+
+    <div class="section grid-2">
+      <div class="card">
+        <h2>Batch & document details</h2>
+        <div class="meta-grid">
+          <div class="meta-item"><div class="meta-label">Batch</div><div class="meta-value">${esc(data?.batch_number || "Not reported")}</div></div>
+          <div class="meta-item"><div class="meta-label">COA date</div><div class="meta-value">${esc(data?.coa_report_date || "Not reported")}</div></div>
+          <div class="meta-item"><div class="meta-label">Product type</div><div class="meta-value">${esc(data?.product_type || "Not reported")}</div></div>
+          <div class="meta-item"><div class="meta-label">Lab</div><div class="meta-value">${esc(data?.laboratory_name || "Not reported")}</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Interpretive summary</h2>
+        <div class="copy"><strong>Overall score:</strong> ${esc(data?.overall_score || "Not reported")}</div>
+        <div class="copy" style="margin-top:10px;"><strong>Minor cannabinoids:</strong> ${esc(data?.minor_cannabinoids || "Not reported")}</div>
+        <div class="copy" style="margin-top:10px;"><strong>Contaminant overview:</strong> ${esc(data?.contaminant_overview || "Not reported")}</div>
+        <div class="copy" style="margin-top:10px;"><strong>Lab quality summary:</strong> ${esc(data?.lab_quality_summary || "Not reported")}</div>
+      </div>
+    </div>
+
+    <div class="section grid-2">
+      <div class="card">
+        <h2>Potency bars</h2>
+
+        <div class="bar-wrap">
+          <div class="bar-label"><span>THC</span><span>${esc(data?.thc_total || "0")}</span></div>
+          <div class="bar"><span style="width:${Math.max(0, Math.min(100, thcNumber * 3))}%"></span></div>
+        </div>
+
+        <div class="bar-wrap">
+          <div class="bar-label"><span>CBD</span><span>${esc(data?.cbd_total || "0")}</span></div>
+          <div class="bar"><span style="width:${Math.max(0, Math.min(100, cbdNumber * 10))}%"></span></div>
+        </div>
+
+        <div class="bar-wrap">
+          <div class="bar-label"><span>Total terpenes</span><span>${esc(data?.total_terpenes || "0")}</span></div>
+          <div class="bar"><span style="width:${Math.max(0, Math.min(100, terpNumber * 20))}%"></span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Scientific notes</h2>
+        <div class="copy">${esc(data?.scientific_references || "No scientific references included.")}</div>
+      </div>
+    </div>
+
+    <div class="section grid-2">
+      <div class="card">
+        <h2>Top cannabinoids</h2>
+        ${renderCannabinoidTable(topCannabinoids)}
+      </div>
+
+      <div class="card">
+        <h2>Top terpenes</h2>
+        ${renderTerpeneTable(topTerpenes)}
+      </div>
+    </div>
+
+    <div class="section grid-2">
+      <div class="card">
+        <h2>Positive flags</h2>
+        ${renderList(data?.positive_flags, "No positive flags reported")}
+      </div>
+
+      <div class="card">
+        <h2>Watchouts</h2>
+        ${renderList(data?.warning_flags, "No warning flags reported")}
+      </div>
+    </div>
+
+    <div class="footer">
+      This report is an educational interpretive layer based on certificate of analysis data and does not replace physician advice, pharmacist counselling, regulatory review, or direct laboratory confirmation.
+    </div>
+  </div>
+</body>
+</html>
+`;
+}
+
+async function parseCOAWithOpenAI(cleanText = "") {
+  if (!cleanText || !String(cleanText).trim()) {
+    throw new Error("cleanText is empty");
+  }
+
+  const response = await openai.responses.create({
+    model: OPENAI_MODEL,
+    store: false,
+    reasoning: {
+      effort: "medium",
+    },
+    max_output_tokens: 4000,
+    text: {
+      format: {
+        type: "json_schema",
+        name: "coa_report",
+        schema: {
+          type: "object",
+          properties: {
+            product_name: { type: "string" },
+            batch_number: { type: "string" },
+            coa_report_date: { type: "string" },
+            product_type: { type: "string" },
+            laboratory_name: { type: "string" },
+            overall_score: { type: "string" },
+            opening_statement: { type: "string" },
+            thc_total: { type: "string" },
+            cbd_total: { type: "string" },
+            total_terpenes: { type: "string" },
+            minor_cannabinoids: { type: "string" },
+            contaminant_overview: { type: "string" },
+            lab_quality_summary: { type: "string" },
+            scientific_references: { type: "string" },
+            positive_flags: {
+              type: "array",
+              items: { type: "string" },
+            },
+            warning_flags: {
+              type: "array",
+              items: { type: "string" },
+            },
+            top_cannabinoids: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string" },
+                  value: { type: "string" },
+                  unit: { type: "string" },
+                  notes: { type: "string" },
+                },
+                required: ["name", "value", "unit", "notes"],
+                additionalProperties: false,
+              },
+            },
+            top_terpenes: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string" },
+                  value: { type: "string" },
+                  unit: { type: "string" },
+                },
+                required: ["name", "value", "unit"],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: [
+            "product_name",
+            "batch_number",
+            "coa_report_date",
+            "product_type",
+            "laboratory_name",
+            "overall_score",
+            "opening_statement",
+            "thc_total",
+            "cbd_total",
+            "total_terpenes",
+            "minor_cannabinoids",
+            "contaminant_overview",
+            "lab_quality_summary",
+            "scientific_references",
+            "positive_flags",
+            "warning_flags",
+            "top_cannabinoids",
+            "top_terpenes",
+          ],
+          additionalProperties: false,
+        },
+      },
+    },
+    input: [
+      {
+        role: "system",
+        content: [
+          {
+            type: "input_text",
+            text:
+              "You are the Alem Solutions COA parsing engine. Read the extracted OCR text and return only structured JSON matching the schema. Do not invent facts. If a field is not explicit, return an empty string or empty array.",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "input_text",
+            text: cleanText,
+          },
+        ],
+      },
+    ],
+  });
+
+  const outputText = response.output_text;
+
+  if (!outputText) {
+    throw new Error("OpenAI returned empty output_text");
+  }
+
+  try {
+    return JSON.parse(outputText);
+  } catch (err) {
+    throw new Error(`OpenAI output was not valid JSON: ${err.message}`);
+  }
+}
+
+async function extractDocumentFromUrl(file_url) {
+  const fileResponse = await axios.get(file_url, {
+    responseType: "arraybuffer",
+    timeout: 60000,
+  });
+
+  const mimeType = detectMimeType(
+    file_url,
+    fileResponse.headers["content-type"]
+  );
+
+  const poller = await azureClient.beginAnalyzeDocument(
+    "prebuilt-layout",
+    fileResponse.data,
+    {
+      contentType: mimeType,
+    }
+  );
+
+  const result = await poller.pollUntilDone();
+
+  const pages = (result.pages || []).map((page) => {
+    const text = (page.lines || []).map((line) => line.content).join("\n");
+
+    return {
+      page_number: page.pageNumber,
+      width: page.width,
+      height: page.height,
+      unit: page.unit,
+      text,
+      lines: (page.lines || []).map((line) => ({
+        content: line.content,
+      })),
+    };
+  });
+
+  const tables = (result.tables || []).map((table, tableIndex) => ({
+    table_index: tableIndex + 1,
+    row_count: table.rowCount,
+    column_count: table.columnCount,
+    cells: (table.cells || []).map((cell) => ({
+      row_index: cell.rowIndex,
+      column_index: cell.columnIndex,
+      content: cell.content,
+    })),
+  }));
+
+  const plain_text = pages.map((p) => p.text).join("\n\n");
+
+  return {
+    mimeType,
+    pages,
+    tables,
+    plain_text,
+  };
+}
+
 app.get("/", (req, res) => {
   res.json({
     success: true,
-    message: "Middleware is running"
+    message: "Middleware is running",
   });
 });
 
@@ -1143,85 +716,279 @@ app.get("/health", async (req, res) => {
       success: true,
       status: "ok",
       hasSupabaseUrl: !!process.env.SUPABASE_URL,
-      hasSupabaseKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      hasSupabaseKey:
+        !!process.env.SUPABASE_SERVICE_ROLE_KEY || !!process.env.SUPABASE_ANON_KEY,
+      hasAzureEndpoint: !!process.env.AZURE_DOC_INTELLIGENCE_ENDPOINT,
+      hasAzureKey: !!process.env.AZURE_DOC_INTELLIGENCE_KEY,
+      hasOpenAIKey: !!process.env.OPENAI_API_KEY,
       bucket: process.env.SUPABASE_BUCKET || null,
       db_connected: !error,
-      db_error: error ? error.message : null
+      db_error: error ? error.message : null,
     });
   } catch (err) {
     res.json({
       success: false,
       status: "error",
-      message: err.message
+      message: err.message,
     });
   }
 });
 
-app.post("/generate-report", async (req, res) => {
+app.get("/routes-check", (req, res) => {
+  res.json({
+    ok: true,
+    routes: [
+      "/",
+      "/health",
+      "/routes-check",
+      "/extract-from-url",
+      "/extract-and-save",
+      "/extract-parse-and-save",
+      "/generate-report",
+    ],
+  });
+});
+
+app.post("/extract-from-url", async (req, res) => {
+  try {
+    const file_url = req.body?.file_url;
+
+    if (!file_url) {
+      return res.status(400).json({
+        success: false,
+        error: "file_url is required",
+      });
+    }
+
+    const extracted = await extractDocumentFromUrl(file_url);
+
+    return res.json({
+      success: true,
+      engine_used: "azure-document-intelligence",
+      model_used: "prebuilt-layout",
+      source_url: file_url,
+      mime_type: extracted.mimeType,
+      plain_text: extracted.plain_text,
+      pages: extracted.pages,
+      tables: extracted.tables,
+      metadata: {
+        page_count: extracted.pages.length,
+      },
+    });
+  } catch (error) {
+    console.error("ERROR IN /extract-from-url:");
+    console.error(error);
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Unknown extraction error",
+      details: error?.response?.data || null,
+    });
+  }
+});
+
+app.post("/extract-and-save", async (req, res) => {
+  try {
+    const file_url = req.body?.file_url;
+    const original_filename =
+      req.body?.original_filename || file_url?.split("/").pop() || `upload-${Date.now()}`;
+    const document_type = req.body?.document_type || "coa";
+
+    if (!file_url) {
+      return res.status(400).json({
+        success: false,
+        error: "file_url is required",
+      });
+    }
+
+    const extracted = await extractDocumentFromUrl(file_url);
+
+    const { data: insertedRow, error: insertError } = await supabase
+      .from("documents")
+      .insert([
+        {
+          user_id: "bubble-user",
+          source: "bubble",
+          original_filename,
+          mime_type: extracted.mimeType,
+          document_type,
+          status: "extracted",
+          extracted_text: extracted.plain_text,
+          parsed_json: {
+            source_url: file_url,
+            engine_used: "azure-document-intelligence",
+            model_used: "prebuilt-layout",
+            pages: extracted.pages,
+            tables: extracted.tables,
+            metadata: {
+              page_count: extracted.pages.length,
+            },
+          },
+        },
+      ])
+      .select()
+      .single();
+
+    if (insertError) {
+      throw new Error(`Could not save extracted document: ${insertError.message}`);
+    }
+
+    return res.json({
+      success: true,
+      document_id: insertedRow.id,
+      source_url: file_url,
+      mime_type: extracted.mimeType,
+      plain_text: extracted.plain_text,
+      page_count: extracted.pages.length,
+    });
+  } catch (error) {
+    console.error("ERROR IN /extract-and-save:");
+    console.error(error);
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Unknown extraction/save error",
+    });
+  }
+});
+
+app.post("/extract-parse-and-save", async (req, res) => {
+  try {
+    const file_url = req.body?.file_url;
+    const original_filename =
+      req.body?.original_filename || file_url?.split("/").pop() || `upload-${Date.now()}`;
+    const document_type = req.body?.document_type || "coa";
+
+    if (!file_url) {
+      return res.status(400).json({
+        success: false,
+        error: "file_url is required",
+      });
+    }
+
+    const extracted = await extractDocumentFromUrl(file_url);
+    const parsed_json = await parseCOAWithOpenAI(extracted.plain_text);
+
+    const { data: insertedRow, error: insertError } = await supabase
+      .from("documents")
+      .insert([
+        {
+          user_id: "bubble-user",
+          source: "bubble",
+          original_filename,
+          mime_type: extracted.mimeType,
+          document_type,
+          status: "parsed",
+          extracted_text: extracted.plain_text,
+          parsed_json: {
+            ...parsed_json,
+            extraction_meta: {
+              source_url: file_url,
+              engine_used: "azure-document-intelligence",
+              model_used: "prebuilt-layout",
+              page_count: extracted.pages.length,
+              tables_found: extracted.tables.length,
+            },
+          },
+        },
+      ])
+      .select()
+      .single();
+
+    if (insertError) {
+      throw new Error(`Could not save parsed document: ${insertError.message}`);
+    }
+
+    return res.json({
+      success: true,
+      document_id: insertedRow.id,
+      source_url: file_url,
+      mime_type: extracted.mimeType,
+      plain_text: extracted.plain_text,
+      parsed_json,
+    });
+  } catch (error) {
+    console.error("ERROR IN /extract-parse-and-save:");
+    console.error(error);
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Unknown parse error",
+    });
+  }
+});
+app.post("/full-coa-pipeline", async (req, res) => {
   let browser;
 
   try {
-    console.log("STEP 1: request received");
-    console.log("RAW BODY PREVIEW:");
-    console.log(String(req.body).slice(0, 3000));
+    const file_url = req.body?.file_url;
+    const original_filename =
+      req.body?.original_filename || file_url?.split("/").pop() || `upload-${Date.now()}`;
+    const document_type = req.body?.document_type || "coa";
 
-    const { data, fileName } = parseIncomingBody(req.body);
-
-console.log("STEP 2A: creating document row in Supabase");
-
-const { data: documentRow, error: documentError } = await supabase
-  .from("documents")
-  .insert([
-    {
-      user_id: "bubble-user",
-      source: "bubble",
-      original_filename: fileName,
-      mime_type: "application/pdf",
-      document_type: "coa",
-      status: "processing"
+    if (!file_url) {
+      return res.status(400).json({
+        success: false,
+        error: "file_url is required",
+      });
     }
-  ])
-  .select()
-  .single();
 
-if (documentError) {
-  throw new Error(`Could not create document row: ${documentError.message}`);
-}
+    const extracted = await extractDocumentFromUrl(file_url);
+    const parsed_json = await parseCOAWithOpenAI(extracted.plain_text);
 
-const documentId = documentRow.id;
+    const pdfBaseName = sanitizeFileName(
+      parsed_json?.product_name || original_filename || `coa-${Date.now()}`
+    );
+    const fileName = `${pdfBaseName}.pdf`;
 
-console.log("DOCUMENT ID:", documentId);
+    const { data: documentRow, error: documentError } = await supabase
+      .from("documents")
+      .insert([
+        {
+          user_id: "bubble-user",
+          source: "bubble",
+          original_filename,
+          mime_type: extracted.mimeType,
+          document_type,
+          status: "processing",
+          extracted_text: extracted.plain_text,
+          parsed_json: {
+            ...parsed_json,
+            extraction_meta: {
+              source_url: file_url,
+              engine_used: "azure-document-intelligence",
+              model_used: "prebuilt-layout",
+              page_count: extracted.pages.length,
+              tables_found: extracted.tables.length,
+            },
+          },
+        },
+      ])
+      .select()
+      .single();
 
-console.log("STEP 2: rendering HTML");
-const html = renderReportHTML(data);
+    if (documentError) {
+      throw new Error(`Could not create pipeline document row: ${documentError.message}`);
+    }
 
-    console.log("STEP 3: launching puppeteer");
+    const documentId = documentRow.id;
+    const html = renderReportHTML(parsed_json);
+
     browser = await puppeteer.launch({
       headless: "new",
-      args: ["--no-sandbox", "--disable-setuid-sandbox"]
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
 
-    console.log("STEP 4: opening new page");
     const page = await browser.newPage();
 
     await page.setViewport({
       width: 1400,
       height: 2000,
-      deviceScaleFactor: 1
+      deviceScaleFactor: 1,
     });
 
-    console.log("STEP 5: setting HTML content");
     await page.setContent(html, { waitUntil: "networkidle0" });
     await page.emulateMediaType("screen");
-
-    await page.addStyleTag({
-      content: `
-        html, body {
-          height: auto !important;
-          overflow: visible !important;
-        }
-      `
-    });
 
     const pageHeight = await page.evaluate(() => {
       const body = document.body;
@@ -1237,7 +1004,6 @@ const html = renderReportHTML(data);
 
     const pdfHeight = Math.max(pageHeight + 30, 2200);
 
-    console.log("STEP 6: generating PDF");
     const pdfBuffer = await page.pdf({
       printBackground: true,
       width: "1280px",
@@ -1246,17 +1012,21 @@ const html = renderReportHTML(data);
         top: "0px",
         right: "0px",
         bottom: "0px",
-        left: "0px"
+        left: "0px",
       },
-      pageRanges: "1"
+      pageRanges: "1",
     });
 
-    console.log("STEP 7: uploading PDF to Supabase");
+    const bucket = process.env.SUPABASE_BUCKET;
+    if (!bucket) {
+      throw new Error("Missing SUPABASE_BUCKET in .env");
+    }
+
     const { error: uploadError } = await supabase.storage
-      .from(process.env.SUPABASE_BUCKET)
+      .from(bucket)
       .upload(fileName, pdfBuffer, {
         contentType: "application/pdf",
-        upsert: true
+        upsert: true,
       });
 
     if (uploadError) {
@@ -1264,7 +1034,7 @@ const html = renderReportHTML(data);
     }
 
     const { data: publicUrlData } = supabase.storage
-      .from(process.env.SUPABASE_BUCKET)
+      .from(bucket)
       .getPublicUrl(fileName);
 
     const pdfUrl = publicUrlData?.publicUrl;
@@ -1273,17 +1043,159 @@ const html = renderReportHTML(data);
       throw new Error("Could not generate public PDF URL");
     }
 
-    console.log("STEP 8: closing browser");
+    await supabase
+      .from("documents")
+      .update({
+        status: "completed",
+        storage_path: fileName,
+        mime_type: "application/pdf",
+      })
+      .eq("id", documentId);
+
     await browser.close();
     browser = null;
 
-    console.log("STEP 9: sending response with pdf_url");
+    return res.json({
+      success: true,
+      document_id: documentId,
+      file_name: fileName,
+      pdf_url: pdfUrl,
+      parsed_json,
+    });
+  } catch (error) {
+    console.error("ERROR IN /full-coa-pipeline:");
+    console.error(error);
+
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (closeErr) {
+        console.error("ERROR CLOSING BROWSER:", closeErr);
+      }
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Unknown full pipeline error",
+    });
+  }
+});
+
+app.post("/generate-report", async (req, res) => {
+  let browser;
+
+  try {
+    const { data, fileName } = parseIncomingBody(req.body);
+
+    const { data: documentRow, error: documentError } = await supabase
+      .from("documents")
+      .insert([
+        {
+          user_id: "bubble-user",
+          source: "bubble",
+          original_filename: fileName,
+          mime_type: "application/pdf",
+          document_type: "coa",
+          status: "processing",
+        },
+      ])
+      .select()
+      .single();
+
+    if (documentError) {
+      throw new Error(`Could not create document row: ${documentError.message}`);
+    }
+
+    const documentId = documentRow.id;
+    const html = renderReportHTML(data);
+
+    browser = await puppeteer.launch({
+      headless: "new",
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+
+    const page = await browser.newPage();
+
+    await page.setViewport({
+      width: 1400,
+      height: 2000,
+      deviceScaleFactor: 1,
+    });
+
+    await page.setContent(html, { waitUntil: "networkidle0" });
+    await page.emulateMediaType("screen");
+
+    const pageHeight = await page.evaluate(() => {
+      const body = document.body;
+      const html = document.documentElement;
+      return Math.max(
+        body.scrollHeight,
+        body.offsetHeight,
+        html.clientHeight,
+        html.scrollHeight,
+        html.offsetHeight
+      );
+    });
+
+    const pdfHeight = Math.max(pageHeight + 30, 2200);
+
+    const pdfBuffer = await page.pdf({
+      printBackground: true,
+      width: "1280px",
+      height: `${pdfHeight}px`,
+      margin: {
+        top: "0px",
+        right: "0px",
+        bottom: "0px",
+        left: "0px",
+      },
+      pageRanges: "1",
+    });
+
+    const bucket = process.env.SUPABASE_BUCKET;
+    if (!bucket) {
+      throw new Error("Missing SUPABASE_BUCKET in .env");
+    }
+
+    const { error: uploadError } = await supabase.storage
+      .from(bucket)
+      .upload(fileName, pdfBuffer, {
+        contentType: "application/pdf",
+        upsert: true,
+      });
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from(bucket)
+      .getPublicUrl(fileName);
+
+    const pdfUrl = publicUrlData?.publicUrl;
+
+    if (!pdfUrl) {
+      throw new Error("Could not generate public PDF URL");
+    }
+
+    await supabase
+      .from("documents")
+      .update({
+        status: "completed",
+        storage_path: fileName,
+        extracted_text: null,
+        parsed_json: data,
+      })
+      .eq("id", documentId);
+
+    await browser.close();
+    browser = null;
+
     return res.json({
       success: true,
       file_name: fileName,
-      pdf_url: pdfUrl
+      pdf_url: pdfUrl,
     });
-
   } catch (error) {
     console.error("ERROR IN /generate-report:");
     console.error(error);
@@ -1298,12 +1210,11 @@ const html = renderReportHTML(data);
 
     return res.status(500).json({
       success: false,
-      error: error.message || "Unknown server error"
+      error: error.message || "Unknown server error",
     });
   }
 });
 
-const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
