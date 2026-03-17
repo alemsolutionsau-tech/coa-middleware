@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const puppeteer = require("puppeteer");
 const { createClient } = require("@supabase/supabase-js");
+const supabase = require("./supabase");
 
 const app = express();
 
@@ -1140,14 +1141,26 @@ app.get("/", (req, res) => {
   });
 });
 
-app.get("/health", (req, res) => {
-  res.json({
-    success: true,
-    status: "ok",
-    hasSupabaseUrl: !!process.env.SUPABASE_URL,
-    hasSupabaseKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-    bucket: process.env.SUPABASE_BUCKET || null
-  });
+app.get("/health", async (req, res) => {
+  try {
+    const { error } = await supabase.from("documents").select("id").limit(1);
+
+    res.json({
+      success: true,
+      status: "ok",
+      hasSupabaseUrl: !!process.env.SUPABASE_URL,
+      hasSupabaseKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      bucket: process.env.SUPABASE_BUCKET || null,
+      db_connected: !error,
+      db_error: error ? error.message : null
+    });
+  } catch (err) {
+    res.json({
+      success: false,
+      status: "error",
+      message: err.message
+    });
+  }
 });
 
 app.post("/generate-report", async (req, res) => {
