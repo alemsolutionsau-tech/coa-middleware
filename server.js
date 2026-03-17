@@ -1,18 +1,12 @@
 const express = require("express");
 const cors = require("cors");
 const puppeteer = require("puppeteer");
-const { createClient } = require("@supabase/supabase-js");
 const supabase = require("./supabase");
 
 const app = express();
 
 app.use(cors());
 app.use(express.text({ type: "*/*", limit: "50mb" }));
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
 
 function esc(v = "") {
   return String(v ?? "")
