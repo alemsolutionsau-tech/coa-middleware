@@ -595,7 +595,7 @@ function renderReportHTML(data) {
 
     <section class="hero">
       <div class="brand">Alem Solutions · COA Intelligence Report</div>
-      <div class="eyebrow">Chemical Intelligence Dossier</div>
+      <div class="eyebrow">ULTRA PREMIUM TEST VERSION</div>
       <h1>${esc(data?.product_name || "Cannabis Product")}</h1>
       <div class="subhead">
         ${esc(data?.executive_summary || "A premium interpretive layer derived from certificate of analysis data.")}
