@@ -205,7 +205,7 @@ function renderReportHTML(data) {
 
   body{
     margin:0;
-    padding:24px;
+    padding:0;
     font-family:Arial, Helvetica, sans-serif;
     background:
       radial-gradient(circle at top left, rgba(107,207,114,.08), transparent 28%),
@@ -585,9 +585,8 @@ function renderReportHTML(data) {
   }
 
   @page{
-    size:A4;
-    margin:14mm;
-  }
+  margin:0;
+   }
 </style>
 </head>
 <body>
@@ -854,13 +853,14 @@ app.post("/generate-report", async (req, res) => {
 
     console.log("STEP 6: generating PDF");
     const pdfBuffer = await page.pdf({
-      format: "A4",
+      width: "1100px",
+      height: "auto",
       printBackground: true,
       margin: {
-        top: "20px",
-        right: "20px",
-        bottom: "20px",
-        left: "20px"
+        top: "0px",
+        right: "0px",
+        bottom: "0px",
+        left: "0px"
       }
     });
 
