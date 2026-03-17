@@ -1166,7 +1166,15 @@ app.post("/generate-report", async (req, res) => {
     console.log(String(req.body).slice(0, 3000));
 
     const { data, fileName } = parseIncomingBody(req.body);
+console.log("STEP 2A: creating document row in Supabase");
 
+const { data: documentRow, error: documentError } = await supabase
+  .from("documents")
+  .insert([
+    {
+      user_id: "bubble-user",
+      source: "bubble",
+      
     console.log("STEP 2: rendering HTML");
     const html = renderReportHTML(data);
 
