@@ -1166,6 +1166,7 @@ app.post("/generate-report", async (req, res) => {
     console.log(String(req.body).slice(0, 3000));
 
     const { data, fileName } = parseIncomingBody(req.body);
+
 console.log("STEP 2A: creating document row in Supabase");
 
 const { data: documentRow, error: documentError } = await supabase
@@ -1174,9 +1175,25 @@ const { data: documentRow, error: documentError } = await supabase
     {
       user_id: "bubble-user",
       source: "bubble",
-      
-    console.log("STEP 2: rendering HTML");
-    const html = renderReportHTML(data);
+      original_filename: fileName,
+      mime_type: "application/pdf",
+      document_type: "coa",
+      status: "processing"
+    }
+  ])
+  .select()
+  .single();
+
+if (documentError) {
+  throw new Error(`Could not create document row: ${documentError.message}`);
+}
+
+const documentId = documentRow.id;
+
+console.log("DOCUMENT ID:", documentId);
+
+console.log("STEP 2: rendering HTML");
+const html = renderReportHTML(data);
 
     console.log("STEP 3: launching puppeteer");
     browser = await puppeteer.launch({
