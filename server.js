@@ -970,6 +970,15 @@ app.post("/extract-parse-and-save", async (req, res) => {
     });
   }
 });
+
+app.post("/test", async (req, res) => {
+  res.json({
+    success: true,
+    message: "Server is working",
+    received: req.body
+  });
+});
+
 app.post("/full-coa-pipeline", async (req, res) => {
   let browser;
 
