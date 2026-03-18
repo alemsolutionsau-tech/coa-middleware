@@ -515,135 +515,70 @@ function renderReportHTML(data = {}) {
 `;
 }
 
+function extractJSONObject(text) {
+  if (!text || typeof text !== "string") {
+    throw new Error("No text received from OpenAI");
+  }
+
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+
+  if (start === -1 || end === -1 || end <= start) {
+    throw new Error("No valid JSON object found in OpenAI output");
+  }
+
+  return text.slice(start, end + 1);
+}
+
 async function parseCOAWithOpenAI(cleanText = "") {
   if (!cleanText || !String(cleanText).trim()) {
     throw new Error("cleanText is empty");
   }
 
-  const response = await openai.responses.create({
-    model: OPENAI_MODEL,
-    store: false,
-    reasoning: {
-      effort: "medium",
-    },
-    max_output_tokens: 4000,
-    text: {
-      format: {
-        type: "json_schema",
-        name: "coa_report",
-        schema: {
-          type: "object",
-          properties: {
-            product_name: { type: "string" },
-            batch_number: { type: "string" },
-            coa_report_date: { type: "string" },
-            product_type: { type: "string" },
-            laboratory_name: { type: "string" },
-            overall_score: { type: "string" },
-            opening_statement: { type: "string" },
-            thc_total: { type: "string" },
-            cbd_total: { type: "string" },
-            total_terpenes: { type: "string" },
-            minor_cannabinoids: { type: "string" },
-            contaminant_overview: { type: "string" },
-            lab_quality_summary: { type: "string" },
-            scientific_references: { type: "string" },
-            positive_flags: {
-              type: "array",
-              items: { type: "string" },
-            },
-            warning_flags: {
-              type: "array",
-              items: { type: "string" },
-            },
-            top_cannabinoids: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  name: { type: "string" },
-                  value: { type: "string" },
-                  unit: { type: "string" },
-                  notes: { type: "string" },
-                },
-                required: ["name", "value", "unit", "notes"],
-                additionalProperties: false,
-              },
-            },
-            top_terpenes: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  name: { type: "string" },
-                  value: { type: "string" },
-                  unit: { type: "string" },
-                },
-                required: ["name", "value", "unit"],
-                additionalProperties: false,
-              },
-            },
-          },
-          required: [
-            "product_name",
-            "batch_number",
-            "coa_report_date",
-            "product_type",
-            "laboratory_name",
-            "overall_score",
-            "opening_statement",
-            "thc_total",
-            "cbd_total",
-            "total_terpenes",
-            "minor_cannabinoids",
-            "contaminant_overview",
-            "lab_quality_summary",
-            "scientific_references",
-            "positive_flags",
-            "warning_flags",
-            "top_cannabinoids",
-            "top_terpenes",
-          ],
-          additionalProperties: false,
-        },
-      },
-    },
-    input: [
-      {
-        role: "system",
-        content: [
-          {
-            type: "input_text",
-            text:
-              "You are the Alem Solutions COA parsing engine. Read the extracted OCR text and return only structured JSON matching the schema. Do not invent facts. If a field is not explicit, return an empty string or empty array.",
-          },
-        ],
-      },
-      {
-        role: "user",
-        content: [
-          {
-            type: "input_text",
-            text: cleanText,
-          },
-        ],
-      },
-    ],
-  });
-
-  const outputText = response.output_text;
-
-  if (!outputText) {
-    throw new Error("OpenAI returned empty output_text");
-  }
-
   try {
-    return JSON.parse(outputText);
-  } catch (err) {
-    throw new Error(`OpenAI output was not valid JSON: ${err.message}`);
+    console.log("OCR TEXT PREVIEW:", String(cleanText).slice(0, 1000));
+
+    const response = await openai.responses.create({
+      model: OPENAI_MODEL,
+      store: false,
+      reasoning: {
+        effort: "medium",
+      },
+      max_output_tokens: 7000,
+      input: [
+        {
+          role: "system",
+          content:
+            "You are the Alem Solutions OCR COA Extraction Engine. Return ONLY one valid JSON object. No markdown. No explanation."
+        },
+        {
+          role: "user",
+          content: cleanText
+        }
+      ]
+    });
+
+    const rawText =
+      response.output_text ||
+      (response.output || [])
+        .map(item =>
+          (item.content || [])
+            .map(part => part.text || "")
+            .join("")
+        )
+        .join("\n");
+
+    console.log("RAW OPENAI OUTPUT:", String(rawText).slice(0, 2000));
+
+    const jsonText = extractJSONObject(rawText);
+    const parsed = JSON.parse(jsonText);
+
+    return parsed;
+  } catch (error) {
+    console.error("OpenAI parse failed:", error.message);
+    throw new Error("OpenAI output was not valid JSON: " + error.message);
   }
 }
-
 async function extractDocumentFromUrl(file_url) {
   const fileResponse = await axios.get(file_url, {
     responseType: "arraybuffer",
