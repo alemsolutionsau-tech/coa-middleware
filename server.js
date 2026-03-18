@@ -530,6 +530,37 @@ function extractJSONObject(text) {
   return text.slice(start, end + 1);
 }
 
+async function repairJSON(badJson) {
+  const response = await openai.responses.create({
+    model: OPENAI_MODEL,
+    max_output_tokens: 4000,
+    input: [
+      {
+        role: "system",
+        content:
+          "You fix broken JSON. Return ONLY one valid JSON object.STRICT RULES:Keep arrays under 10 items, Do not include more than 15 analytes, Prefer summarised values over full tables, Never truncate keys or values. No explanation."
+      },
+      {
+        role: "user",
+        content: `Fix this JSON:\n\n${badJson}`
+      }
+    ]
+  });
+
+  const repairedText =
+    response.output_text ||
+    (response.output || [])
+      .map(item =>
+        (item.content || [])
+          .map(part => part.text || "")
+          .join("")
+      )
+      .join("\n");
+
+  const cleaned = extractJSONObject(repairedText);
+  return JSON.parse(cleaned);
+}
+
 async function parseCOAWithOpenAI(cleanText = "") {
   if (!cleanText || !String(cleanText).trim()) {
     throw new Error("cleanText is empty");
@@ -570,8 +601,94 @@ async function parseCOAWithOpenAI(cleanText = "") {
 
     console.log("RAW OPENAI OUTPUT:", String(rawText).slice(0, 2000));
 
-    const jsonText = extractJSONObject(rawText);
-    const parsed = JSON.parse(jsonText);
+    try {
+      const jsonText = extractJSONObject(rawText);
+      return JSON.parse(jsonText);
+    } catch (parseError) {
+      console.warn("⚠️ JSON parse failed, attempting repair...");
+
+      try {
+        const repaired = await repairJSON(rawText);
+        console.log("✅ JSON repaired successfully");
+        return repaired;
+      } catch (repairError) {
+        console.error("❌ JSON repair failed:", repairError.message);
+
+        throw new Error(
+          "OpenAI output invalid even after repair: " + repairError.message
+        );
+      }
+    }
+
+  } catch (error) {
+    console.error("❌ OpenAI parse failed:", error.message);
+    throw new Error("OpenAI output was not valid JSON: " + error.message);
+  }
+}
+async function parseCOAWithOpenAI(cleanText = "") {
+  if (!cleanText || !String(cleanText).trim()) {
+    throw new Error("cleanText is empty");
+  }
+
+  try {
+    console.log("OCR TEXT PREVIEW:", String(cleanText).slice(0, 1000));
+
+    const response = await openai.responses.create({
+      model: OPENAI_MODEL,
+      store: false,
+      reasoning: {
+        effort: "medium",
+      },
+      max_output_tokens: 7000,
+      input: [
+        {
+          role: "system",
+          content:
+            "You are the Alem Solutions OCR COA Extraction Engine. Return ONLY one valid JSON object. No markdown. No explanation."
+        },
+        {
+          role: "user",
+          content: cleanText
+        }
+      ]
+    });
+
+    const rawText =
+      response.output_text ||
+      (response.output || [])
+        .map(item =>
+          (item.content || [])
+            .map(part => part.text || "")
+            .join("")
+        )
+        .join("\n");
+
+    console.log("RAW OPENAI OUTPUT:", String(rawText).slice(0, 2000));
+
+let jsonText = extractJSONObject(rawText);
+
+// 🔥 HARD TRUNCATION FIX
+if (jsonText.endsWith(",")) {
+  jsonText = jsonText.slice(0, -1);
+}
+
+try {
+  return JSON.parse(jsonText);
+} catch (parseError) {
+  console.warn("⚠️ JSON parse failed, attempting repair...");
+
+  try {
+    return await repairJSON(rawText);
+  } catch (repairError) {
+    console.error("❌ Repair failed, returning fallback structure");
+
+    return {
+      error: "partial_parse",
+      raw_preview: rawText.slice(0, 1000),
+      note: "COA parsed partially due to malformed JSON"
+    };
+  }
+}
 
     return parsed;
   } catch (error) {
