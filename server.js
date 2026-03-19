@@ -20,7 +20,7 @@ app.use(express.urlencoded({ extended: true }));
 
 const PORT = process.env.PORT || 3000;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5";
-const MAX_OCR_CHARS_FOR_OPENAI = Number(process.env.MAX_OCR_CHARS_FOR_OPENAI || 25000);
+const MAX_OCR_CHARS_FOR_OPENAI = Number(process.env.MAX_OCR_CHARS_FOR_OPENAI || 12000);
 
 if (
   !process.env.AZURE_DOC_INTELLIGENCE_ENDPOINT ||
@@ -707,35 +707,41 @@ function logOpenAIResponseMeta(label, response) {
   }
 }
 
-async function callOpenAIForJSON(systemPrompt, userText, maxOutputTokens = 2200) {
-  const response = await openai.responses.create({
-  model: OPENAI_MODEL,
-  store: false,
+async function callOpenAIForJSON(systemPrompt, userText, maxOutputTokens = 1200) {
+  console.log("🚀 Sending request to OpenAI...");
 
-  // 🔥 THIS FIXES YOUR ISSUE
-  text: {
-    format: {
-      type: "text"
-    }
-  },
+  const response = await Promise.race([
+    openai.responses.create({
+      model: OPENAI_MODEL,
+      store: false,
 
-  reasoning: {
-    effort: "low" // also reduce this
-  },
+      // 🔥 force output
+      text: {
+        format: { type: "text" }
+      },
 
-  max_output_tokens: 2200,
+      reasoning: { effort: "minimal" },
+      max_output_tokens: maxOutputTokens,
 
-  input: [
-    {
-      role: "system",
-      content: extractionPrompt
-    },
-    {
-      role: "user",
-      content: modelInput
-    }
-  ]
-});
+      input: [
+        {
+          role: "system",
+          content: systemPrompt,
+        },
+        {
+          role: "user",
+          content: userText,
+        },
+      ],
+    }),
+
+    // ⏱️ TIMEOUT (20 seconds)
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("OpenAI timeout after 20s")), 20000)
+    )
+  ]);
+
+  console.log("✅ OpenAI responded");
 
   return response;
 }
