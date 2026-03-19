@@ -709,21 +709,33 @@ function logOpenAIResponseMeta(label, response) {
 
 async function callOpenAIForJSON(systemPrompt, userText, maxOutputTokens = 2200) {
   const response = await openai.responses.create({
-    model: OPENAI_MODEL,
-    store: false,
-    reasoning: { effort: "medium" },
-    max_output_tokens: maxOutputTokens,
-    input: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
-      {
-        role: "user",
-        content: userText,
-      },
-    ],
-  });
+  model: OPENAI_MODEL,
+  store: false,
+
+  // 🔥 THIS FIXES YOUR ISSUE
+  text: {
+    format: {
+      type: "text"
+    }
+  },
+
+  reasoning: {
+    effort: "low" // also reduce this
+  },
+
+  max_output_tokens: 2200,
+
+  input: [
+    {
+      role: "system",
+      content: extractionPrompt
+    },
+    {
+      role: "user",
+      content: modelInput
+    }
+  ]
+});
 
   return response;
 }
@@ -809,7 +821,9 @@ async function parseCOAWithOpenAI(cleanText = "") {
 
   const modelInput = prepareOCRTextForModel(cleanText);
 
-  const extractionPrompt = `
+const extractionPrompt = `
+You MUST return a JSON object. Do not think step-by-step. Do not hide output. Respond immediately.
+
 You are the Alem Solutions COA extraction engine.
 
 Task:
@@ -883,13 +897,49 @@ Return this exact shape:
     console.log("RAW OPENAI OUTPUT START:", safeSnippet(rawText, 1000));
     console.log("RAW OPENAI OUTPUT END:", String(rawText || "").slice(-1000));
 
-    if (!rawText.trim()) {
-      console.error(
-        "RAW FULL OPENAI RESPONSE:",
-        JSON.stringify(response, null, 2)
-      );
-      throw new Error("No text received from OpenAI");
+if (!rawText.trim()) {
+  console.warn("⚠️ Empty OpenAI output, retrying with fallback prompt...");
+
+  const retry = await openai.responses.create({
+    model: OPENAI_MODEL,
+
+    text: {
+      format: { type: "text" }
+    },
+
+    reasoning: { effort: "minimal" },
+    max_output_tokens: 1500,
+
+    input: [
+      {
+        role: "system",
+        content: "Return only JSON. No thinking. No explanation."
+      },
+      {
+        role: "user",
+        content: modelInput.slice(0, 15000)
+      }
+    ]
+  });
+
+  const retryText = extractTextFromOpenAIResponse(retry);
+
+  console.log("RETRY OUTPUT LENGTH:", retryText.length);
+
+  if (retryText.trim()) {
+    let retryJson = extractJSONObject(retryText);
+
+    if (retryJson.endsWith(",")) {
+      retryJson = retryJson.slice(0, -1);
     }
+
+    return normalizeParsedCOA(JSON.parse(retryJson));
+  }
+
+  console.error("❌ Retry also failed");
+
+  throw new Error("No text received from OpenAI after retry");
+}
 
     let jsonText = extractJSONObject(rawText).trim();
 
