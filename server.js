@@ -553,19 +553,116 @@ function extractJSONObject(text) {
   return text.slice(start, end + 1);
 }
 
-async function repairJSON(badJson) {
+function normalizeParsedCOA(data = {}) {
+  const toString = (v) => (v === null || v === undefined ? "" : String(v));
+  const toArray = (v) => (Array.isArray(v) ? v : []);
+
+  return {
+    product_name: toString(data.product_name),
+    batch_number: toString(data.batch_number),
+    coa_report_date: toString(data.coa_report_date),
+    product_type: toString(data.product_type),
+    laboratory_name: toString(data.laboratory_name),
+    opening_statement: toString(data.opening_statement),
+    overall_score: toString(data.overall_score),
+    thc_total: toString(data.thc_total),
+    cbd_total: toString(data.cbd_total),
+    total_terpenes: toString(data.total_terpenes),
+    minor_cannabinoids: toString(data.minor_cannabinoids),
+    contaminant_overview: toString(data.contaminant_overview),
+    lab_quality_summary: toString(data.lab_quality_summary),
+    scientific_references: toString(data.scientific_references),
+
+    top_cannabinoids: toArray(data.top_cannabinoids)
+      .slice(0, 8)
+      .map((item) => ({
+        name: toString(item?.name),
+        value: toString(item?.value),
+        unit: toString(item?.unit),
+        notes: toString(item?.notes),
+      })),
+
+    top_terpenes: toArray(data.top_terpenes)
+      .slice(0, 8)
+      .map((item) => ({
+        name: toString(item?.name),
+        value: toString(item?.value),
+        unit: toString(item?.unit),
+      })),
+
+    positive_flags: toArray(data.positive_flags)
+      .slice(0, 6)
+      .map((x) => toString(x)),
+
+    warning_flags: toArray(data.warning_flags)
+      .slice(0, 6)
+      .map((x) => toString(x)),
+  };
+}
+
+async function repairJSONToSchema(cleanText = "") {
+  const repairPrompt = `
+You are repairing a failed COA extraction.
+
+Return EXACTLY ONE valid JSON object in this exact shape:
+
+{
+  "product_name": "",
+  "batch_number": "",
+  "coa_report_date": "",
+  "product_type": "",
+  "laboratory_name": "",
+  "opening_statement": "",
+  "overall_score": "",
+  "thc_total": "",
+  "cbd_total": "",
+  "total_terpenes": "",
+  "minor_cannabinoids": "",
+  "contaminant_overview": "",
+  "lab_quality_summary": "",
+  "scientific_references": "",
+  "top_cannabinoids": [
+    {
+      "name": "",
+      "value": "",
+      "unit": "",
+      "notes": ""
+    }
+  ],
+  "top_terpenes": [
+    {
+      "name": "",
+      "value": "",
+      "unit": ""
+    }
+  ],
+  "positive_flags": [""],
+  "warning_flags": [""]
+}
+
+STRICT RULES:
+- Valid JSON only
+- No markdown
+- No comments
+- No trailing commas
+- If uncertain, leave fields empty
+- Keep arrays under 8 items
+- Output must parse with JSON.parse()
+`;
+
   const response = await openai.responses.create({
     model: OPENAI_MODEL,
-    max_output_tokens: 4000,
+    store: false,
+    reasoning: { effort: "medium" },
+    max_output_tokens: 3000,
     input: [
       {
         role: "system",
-        content:
-          "You fix broken JSON. Return ONLY one valid JSON object. STRICT RULES: Keep arrays under 10 items, do not include more than 15 analytes, prefer summarised values over full tables, never truncate keys or values, no explanation.",
+        content: repairPrompt,
       },
       {
         role: "user",
-        content: `Fix this JSON:\n\n${badJson}`,
+        content: cleanText,
       },
     ],
   });
@@ -587,21 +684,77 @@ async function parseCOAWithOpenAI(cleanText = "") {
     throw new Error("cleanText is empty");
   }
 
+  const extractionPrompt = `
+You are the Alem Solutions COA extraction engine.
+
+Task:
+Read OCR text from a cannabis Certificate of Analysis and return EXACTLY ONE valid JSON object.
+
+CRITICAL RULES:
+- Return valid JSON only.
+- No markdown.
+- No comments.
+- No trailing commas.
+- No prose before or after the JSON.
+- If a field is missing, return "" for strings, [] for arrays.
+- If uncertain, leave the field empty instead of guessing.
+- Keep arrays short and useful.
+- top_cannabinoids: max 8 items
+- top_terpenes: max 8 items
+- positive_flags: max 6 items
+- warning_flags: max 6 items
+- scientific_references must be a short plain-text summary, not citations list
+- Output must be parseable by JSON.parse()
+
+Return this exact shape:
+
+{
+  "product_name": "",
+  "batch_number": "",
+  "coa_report_date": "",
+  "product_type": "",
+  "laboratory_name": "",
+  "opening_statement": "",
+  "overall_score": "",
+  "thc_total": "",
+  "cbd_total": "",
+  "total_terpenes": "",
+  "minor_cannabinoids": "",
+  "contaminant_overview": "",
+  "lab_quality_summary": "",
+  "scientific_references": "",
+  "top_cannabinoids": [
+    {
+      "name": "",
+      "value": "",
+      "unit": "",
+      "notes": ""
+    }
+  ],
+  "top_terpenes": [
+    {
+      "name": "",
+      "value": "",
+      "unit": ""
+    }
+  ],
+  "positive_flags": [""],
+  "warning_flags": [""]
+}
+`;
+
   try {
     console.log("OCR TEXT PREVIEW:", String(cleanText).slice(0, 1000));
 
     const response = await openai.responses.create({
       model: OPENAI_MODEL,
       store: false,
-      reasoning: {
-        effort: "medium",
-      },
-      max_output_tokens: 7000,
+      reasoning: { effort: "medium" },
+      max_output_tokens: 3500,
       input: [
         {
           role: "system",
-          content:
-            "You are the Alem Solutions OCR COA Extraction Engine. Return ONLY one valid JSON object. No markdown. No explanation.",
+          content: extractionPrompt,
         },
         {
           role: "user",
@@ -622,32 +775,48 @@ async function parseCOAWithOpenAI(cleanText = "") {
 
     let jsonText = extractJSONObject(rawText);
 
+    jsonText = jsonText.trim();
+
     if (jsonText.endsWith(",")) {
       jsonText = jsonText.slice(0, -1);
     }
 
+    const parsed = JSON.parse(jsonText);
+
+    return normalizeParsedCOA(parsed);
+  } catch (parseError) {
+    console.warn("JSON parse failed, attempting repair...");
+
     try {
-      return JSON.parse(jsonText);
-    } catch (parseError) {
-      console.warn("JSON parse failed, attempting repair...");
+      const repaired = await repairJSONToSchema(cleanText);
+      console.log("JSON repaired successfully");
+      return normalizeParsedCOA(repaired);
+    } catch (repairError) {
+      console.error("JSON repair failed:", repairError.message);
 
-      try {
-        const repaired = await repairJSON(rawText);
-        console.log("JSON repaired successfully");
-        return repaired;
-      } catch (repairError) {
-        console.error("JSON repair failed:", repairError.message);
-
-        return {
-          error: "partial_parse",
-          raw_preview: rawText.slice(0, 1000),
-          note: "COA parsed partially due to malformed JSON",
-        };
-      }
+      return normalizeParsedCOA({
+        product_name: "",
+        batch_number: "",
+        coa_report_date: "",
+        product_type: "",
+        laboratory_name: "",
+        opening_statement: "Partial parse only.",
+        overall_score: "",
+        thc_total: "",
+        cbd_total: "",
+        total_terpenes: "",
+        minor_cannabinoids: "",
+        contaminant_overview: "",
+        lab_quality_summary: "",
+        scientific_references: "",
+        top_cannabinoids: [],
+        top_terpenes: [],
+        positive_flags: [],
+        warning_flags: [
+          "COA parsed partially due to malformed model output"
+        ]
+      });
     }
-  } catch (error) {
-    console.error("OpenAI parse failed:", error.message);
-    throw new Error("OpenAI output was not valid JSON: " + error.message);
   }
 }
 
