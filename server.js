@@ -123,13 +123,18 @@ function parseIncomingBody(rawBody) {
     return {
       fileName:
         sanitizeFileName(
-          payload.file_name || payload.report_json?.product_name || `coa-${Date.now()}`
+          payload.file_name ||
+            payload.report_json?.product_name ||
+            `coa-${Date.now()}`
         ) + ".pdf",
       data: payload.report_json,
     };
   }
 
-  if (payload.report_json_string && typeof payload.report_json_string === "string") {
+  if (
+    payload.report_json_string &&
+    typeof payload.report_json_string === "string"
+  ) {
     let parsedInner;
     try {
       parsedInner = JSON.parse(payload.report_json_string);
@@ -137,7 +142,11 @@ function parseIncomingBody(rawBody) {
       throw new Error(`report_json_string is not valid JSON: ${err.message}`);
     }
 
-    if (!parsedInner || typeof parsedInner !== "object" || Array.isArray(parsedInner)) {
+    if (
+      !parsedInner ||
+      typeof parsedInner !== "object" ||
+      Array.isArray(parsedInner)
+    ) {
       throw new Error("report_json_string parsed to null or invalid object");
     }
 
@@ -153,8 +162,9 @@ function parseIncomingBody(rawBody) {
   if (payload.product_name || payload.top_cannabinoids || payload.top_terpenes) {
     return {
       fileName:
-        sanitizeFileName(payload.file_name || payload.product_name || `coa-${Date.now()}`) +
-        ".pdf",
+        sanitizeFileName(
+          payload.file_name || payload.product_name || `coa-${Date.now()}`
+        ) + ".pdf",
       data: payload,
     };
   }
@@ -163,8 +173,13 @@ function parseIncomingBody(rawBody) {
 }
 
 function renderList(items = [], emptyText = "Not reported") {
-  if (!Array.isArray(items) || !items.length) return `<div class="muted">${esc(emptyText)}</div>`;
-  return `<ul>${items.map((x) => `<li>${esc(typeof x === "string" ? x : JSON.stringify(x))}</li>`).join("")}</ul>`;
+  if (!Array.isArray(items) || !items.length) {
+    return `<div class="muted">${esc(emptyText)}</div>`;
+  }
+
+  return `<ul>${items
+    .map((x) => `<li>${esc(typeof x === "string" ? x : JSON.stringify(x))}</li>`)
+    .join("")}</ul>`;
 }
 
 function renderMetric(label, value) {
@@ -178,6 +193,7 @@ function renderMetric(label, value) {
 
 function renderCannabinoidTable(items = []) {
   const rows = getSafeArray(items);
+
   if (!rows.length) {
     return `<div class="muted">No cannabinoid rows reported.</div>`;
   }
@@ -196,13 +212,13 @@ function renderCannabinoidTable(items = []) {
         ${rows
           .map(
             (item) => `
-          <tr>
-            <td>${esc(item?.name)}</td>
-            <td>${esc(item?.value)}</td>
-            <td>${esc(item?.unit)}</td>
-            <td>${esc(item?.notes)}</td>
-          </tr>
-        `
+            <tr>
+              <td>${esc(item?.name)}</td>
+              <td>${esc(item?.value)}</td>
+              <td>${esc(item?.unit)}</td>
+              <td>${esc(item?.notes)}</td>
+            </tr>
+          `
           )
           .join("")}
       </tbody>
@@ -212,6 +228,7 @@ function renderCannabinoidTable(items = []) {
 
 function renderTerpeneTable(items = []) {
   const rows = getSafeArray(items);
+
   if (!rows.length) {
     return `<div class="muted">No terpene rows reported.</div>`;
   }
@@ -229,12 +246,12 @@ function renderTerpeneTable(items = []) {
         ${rows
           .map(
             (item) => `
-          <tr>
-            <td>${esc(item?.name)}</td>
-            <td>${esc(item?.value)}</td>
-            <td>${esc(item?.unit)}</td>
-          </tr>
-        `
+            <tr>
+              <td>${esc(item?.name)}</td>
+              <td>${esc(item?.value)}</td>
+              <td>${esc(item?.unit)}</td>
+            </tr>
+          `
           )
           .join("")}
       </tbody>
@@ -426,7 +443,11 @@ function renderReportHTML(data = {}) {
     <div class="hero">
       <div class="brand">Alem Solutions · COA Intelligence Report</div>
       <h1>${esc(data?.product_name || "Cannabis Product")}</h1>
-      <div class="sub">${esc(data?.opening_statement || data?.overall_score || "Interpretive certificate of analysis summary.")}</div>
+      <div class="sub">${esc(
+        data?.opening_statement ||
+          data?.overall_score ||
+          "Interpretive certificate of analysis summary."
+      )}</div>
 
       <div class="metrics">
         ${renderMetric("Total THC", data?.thc_total)}
@@ -478,7 +499,9 @@ function renderReportHTML(data = {}) {
 
       <div class="card">
         <h2>Scientific notes</h2>
-        <div class="copy">${esc(data?.scientific_references || "No scientific references included.")}</div>
+        <div class="copy">${esc(
+          data?.scientific_references || "No scientific references included."
+        )}</div>
       </div>
     </div>
 
@@ -538,22 +561,20 @@ async function repairJSON(badJson) {
       {
         role: "system",
         content:
-          "You fix broken JSON. Return ONLY one valid JSON object.STRICT RULES:Keep arrays under 10 items, Do not include more than 15 analytes, Prefer summarised values over full tables, Never truncate keys or values. No explanation."
+          "You fix broken JSON. Return ONLY one valid JSON object. STRICT RULES: Keep arrays under 10 items, do not include more than 15 analytes, prefer summarised values over full tables, never truncate keys or values, no explanation.",
       },
       {
         role: "user",
-        content: `Fix this JSON:\n\n${badJson}`
-      }
-    ]
+        content: `Fix this JSON:\n\n${badJson}`,
+      },
+    ],
   });
 
   const repairedText =
     response.output_text ||
     (response.output || [])
-      .map(item =>
-        (item.content || [])
-          .map(part => part.text || "")
-          .join("")
+      .map((item) =>
+        (item.content || []).map((part) => part.text || "").join("")
       )
       .join("\n");
 
@@ -580,130 +601,64 @@ async function parseCOAWithOpenAI(cleanText = "") {
         {
           role: "system",
           content:
-            "You are the Alem Solutions OCR COA Extraction Engine. Return ONLY one valid JSON object. No markdown. No explanation."
+            "You are the Alem Solutions OCR COA Extraction Engine. Return ONLY one valid JSON object. No markdown. No explanation.",
         },
         {
           role: "user",
-          content: cleanText
-        }
-      ]
+          content: cleanText,
+        },
+      ],
     });
 
     const rawText =
       response.output_text ||
       (response.output || [])
-        .map(item =>
-          (item.content || [])
-            .map(part => part.text || "")
-            .join("")
+        .map((item) =>
+          (item.content || []).map((part) => part.text || "").join("")
         )
         .join("\n");
 
     console.log("RAW OPENAI OUTPUT:", String(rawText).slice(0, 2000));
 
+    let jsonText = extractJSONObject(rawText);
+
+    if (jsonText.endsWith(",")) {
+      jsonText = jsonText.slice(0, -1);
+    }
+
     try {
-      const jsonText = extractJSONObject(rawText);
       return JSON.parse(jsonText);
     } catch (parseError) {
-      console.warn("⚠️ JSON parse failed, attempting repair...");
+      console.warn("JSON parse failed, attempting repair...");
 
       try {
         const repaired = await repairJSON(rawText);
-        console.log("✅ JSON repaired successfully");
+        console.log("JSON repaired successfully");
         return repaired;
       } catch (repairError) {
-        console.error("❌ JSON repair failed:", repairError.message);
+        console.error("JSON repair failed:", repairError.message);
 
-        throw new Error(
-          "OpenAI output invalid even after repair: " + repairError.message
-        );
+        return {
+          error: "partial_parse",
+          raw_preview: rawText.slice(0, 1000),
+          note: "COA parsed partially due to malformed JSON",
+        };
       }
     }
-
-  } catch (error) {
-    console.error("❌ OpenAI parse failed:", error.message);
-    throw new Error("OpenAI output was not valid JSON: " + error.message);
-  }
-}
-async function parseCOAWithOpenAI(cleanText = "") {
-  if (!cleanText || !String(cleanText).trim()) {
-    throw new Error("cleanText is empty");
-  }
-
-  try {
-    console.log("OCR TEXT PREVIEW:", String(cleanText).slice(0, 1000));
-
-    const response = await openai.responses.create({
-      model: OPENAI_MODEL,
-      store: false,
-      reasoning: {
-        effort: "medium",
-      },
-      max_output_tokens: 7000,
-      input: [
-        {
-          role: "system",
-          content:
-            "You are the Alem Solutions OCR COA Extraction Engine. Return ONLY one valid JSON object. No markdown. No explanation."
-        },
-        {
-          role: "user",
-          content: cleanText
-        }
-      ]
-    });
-
-    const rawText =
-      response.output_text ||
-      (response.output || [])
-        .map(item =>
-          (item.content || [])
-            .map(part => part.text || "")
-            .join("")
-        )
-        .join("\n");
-
-    console.log("RAW OPENAI OUTPUT:", String(rawText).slice(0, 2000));
-
-let jsonText = extractJSONObject(rawText);
-
-// 🔥 HARD TRUNCATION FIX
-if (jsonText.endsWith(",")) {
-  jsonText = jsonText.slice(0, -1);
-}
-
-try {
-  return JSON.parse(jsonText);
-} catch (parseError) {
-  console.warn("⚠️ JSON parse failed, attempting repair...");
-
-  try {
-    return await repairJSON(rawText);
-  } catch (repairError) {
-    console.error("❌ Repair failed, returning fallback structure");
-
-    return {
-      error: "partial_parse",
-      raw_preview: rawText.slice(0, 1000),
-      note: "COA parsed partially due to malformed JSON"
-    };
-  }
-}
-
-    return parsed;
   } catch (error) {
     console.error("OpenAI parse failed:", error.message);
     throw new Error("OpenAI output was not valid JSON: " + error.message);
   }
 }
-async function extractDocumentFromUrl(file_url) {
-  const fileResponse = await axios.get(file_url, {
+
+async function extractDocumentFromUrl(fileUrl) {
+  const fileResponse = await axios.get(fileUrl, {
     responseType: "arraybuffer",
     timeout: 60000,
   });
 
   const mimeType = detectMimeType(
-    file_url,
+    fileUrl,
     fileResponse.headers["content-type"]
   );
 
@@ -743,14 +698,105 @@ async function extractDocumentFromUrl(file_url) {
     })),
   }));
 
-  const plain_text = pages.map((p) => p.text).join("\n\n");
+  const plainText = pages.map((p) => p.text).join("\n\n");
 
   return {
     mimeType,
     pages,
     tables,
-    plain_text,
+    plain_text: plainText,
   };
+}
+
+async function buildPdfBufferFromHtml(html) {
+  let browser;
+
+  try {
+    browser = await puppeteer.launch({
+      headless: "new",
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+
+    const page = await browser.newPage();
+
+    await page.setViewport({
+      width: 1400,
+      height: 2000,
+      deviceScaleFactor: 1,
+    });
+
+    await page.setContent(html, { waitUntil: "networkidle0" });
+    await page.emulateMediaType("screen");
+
+    const pageHeight = await page.evaluate(() => {
+      const body = document.body;
+      const htmlEl = document.documentElement;
+      return Math.max(
+        body.scrollHeight,
+        body.offsetHeight,
+        htmlEl.clientHeight,
+        htmlEl.scrollHeight,
+        htmlEl.offsetHeight
+      );
+    });
+
+    const pdfHeight = Math.max(pageHeight + 30, 2200);
+
+    const pdfBuffer = await page.pdf({
+      printBackground: true,
+      width: "1280px",
+      height: `${pdfHeight}px`,
+      margin: {
+        top: "0px",
+        right: "0px",
+        bottom: "0px",
+        left: "0px",
+      },
+      pageRanges: "1",
+    });
+
+    await browser.close();
+    return pdfBuffer;
+  } catch (error) {
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (closeErr) {
+        console.error("Error closing browser:", closeErr.message);
+      }
+    }
+    throw error;
+  }
+}
+
+async function uploadPdfToSupabase(fileName, pdfBuffer) {
+  const bucket = process.env.SUPABASE_BUCKET;
+  if (!bucket) {
+    throw new Error("Missing SUPABASE_BUCKET in .env");
+  }
+
+  const { error: uploadError } = await supabase.storage
+    .from(bucket)
+    .upload(fileName, pdfBuffer, {
+      contentType: "application/pdf",
+      upsert: true,
+    });
+
+  if (uploadError) {
+    throw uploadError;
+  }
+
+  const { data: publicUrlData } = supabase.storage
+    .from(bucket)
+    .getPublicUrl(fileName);
+
+  const pdfUrl = publicUrlData?.publicUrl;
+
+  if (!pdfUrl) {
+    throw new Error("Could not generate public PDF URL");
+  }
+
+  return pdfUrl;
 }
 
 app.get("/", (req, res) => {
@@ -769,7 +815,8 @@ app.get("/health", async (req, res) => {
       status: "ok",
       hasSupabaseUrl: !!process.env.SUPABASE_URL,
       hasSupabaseKey:
-        !!process.env.SUPABASE_SERVICE_ROLE_KEY || !!process.env.SUPABASE_ANON_KEY,
+        !!process.env.SUPABASE_SERVICE_ROLE_KEY ||
+        !!process.env.SUPABASE_ANON_KEY,
       hasAzureEndpoint: !!process.env.AZURE_DOC_INTELLIGENCE_ENDPOINT,
       hasAzureKey: !!process.env.AZURE_DOC_INTELLIGENCE_KEY,
       hasOpenAIKey: !!process.env.OPENAI_API_KEY,
@@ -798,28 +845,29 @@ app.get("/routes-check", (req, res) => {
       "/extract-parse-and-save",
       "/full-coa-pipeline",
       "/generate-report",
+      "/test",
     ],
   });
 });
 
 app.post("/extract-from-url", async (req, res) => {
   try {
-    const file_url = req.body?.file_url;
+    const fileUrl = req.body?.file_url;
 
-    if (!file_url) {
+    if (!fileUrl) {
       return res.status(400).json({
         success: false,
         error: "file_url is required",
       });
     }
 
-    const extracted = await extractDocumentFromUrl(file_url);
+    const extracted = await extractDocumentFromUrl(fileUrl);
 
     return res.json({
       success: true,
       engine_used: "azure-document-intelligence",
       model_used: "prebuilt-layout",
-      source_url: file_url,
+      source_url: fileUrl,
       mime_type: extracted.mimeType,
       plain_text: extracted.plain_text,
       pages: extracted.pages,
@@ -829,8 +877,7 @@ app.post("/extract-from-url", async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("ERROR IN /extract-from-url:");
-    console.error(error);
+    console.error("ERROR IN /extract-from-url:", error);
 
     return res.status(500).json({
       success: false,
@@ -842,19 +889,21 @@ app.post("/extract-from-url", async (req, res) => {
 
 app.post("/extract-and-save", async (req, res) => {
   try {
-    const file_url = req.body?.file_url;
-    const original_filename =
-      req.body?.original_filename || file_url?.split("/").pop() || `upload-${Date.now()}`;
-    const document_type = req.body?.document_type || "coa";
+    const fileUrl = req.body?.file_url;
+    const originalFilename =
+      req.body?.original_filename ||
+      fileUrl?.split("/").pop() ||
+      `upload-${Date.now()}`;
+    const documentType = req.body?.document_type || "coa";
 
-    if (!file_url) {
+    if (!fileUrl) {
       return res.status(400).json({
         success: false,
         error: "file_url is required",
       });
     }
 
-    const extracted = await extractDocumentFromUrl(file_url);
+    const extracted = await extractDocumentFromUrl(fileUrl);
 
     const { data: insertedRow, error: insertError } = await supabase
       .from("documents")
@@ -862,13 +911,13 @@ app.post("/extract-and-save", async (req, res) => {
         {
           user_id: "bubble-user",
           source: "bubble",
-          original_filename,
+          original_filename: originalFilename,
           mime_type: extracted.mimeType,
-          document_type,
+          document_type: documentType,
           status: "extracted",
           extracted_text: extracted.plain_text,
           parsed_json: {
-            source_url: file_url,
+            source_url: fileUrl,
             engine_used: "azure-document-intelligence",
             model_used: "prebuilt-layout",
             pages: extracted.pages,
@@ -889,14 +938,13 @@ app.post("/extract-and-save", async (req, res) => {
     return res.json({
       success: true,
       document_id: insertedRow.id,
-      source_url: file_url,
+      source_url: fileUrl,
       mime_type: extracted.mimeType,
       plain_text: extracted.plain_text,
       page_count: extracted.pages.length,
     });
   } catch (error) {
-    console.error("ERROR IN /extract-and-save:");
-    console.error(error);
+    console.error("ERROR IN /extract-and-save:", error);
 
     return res.status(500).json({
       success: false,
@@ -907,20 +955,22 @@ app.post("/extract-and-save", async (req, res) => {
 
 app.post("/extract-parse-and-save", async (req, res) => {
   try {
-    const file_url = req.body?.file_url;
-    const original_filename =
-      req.body?.original_filename || file_url?.split("/").pop() || `upload-${Date.now()}`;
-    const document_type = req.body?.document_type || "coa";
+    const fileUrl = req.body?.file_url;
+    const originalFilename =
+      req.body?.original_filename ||
+      fileUrl?.split("/").pop() ||
+      `upload-${Date.now()}`;
+    const documentType = req.body?.document_type || "coa";
 
-    if (!file_url) {
+    if (!fileUrl) {
       return res.status(400).json({
         success: false,
         error: "file_url is required",
       });
     }
 
-    const extracted = await extractDocumentFromUrl(file_url);
-    const parsed_json = await parseCOAWithOpenAI(extracted.plain_text);
+    const extracted = await extractDocumentFromUrl(fileUrl);
+    const parsedJson = await parseCOAWithOpenAI(extracted.plain_text);
 
     const { data: insertedRow, error: insertError } = await supabase
       .from("documents")
@@ -928,15 +978,15 @@ app.post("/extract-parse-and-save", async (req, res) => {
         {
           user_id: "bubble-user",
           source: "bubble",
-          original_filename,
+          original_filename: originalFilename,
           mime_type: extracted.mimeType,
-          document_type,
+          document_type: documentType,
           status: "parsed",
           extracted_text: extracted.plain_text,
           parsed_json: {
-            ...parsed_json,
+            ...parsedJson,
             extraction_meta: {
-              source_url: file_url,
+              source_url: fileUrl,
               engine_used: "azure-document-intelligence",
               model_used: "prebuilt-layout",
               page_count: extracted.pages.length,
@@ -955,14 +1005,13 @@ app.post("/extract-parse-and-save", async (req, res) => {
     return res.json({
       success: true,
       document_id: insertedRow.id,
-      source_url: file_url,
+      source_url: fileUrl,
       mime_type: extracted.mimeType,
       plain_text: extracted.plain_text,
-      parsed_json,
+      parsed_json: parsedJson,
     });
   } catch (error) {
-    console.error("ERROR IN /extract-parse-and-save:");
-    console.error(error);
+    console.error("ERROR IN /extract-parse-and-save:", error);
 
     return res.status(500).json({
       success: false,
@@ -975,31 +1024,31 @@ app.post("/test", async (req, res) => {
   res.json({
     success: true,
     message: "Server is working",
-    received: req.body
+    received: req.body,
   });
 });
 
 app.post("/full-coa-pipeline", async (req, res) => {
-  let browser;
-
   try {
-    const file_url = req.body?.file_url;
-    const original_filename =
-      req.body?.original_filename || file_url?.split("/").pop() || `upload-${Date.now()}`;
-    const document_type = req.body?.document_type || "coa";
+    const fileUrl = req.body?.file_url;
+    const originalFilename =
+      req.body?.original_filename ||
+      fileUrl?.split("/").pop() ||
+      `upload-${Date.now()}`;
+    const documentType = req.body?.document_type || "coa";
 
-    if (!file_url) {
+    if (!fileUrl) {
       return res.status(400).json({
         success: false,
         error: "file_url is required",
       });
     }
 
-    const extracted = await extractDocumentFromUrl(file_url);
-    const parsed_json = await parseCOAWithOpenAI(extracted.plain_text);
+    const extracted = await extractDocumentFromUrl(fileUrl);
+    const parsedJson = await parseCOAWithOpenAI(extracted.plain_text);
 
     const pdfBaseName = sanitizeFileName(
-      parsed_json?.product_name || original_filename || `coa-${Date.now()}`
+      parsedJson?.product_name || originalFilename || `coa-${Date.now()}`
     );
     const fileName = `${pdfBaseName}.pdf`;
 
@@ -1009,15 +1058,15 @@ app.post("/full-coa-pipeline", async (req, res) => {
         {
           user_id: "bubble-user",
           source: "bubble",
-          original_filename,
+          original_filename: originalFilename,
           mime_type: extracted.mimeType,
-          document_type,
+          document_type: documentType,
           status: "processing",
           extracted_text: extracted.plain_text,
           parsed_json: {
-            ...parsed_json,
+            ...parsedJson,
             extraction_meta: {
-              source_url: file_url,
+              source_url: fileUrl,
               engine_used: "azure-document-intelligence",
               model_used: "prebuilt-layout",
               page_count: extracted.pages.length,
@@ -1030,80 +1079,15 @@ app.post("/full-coa-pipeline", async (req, res) => {
       .single();
 
     if (documentError) {
-      throw new Error(`Could not create pipeline document row: ${documentError.message}`);
+      throw new Error(
+        `Could not create pipeline document row: ${documentError.message}`
+      );
     }
 
     const documentId = documentRow.id;
-    const html = renderReportHTML(parsed_json);
-
-    browser = await puppeteer.launch({
-      headless: "new",
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    });
-
-    const page = await browser.newPage();
-
-    await page.setViewport({
-      width: 1400,
-      height: 2000,
-      deviceScaleFactor: 1,
-    });
-
-    await page.setContent(html, { waitUntil: "networkidle0" });
-    await page.emulateMediaType("screen");
-
-    const pageHeight = await page.evaluate(() => {
-      const body = document.body;
-      const html = document.documentElement;
-      return Math.max(
-        body.scrollHeight,
-        body.offsetHeight,
-        html.clientHeight,
-        html.scrollHeight,
-        html.offsetHeight
-      );
-    });
-
-    const pdfHeight = Math.max(pageHeight + 30, 2200);
-
-    const pdfBuffer = await page.pdf({
-      printBackground: true,
-      width: "1280px",
-      height: `${pdfHeight}px`,
-      margin: {
-        top: "0px",
-        right: "0px",
-        bottom: "0px",
-        left: "0px",
-      },
-      pageRanges: "1",
-    });
-
-    const bucket = process.env.SUPABASE_BUCKET;
-    if (!bucket) {
-      throw new Error("Missing SUPABASE_BUCKET in .env");
-    }
-
-    const { error: uploadError } = await supabase.storage
-      .from(bucket)
-      .upload(fileName, pdfBuffer, {
-        contentType: "application/pdf",
-        upsert: true,
-      });
-
-    if (uploadError) {
-      throw uploadError;
-    }
-
-    const { data: publicUrlData } = supabase.storage
-      .from(bucket)
-      .getPublicUrl(fileName);
-
-    const pdfUrl = publicUrlData?.publicUrl;
-
-    if (!pdfUrl) {
-      throw new Error("Could not generate public PDF URL");
-    }
+    const html = renderReportHTML(parsedJson);
+    const pdfBuffer = await buildPdfBufferFromHtml(html);
+    const pdfUrl = await uploadPdfToSupabase(fileName, pdfBuffer);
 
     await supabase
       .from("documents")
@@ -1114,27 +1098,15 @@ app.post("/full-coa-pipeline", async (req, res) => {
       })
       .eq("id", documentId);
 
-    await browser.close();
-    browser = null;
-
     return res.json({
       success: true,
       document_id: documentId,
       file_name: fileName,
       pdf_url: pdfUrl,
-      parsed_json,
+      parsed_json: parsedJson,
     });
   } catch (error) {
-    console.error("ERROR IN /full-coa-pipeline:");
-    console.error(error);
-
-    if (browser) {
-      try {
-        await browser.close();
-      } catch (closeErr) {
-        console.error("ERROR CLOSING BROWSER:", closeErr);
-      }
-    }
+    console.error("ERROR IN /full-coa-pipeline:", error);
 
     return res.status(500).json({
       success: false,
@@ -1142,9 +1114,8 @@ app.post("/full-coa-pipeline", async (req, res) => {
     });
   }
 });
-app.post("/generate-report", async (req, res) => {
-  let browser;
 
+app.post("/generate-report", async (req, res) => {
   try {
     const { data, fileName } = parseIncomingBody(req.body);
 
@@ -1169,75 +1140,8 @@ app.post("/generate-report", async (req, res) => {
 
     const documentId = documentRow.id;
     const html = renderReportHTML(data);
-
-    browser = await puppeteer.launch({
-      headless: "new",
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    });
-
-    const page = await browser.newPage();
-
-    await page.setViewport({
-      width: 1400,
-      height: 2000,
-      deviceScaleFactor: 1,
-    });
-
-    await page.setContent(html, { waitUntil: "networkidle0" });
-    await page.emulateMediaType("screen");
-
-    const pageHeight = await page.evaluate(() => {
-      const body = document.body;
-      const html = document.documentElement;
-      return Math.max(
-        body.scrollHeight,
-        body.offsetHeight,
-        html.clientHeight,
-        html.scrollHeight,
-        html.offsetHeight
-      );
-    });
-
-    const pdfHeight = Math.max(pageHeight + 30, 2200);
-
-    const pdfBuffer = await page.pdf({
-      printBackground: true,
-      width: "1280px",
-      height: `${pdfHeight}px`,
-      margin: {
-        top: "0px",
-        right: "0px",
-        bottom: "0px",
-        left: "0px",
-      },
-      pageRanges: "1",
-    });
-
-    const bucket = process.env.SUPABASE_BUCKET;
-    if (!bucket) {
-      throw new Error("Missing SUPABASE_BUCKET in .env");
-    }
-
-    const { error: uploadError } = await supabase.storage
-      .from(bucket)
-      .upload(fileName, pdfBuffer, {
-        contentType: "application/pdf",
-        upsert: true,
-      });
-
-    if (uploadError) {
-      throw uploadError;
-    }
-
-    const { data: publicUrlData } = supabase.storage
-      .from(bucket)
-      .getPublicUrl(fileName);
-
-    const pdfUrl = publicUrlData?.publicUrl;
-
-    if (!pdfUrl) {
-      throw new Error("Could not generate public PDF URL");
-    }
+    const pdfBuffer = await buildPdfBufferFromHtml(html);
+    const pdfUrl = await uploadPdfToSupabase(fileName, pdfBuffer);
 
     await supabase
       .from("documents")
@@ -1249,25 +1153,13 @@ app.post("/generate-report", async (req, res) => {
       })
       .eq("id", documentId);
 
-    await browser.close();
-    browser = null;
-
     return res.json({
       success: true,
       file_name: fileName,
       pdf_url: pdfUrl,
     });
   } catch (error) {
-    console.error("ERROR IN /generate-report:");
-    console.error(error);
-
-    if (browser) {
-      try {
-        await browser.close();
-      } catch (closeErr) {
-        console.error("ERROR CLOSING BROWSER:", closeErr);
-      }
-    }
+    console.error("ERROR IN /generate-report:", error);
 
     return res.status(500).json({
       success: false,
