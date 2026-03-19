@@ -20,7 +20,10 @@ app.use(express.urlencoded({ extended: true }));
 
 const PORT = process.env.PORT || 3000;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5";
-const MAX_OCR_CHARS_FOR_OPENAI = Number(process.env.MAX_OCR_CHARS_FOR_OPENAI || 12000);
+const MAX_OCR_CHARS_FOR_OPENAI = Number(
+  process.env.MAX_OCR_CHARS_FOR_OPENAI || 12000
+);
+const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS || 20000);
 
 if (
   !process.env.AZURE_DOC_INTELLIGENCE_ENDPOINT ||
@@ -41,6 +44,67 @@ const azureClient = new DocumentAnalysisClient(
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+const extractionPrompt = `
+You MUST return a JSON object. Do not think step-by-step. Do not hide output. Respond immediately.
+
+You are the Alem Solutions COA extraction engine.
+
+Task:
+Read OCR text from a cannabis Certificate of Analysis and return EXACTLY ONE valid JSON object.
+
+CRITICAL RULES:
+- Return valid JSON only.
+- No markdown.
+- No comments.
+- No trailing commas.
+- No prose before or after the JSON.
+- If a field is missing, return "" for strings, [] for arrays.
+- If uncertain, leave the field empty instead of guessing.
+- Keep arrays short and useful.
+- top_cannabinoids: max 8 items
+- top_terpenes: max 8 items
+- positive_flags: max 6 items
+- warning_flags: max 6 items
+- scientific_references must be a short plain-text summary, not citations list
+- Output must be parseable by JSON.parse()
+
+Return this exact shape:
+
+{
+  "product_name": "",
+  "batch_number": "",
+  "coa_report_date": "",
+  "product_type": "",
+  "laboratory_name": "",
+  "opening_statement": "",
+  "overall_score": "",
+  "thc_total": "",
+  "cbd_total": "",
+  "total_terpenes": "",
+  "minor_cannabinoids": "",
+  "contaminant_overview": "",
+  "lab_quality_summary": "",
+  "scientific_references": "",
+  "top_cannabinoids": [
+    {
+      "name": "",
+      "value": "",
+      "unit": "",
+      "notes": ""
+    }
+  ],
+  "top_terpenes": [
+    {
+      "name": "",
+      "value": "",
+      "unit": ""
+    }
+  ],
+  "positive_flags": [""],
+  "warning_flags": [""]
+}
+`;
 
 function esc(v = "") {
   return String(v ?? "")
@@ -714,15 +778,11 @@ async function callOpenAIForJSON(systemPrompt, userText, maxOutputTokens = 1200)
     openai.responses.create({
       model: OPENAI_MODEL,
       store: false,
-
-      // 🔥 force output
       text: {
-        format: { type: "text" }
+        format: { type: "text" },
       },
-
       reasoning: { effort: "minimal" },
       max_output_tokens: maxOutputTokens,
-
       input: [
         {
           role: "system",
@@ -734,15 +794,15 @@ async function callOpenAIForJSON(systemPrompt, userText, maxOutputTokens = 1200)
         },
       ],
     }),
-
-    // ⏱️ TIMEOUT (20 seconds)
     new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("OpenAI timeout after 20s")), 20000)
-    )
+      setTimeout(
+        () => reject(new Error(`OpenAI timeout after ${OPENAI_TIMEOUT_MS}ms`)),
+        OPENAI_TIMEOUT_MS
+      )
+    ),
   ]);
 
   console.log("✅ OpenAI responded");
-
   return response;
 }
 
@@ -798,7 +858,7 @@ STRICT RULES:
 - Output must parse with JSON.parse()
 `;
 
-  const response = await callOpenAIForJSON(repairPrompt, modelInput, 2200);
+  const response = await callOpenAIForJSON(repairPrompt, modelInput, 1200);
 
   logOpenAIResponseMeta("REPAIR", response);
 
@@ -820,67 +880,6 @@ STRICT RULES:
   return JSON.parse(cleaned);
 }
 
-const extractionPrompt = `
-You MUST return a JSON object. Do not think step-by-step. Do not hide output. Respond immediately.
-
-You are the Alem Solutions COA extraction engine.
-
-Task:
-Read OCR text from a cannabis Certificate of Analysis and return EXACTLY ONE valid JSON object.
-
-CRITICAL RULES:
-- Return valid JSON only.
-- No markdown.
-- No comments.
-- No trailing commas.
-- No prose before or after the JSON.
-- If a field is missing, return "" for strings, [] for arrays.
-- If uncertain, leave the field empty instead of guessing.
-- Keep arrays short and useful.
-- top_cannabinoids: max 8 items
-- top_terpenes: max 8 items
-- positive_flags: max 6 items
-- warning_flags: max 6 items
-- scientific_references must be a short plain-text summary, not citations list
-- Output must be parseable by JSON.parse()
-
-Return this exact shape:
-
-{
-  "product_name": "",
-  "batch_number": "",
-  "coa_report_date": "",
-  "product_type": "",
-  "laboratory_name": "",
-  "opening_statement": "",
-  "overall_score": "",
-  "thc_total": "",
-  "cbd_total": "",
-  "total_terpenes": "",
-  "minor_cannabinoids": "",
-  "contaminant_overview": "",
-  "lab_quality_summary": "",
-  "scientific_references": "",
-  "top_cannabinoids": [
-    {
-      "name": "",
-      "value": "",
-      "unit": "",
-      "notes": ""
-    }
-  ],
-  "top_terpenes": [
-    {
-      "name": "",
-      "value": "",
-      "unit": ""
-    }
-  ],
-  "positive_flags": [""],
-  "warning_flags": [""]
-}
-`;
-
 async function parseCOAWithOpenAI(cleanText = "") {
   if (!cleanText || !String(cleanText).trim()) {
     throw new Error("cleanText is empty");
@@ -888,73 +887,12 @@ async function parseCOAWithOpenAI(cleanText = "") {
 
   const modelInput = prepareOCRTextForModel(cleanText);
 
-const extractionPrompt = `
-You MUST return a JSON object. Do not think step-by-step. Do not hide output. Respond immediately.
-
-You are the Alem Solutions COA extraction engine.
-
-Task:
-Read OCR text from a cannabis Certificate of Analysis and return EXACTLY ONE valid JSON object.
-
-CRITICAL RULES:
-- Return valid JSON only.
-- No markdown.
-- No comments.
-- No trailing commas.
-- No prose before or after the JSON.
-- If a field is missing, return "" for strings, [] for arrays.
-- If uncertain, leave the field empty instead of guessing.
-- Keep arrays short and useful.
-- top_cannabinoids: max 8 items
-- top_terpenes: max 8 items
-- positive_flags: max 6 items
-- warning_flags: max 6 items
-- scientific_references must be a short plain-text summary, not citations list
-- Output must be parseable by JSON.parse()
-
-Return this exact shape:
-
-{
-  "product_name": "",
-  "batch_number": "",
-  "coa_report_date": "",
-  "product_type": "",
-  "laboratory_name": "",
-  "opening_statement": "",
-  "overall_score": "",
-  "thc_total": "",
-  "cbd_total": "",
-  "total_terpenes": "",
-  "minor_cannabinoids": "",
-  "contaminant_overview": "",
-  "lab_quality_summary": "",
-  "scientific_references": "",
-  "top_cannabinoids": [
-    {
-      "name": "",
-      "value": "",
-      "unit": "",
-      "notes": ""
-    }
-  ],
-  "top_terpenes": [
-    {
-      "name": "",
-      "value": "",
-      "unit": ""
-    }
-  ],
-  "positive_flags": [""],
-  "warning_flags": [""]
-}
-`;
-
   try {
     console.log("OCR TEXT ORIGINAL LENGTH:", String(cleanText).length);
     console.log("OCR TEXT MODEL INPUT LENGTH:", String(modelInput).length);
     console.log("OCR TEXT PREVIEW:", safeSnippet(modelInput, 1500));
 
-    const response = await callOpenAIForJSON(extractionPrompt, modelInput, 2200);
+    const response = await callOpenAIForJSON(extractionPrompt, modelInput, 1200);
 
     logOpenAIResponseMeta("RAW", response);
 
@@ -964,49 +902,35 @@ Return this exact shape:
     console.log("RAW OPENAI OUTPUT START:", safeSnippet(rawText, 1000));
     console.log("RAW OPENAI OUTPUT END:", String(rawText || "").slice(-1000));
 
-if (!rawText.trim()) {
-  console.warn("⚠️ Empty OpenAI output, retrying with fallback prompt...");
+    if (!rawText.trim()) {
+      console.warn("⚠️ Empty OpenAI output, retrying with fallback prompt...");
 
-  const retry = await openai.responses.create({
-    model: OPENAI_MODEL,
+      const retry = await callOpenAIForJSON(
+        "Return only one valid JSON object. No thinking. No explanation. No markdown.",
+        modelInput.slice(0, 9000),
+        900
+      );
 
-    text: {
-      format: { type: "text" }
-    },
+      logOpenAIResponseMeta("RETRY", retry);
 
-    reasoning: { effort: "minimal" },
-    max_output_tokens: 1500,
+      const retryText = extractTextFromOpenAIResponse(retry);
 
-    input: [
-      {
-        role: "system",
-        content: "Return only JSON. No thinking. No explanation."
-      },
-      {
-        role: "user",
-        content: modelInput.slice(0, 15000)
+      console.log("RETRY OUTPUT LENGTH:", retryText ? retryText.length : 0);
+      console.log("RETRY OUTPUT START:", safeSnippet(retryText, 1000));
+      console.log("RETRY OUTPUT END:", String(retryText || "").slice(-1000));
+
+      if (retryText.trim()) {
+        let retryJson = extractJSONObject(retryText).trim();
+
+        if (retryJson.endsWith(",")) {
+          retryJson = retryJson.slice(0, -1);
+        }
+
+        return normalizeParsedCOA(JSON.parse(retryJson));
       }
-    ]
-  });
 
-  const retryText = extractTextFromOpenAIResponse(retry);
-
-  console.log("RETRY OUTPUT LENGTH:", retryText.length);
-
-  if (retryText.trim()) {
-    let retryJson = extractJSONObject(retryText);
-
-    if (retryJson.endsWith(",")) {
-      retryJson = retryJson.slice(0, -1);
+      throw new Error("No text received from OpenAI after retry");
     }
-
-    return normalizeParsedCOA(JSON.parse(retryJson));
-  }
-
-  console.error("❌ Retry also failed");
-
-  throw new Error("No text received from OpenAI after retry");
-}
 
     let jsonText = extractJSONObject(rawText).trim();
 
@@ -1045,7 +969,7 @@ if (!rawText.trim()) {
         top_terpenes: [],
         positive_flags: [],
         warning_flags: [
-          "COA parsed partially due to malformed or empty model output",
+          "COA parsed partially due to malformed, timeout, or empty model output",
         ],
       });
     }
@@ -1235,6 +1159,96 @@ async function uploadPdfToSupabase(fileName, pdfBuffer) {
   return pdfUrl;
 }
 
+async function updateDocumentStatus(documentId, values = {}) {
+  if (!documentId) return;
+  const { error } = await supabase.from("documents").update(values).eq("id", documentId);
+  if (error) {
+    throw new Error(`Could not update document ${documentId}: ${error.message}`);
+  }
+}
+
+async function processCOAJob({
+  documentId,
+  fileUrl,
+  originalFilename,
+  documentType = "coa",
+}) {
+  try {
+    console.log("🚀 Processing async job:", documentId);
+
+    await updateDocumentStatus(documentId, {
+      status: "processing",
+      original_filename: originalFilename,
+      document_type: documentType,
+    });
+
+    const extracted = await extractDocumentFromUrl(fileUrl);
+    const parsedJson = await safeParseCOA(extracted.plain_text);
+
+    const pdfBaseName = sanitizeFileName(
+      parsedJson?.product_name || originalFilename || `coa-${Date.now()}`
+    );
+    const fileName = `${pdfBaseName}.pdf`;
+
+    await updateDocumentStatus(documentId, {
+      mime_type: extracted.mimeType,
+      extracted_text: extracted.plain_text,
+      parsed_json: {
+        ...parsedJson,
+        extraction_meta: {
+          source_url: fileUrl,
+          engine_used: "azure-document-intelligence",
+          model_used: "prebuilt-layout",
+          page_count: extracted.pages.length,
+          tables_found: extracted.tables.length,
+        },
+      },
+    });
+
+    const html = renderReportHTML(parsedJson);
+    const pdfBuffer = await buildPdfBufferFromHtml(html);
+    const pdfUrl = await uploadPdfToSupabase(fileName, pdfBuffer);
+
+    await updateDocumentStatus(documentId, {
+      status: "completed",
+      storage_path: fileName,
+      mime_type: "application/pdf",
+      parsed_json: {
+        ...parsedJson,
+        extraction_meta: {
+          source_url: fileUrl,
+          engine_used: "azure-document-intelligence",
+          model_used: "prebuilt-layout",
+          page_count: extracted.pages.length,
+          tables_found: extracted.tables.length,
+        },
+        pdf_url: pdfUrl,
+      },
+    });
+
+    console.log("✅ Async job completed:", documentId);
+
+    return {
+      document_id: documentId,
+      file_name: fileName,
+      pdf_url: pdfUrl,
+      parsed_json: parsedJson,
+    };
+  } catch (error) {
+    console.error("❌ Async job failed:", documentId, error.message);
+
+    try {
+      await updateDocumentStatus(documentId, {
+        status: "failed",
+      });
+    } catch (statusErr) {
+      console.error("Failed to mark async job as failed:", statusErr.message);
+    }
+
+    throw error;
+  }
+}
+
 app.get("/", (req, res) => {
   res.json({
     success: true,
@@ -1280,6 +1294,8 @@ app.get("/routes-check", (req, res) => {
       "/extract-and-save",
       "/extract-parse-and-save",
       "/full-coa-pipeline",
+      "/start-coa-job",
+      "/job-status",
       "/generate-report",
       "/test",
     ],
@@ -1466,6 +1482,117 @@ app.post("/test", async (req, res) => {
   });
 });
 
+app.post("/start-coa-job", async (req, res) => {
+  try {
+    const fileUrl = req.body?.file_url;
+    const originalFilename =
+      req.body?.original_filename ||
+      fileUrl?.split("/").pop() ||
+      `upload-${Date.now()}`;
+    const documentType = req.body?.document_type || "coa";
+
+    if (!fileUrl) {
+      return res.status(400).json({
+        success: false,
+        error: "file_url is required",
+      });
+    }
+
+    const { data: row, error } = await supabase
+      .from("documents")
+      .insert([
+        {
+          user_id: "bubble-user",
+          source: "bubble",
+          original_filename: originalFilename,
+          document_type: documentType,
+          status: "queued",
+          parsed_json: {
+            source_url: fileUrl,
+          },
+        },
+      ])
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error(`Could not create async job: ${error.message}`);
+    }
+
+    processCOAJob({
+      documentId: row.id,
+      fileUrl,
+      originalFilename,
+      documentType,
+    }).catch((err) => {
+      console.error("Detached background job failed:", err.message);
+    });
+
+    return res.json({
+      success: true,
+      job_id: row.id,
+      document_id: row.id,
+      status: "queued",
+    });
+  } catch (error) {
+    console.error("ERROR IN /start-coa-job:", error);
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Unknown async job error",
+    });
+  }
+});
+
+app.get("/job-status", async (req, res) => {
+  try {
+    const id = req.query?.id || req.query?.document_id || req.query?.job_id;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: "id is required",
+      });
+    }
+
+    const { data, error } = await supabase
+      .from("documents")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (error) {
+      throw new Error(`Could not fetch job status: ${error.message}`);
+    }
+
+    let pdfUrl = null;
+
+    if (data?.storage_path) {
+      const { data: publicUrlData } = supabase.storage
+        .from(process.env.SUPABASE_BUCKET)
+        .getPublicUrl(data.storage_path);
+
+      pdfUrl = publicUrlData?.publicUrl || null;
+    }
+
+    return res.json({
+      success: true,
+      document_id: data.id,
+      status: data.status,
+      file_name: data.storage_path || null,
+      pdf_url: pdfUrl,
+      parsed_json: data.parsed_json || null,
+    });
+  } catch (error) {
+    console.error("ERROR IN /job-status:", error);
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Unknown job status error",
+    });
+  }
+});
+
 app.post("/full-coa-pipeline", async (req, res) => {
   let documentId = null;
 
@@ -1484,83 +1611,54 @@ app.post("/full-coa-pipeline", async (req, res) => {
       });
     }
 
-    const extracted = await extractDocumentFromUrl(fileUrl);
-    const parsedJson = await safeParseCOA(extracted.plain_text);
-
-    const pdfBaseName = sanitizeFileName(
-      parsedJson?.product_name || originalFilename || `coa-${Date.now()}`
-    );
-    const fileName = `${pdfBaseName}.pdf`;
-
-    const { data: documentRow, error: documentError } = await supabase
+    const { data: row, error } = await supabase
       .from("documents")
       .insert([
         {
           user_id: "bubble-user",
           source: "bubble",
           original_filename: originalFilename,
-          mime_type: extracted.mimeType,
           document_type: documentType,
-          status: "processing",
-          extracted_text: extracted.plain_text,
+          status: "queued",
           parsed_json: {
-            ...parsedJson,
-            extraction_meta: {
-              source_url: fileUrl,
-              engine_used: "azure-document-intelligence",
-              model_used: "prebuilt-layout",
-              page_count: extracted.pages.length,
-              tables_found: extracted.tables.length,
-            },
+            source_url: fileUrl,
           },
         },
       ])
       .select()
       .single();
 
-    if (documentError) {
-      throw new Error(
-        `Could not create pipeline document row: ${documentError.message}`
-      );
+    if (error) {
+      throw new Error(`Could not create pipeline document row: ${error.message}`);
     }
 
-    documentId = documentRow.id;
+    documentId = row.id;
 
-    const html = renderReportHTML(parsedJson);
-    const pdfBuffer = await buildPdfBufferFromHtml(html);
-    const pdfUrl = await uploadPdfToSupabase(fileName, pdfBuffer);
-
-    const { error: updateError } = await supabase
-      .from("documents")
-      .update({
-        status: "completed",
-        storage_path: fileName,
-        mime_type: "application/pdf",
-      })
-      .eq("id", documentId);
-
-    if (updateError) {
-      throw new Error(`Could not update completed document: ${updateError.message}`);
-    }
+    processCOAJob({
+      documentId,
+      fileUrl,
+      originalFilename,
+      documentType,
+    }).catch((err) => {
+      console.error("Detached pipeline job failed:", err.message);
+    });
 
     return res.json({
       success: true,
+      async: true,
       document_id: documentId,
-      file_name: fileName,
-      pdf_url: pdfUrl,
-      parsed_json: parsedJson,
+      job_id: documentId,
+      status: "queued",
+      message: "COA job started. Check /job-status with this id.",
     });
   } catch (error) {
     console.error("ERROR IN /full-coa-pipeline:", error);
 
     if (documentId) {
       try {
-        await supabase
-          .from("documents")
-          .update({
-            status: "failed",
-          })
-          .eq("id", documentId);
+        await updateDocumentStatus(documentId, {
+          status: "failed",
+        });
       } catch (statusErr) {
         console.error("Failed to mark document as failed:", statusErr.message);
       }
@@ -1604,19 +1702,15 @@ app.post("/generate-report", async (req, res) => {
     const pdfBuffer = await buildPdfBufferFromHtml(html);
     const pdfUrl = await uploadPdfToSupabase(fileName, pdfBuffer);
 
-    const { error: updateError } = await supabase
-      .from("documents")
-      .update({
-        status: "completed",
-        storage_path: fileName,
-        extracted_text: null,
-        parsed_json: data,
-      })
-      .eq("id", documentId);
-
-    if (updateError) {
-      throw new Error(`Could not update generated report row: ${updateError.message}`);
-    }
+    await updateDocumentStatus(documentId, {
+      status: "completed",
+      storage_path: fileName,
+      extracted_text: null,
+      parsed_json: {
+        ...data,
+        pdf_url: pdfUrl,
+      },
+    });
 
     return res.json({
       success: true,
@@ -1628,12 +1722,9 @@ app.post("/generate-report", async (req, res) => {
 
     if (documentId) {
       try {
-        await supabase
-          .from("documents")
-          .update({
-            status: "failed",
-          })
-          .eq("id", documentId);
+        await updateDocumentStatus(documentId, {
+          status: "failed",
+        });
       } catch (statusErr) {
         console.error("Failed to mark generated report as failed:", statusErr.message);
       }
