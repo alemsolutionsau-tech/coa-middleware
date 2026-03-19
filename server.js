@@ -543,14 +543,24 @@ function extractJSONObject(text) {
     throw new Error("No text received from OpenAI");
   }
 
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
+  const trimmed = text.trim();
 
-  if (start === -1 || end === -1 || end <= start) {
-    throw new Error("No valid JSON object found in OpenAI output");
+  if (!trimmed) {
+    throw new Error("OpenAI returned empty text");
   }
 
-  return text.slice(start, end + 1);
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+
+  if (firstBrace === -1) {
+    throw new Error("No opening JSON brace found in OpenAI output");
+  }
+
+  if (lastBrace === -1 || lastBrace <= firstBrace) {
+    throw new Error("No closing JSON brace found in OpenAI output");
+  }
+
+  return trimmed.slice(firstBrace, lastBrace + 1);
 }
 
 function normalizeParsedCOA(data = {}) {
@@ -654,7 +664,7 @@ STRICT RULES:
     model: OPENAI_MODEL,
     store: false,
     reasoning: { effort: "medium" },
-    max_output_tokens: 3000,
+    max_output_tokens: 2200,
     input: [
       {
         role: "system",
@@ -674,6 +684,16 @@ STRICT RULES:
         (item.content || []).map((part) => part.text || "").join("")
       )
       .join("\n");
+
+  console.log("REPAIR OUTPUT LENGTH:", repairedText ? repairedText.length : 0);
+  console.log(
+    "REPAIR OUTPUT START:",
+    String(repairedText || "").slice(0, 1000)
+  );
+  console.log(
+    "REPAIR OUTPUT END:",
+    String(repairedText || "").slice(-1000)
+  );
 
   const cleaned = extractJSONObject(repairedText);
   return JSON.parse(cleaned);
@@ -750,7 +770,7 @@ Return this exact shape:
       model: OPENAI_MODEL,
       store: false,
       reasoning: { effort: "medium" },
-      max_output_tokens: 3500,
+      max_output_tokens: 2200,
       input: [
         {
           role: "system",
@@ -771,19 +791,23 @@ Return this exact shape:
         )
         .join("\n");
 
-    console.log("RAW OPENAI OUTPUT:", String(rawText).slice(0, 2000));
+    console.log("RAW OPENAI OUTPUT LENGTH:", rawText ? rawText.length : 0);
+    console.log(
+      "RAW OPENAI OUTPUT START:",
+      String(rawText || "").slice(0, 1000)
+    );
+    console.log(
+      "RAW OPENAI OUTPUT END:",
+      String(rawText || "").slice(-1000)
+    );
 
-    let jsonText = extractJSONObject(rawText);
-
-    jsonText = jsonText.trim();
+    let jsonText = extractJSONObject(rawText).trim();
 
     if (jsonText.endsWith(",")) {
       jsonText = jsonText.slice(0, -1);
     }
 
-    const parsed = JSON.parse(jsonText);
-
-    return normalizeParsedCOA(parsed);
+    return normalizeParsedCOA(JSON.parse(jsonText));
   } catch (parseError) {
     console.warn("JSON parse failed, attempting repair...");
 
@@ -813,10 +837,39 @@ Return this exact shape:
         top_terpenes: [],
         positive_flags: [],
         warning_flags: [
-          "COA parsed partially due to malformed model output"
-        ]
+          "COA parsed partially due to malformed model output",
+        ],
       });
     }
+  }
+}
+
+async function safeParseCOA(cleanText = "") {
+  try {
+    return await parseCOAWithOpenAI(cleanText);
+  } catch (error) {
+    console.error("safeParseCOA fallback triggered:", error.message);
+
+    return normalizeParsedCOA({
+      product_name: "",
+      batch_number: "",
+      coa_report_date: "",
+      product_type: "",
+      laboratory_name: "",
+      opening_statement: "COA could not be fully parsed automatically.",
+      overall_score: "",
+      thc_total: "",
+      cbd_total: "",
+      total_terpenes: "",
+      minor_cannabinoids: "",
+      contaminant_overview: "",
+      lab_quality_summary: "",
+      scientific_references: "",
+      top_cannabinoids: [],
+      top_terpenes: [],
+      positive_flags: [],
+      warning_flags: ["Automatic extraction failed"],
+    });
   }
 }
 
@@ -1101,7 +1154,9 @@ app.post("/extract-and-save", async (req, res) => {
       .single();
 
     if (insertError) {
-      throw new Error(`Could not save extracted document: ${insertError.message}`);
+      throw new Error(
+        `Could not save extracted document: ${insertError.message}`
+      );
     }
 
     return res.json({
@@ -1139,7 +1194,7 @@ app.post("/extract-parse-and-save", async (req, res) => {
     }
 
     const extracted = await extractDocumentFromUrl(fileUrl);
-    const parsedJson = await parseCOAWithOpenAI(extracted.plain_text);
+    const parsedJson = await safeParseCOA(extracted.plain_text);
 
     const { data: insertedRow, error: insertError } = await supabase
       .from("documents")
@@ -1214,7 +1269,7 @@ app.post("/full-coa-pipeline", async (req, res) => {
     }
 
     const extracted = await extractDocumentFromUrl(fileUrl);
-    const parsedJson = await parseCOAWithOpenAI(extracted.plain_text);
+    const parsedJson = await safeParseCOA(extracted.plain_text);
 
     const pdfBaseName = sanitizeFileName(
       parsedJson?.product_name || originalFilename || `coa-${Date.now()}`
