@@ -123,7 +123,7 @@ function sanitizeFileName(name = "") {
 
 function numberFromPercentString(v) {
   if (v === null || v === undefined) return 0;
-  const match = String(v).match(/-?\d+(\.\d+)?/);
+  const match = String(v).match(/-?\\d+(\\.\\d+)?/);
   return match ? Number(match[0]) : 0;
 }
 
@@ -157,6 +157,18 @@ function detectMimeType(url = "", headerContentType = "") {
   }
 
   return "application/octet-stream";
+}
+
+function getBaseUrl(req) {
+  const proto =
+    req.headers["x-forwarded-proto"] ||
+    req.protocol ||
+    "https";
+  return `${proto}://${req.get("host")}`;
+}
+
+function buildReportUrl(req, documentId) {
+  return `${getBaseUrl(req)}/report/${documentId}`;
 }
 
 function parseIncomingBody(rawBody) {
@@ -324,7 +336,66 @@ function renderTerpeneTable(items = []) {
   `;
 }
 
-function renderReportHTML(data = {}) {
+function renderActionBar({ documentId, pdfUrl }) {
+  if (!documentId) return "";
+
+  return `
+    <div class="action-bar">
+      <button id="generatePdfBtn" class="btn btn-primary">Generate PDF</button>
+      ${
+        pdfUrl
+          ? `<a class="btn btn-secondary" href="${esc(pdfUrl)}" target="_blank" rel="noopener noreferrer">Open current PDF</a>`
+          : ""
+      }
+      <span id="pdfStatus" class="action-status"></span>
+    </div>
+
+    <script>
+      (function () {
+        const btn = document.getElementById("generatePdfBtn");
+        const status = document.getElementById("pdfStatus");
+
+        if (!btn) return;
+
+        btn.addEventListener("click", async function () {
+          try {
+            btn.disabled = true;
+            btn.textContent = "Generating PDF...";
+            status.textContent = "";
+
+            const response = await fetch("/generate-pdf/${documentId}", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json"
+              }
+            });
+
+            const result = await response.json();
+
+            if (!response.ok || !result.success) {
+              throw new Error(result.error || "Failed to generate PDF");
+            }
+
+            status.textContent = "PDF ready";
+            btn.textContent = "Generate PDF again";
+
+            if (result.pdf_url) {
+              window.open(result.pdf_url, "_blank");
+            }
+          } catch (err) {
+            console.error(err);
+            status.textContent = err.message || "PDF generation failed";
+            btn.textContent = "Generate PDF";
+          } finally {
+            btn.disabled = false;
+          }
+        });
+      })();
+    </script>
+  `;
+}
+
+function renderReportHTML(data = {}, options = {}) {
   const topCannabinoids = getSafeArray(data?.top_cannabinoids);
   const topTerpenes = getSafeArray(data?.top_terpenes);
 
@@ -337,6 +408,7 @@ function renderReportHTML(data = {}) {
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>${esc(data?.product_name || "COA Intelligence Report")}</title>
 <style>
   * { box-sizing: border-box; }
@@ -351,7 +423,54 @@ function renderReportHTML(data = {}) {
   }
   .page {
     width: 100%;
-    padding: 36px 42px 42px;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 28px 24px 42px;
+  }
+  .action-bar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+    padding: 14px 16px;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 18px;
+    background: rgba(8, 13, 12, 0.88);
+    backdrop-filter: blur(10px);
+  }
+  .btn {
+    appearance: none;
+    border: 0;
+    border-radius: 999px;
+    padding: 12px 18px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .btn:disabled {
+    opacity: 0.7;
+    cursor: wait;
+  }
+  .btn-primary {
+    background: #9bf19a;
+    color: #0b1110;
+  }
+  .btn-secondary {
+    background: rgba(255,255,255,0.08);
+    color: #edf3ef;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .action-status {
+    color: #97aca2;
+    font-size: 14px;
   }
   .hero {
     border: 1px solid rgba(255,255,255,0.12);
@@ -500,11 +619,35 @@ function renderReportHTML(data = {}) {
     line-height: 1.7;
     text-align: center;
   }
-  @page { margin: 0; }
+  @media (max-width: 960px) {
+    .metrics {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .grid-2 {
+      grid-template-columns: 1fr;
+    }
+    h1 {
+      font-size: 34px;
+    }
+  }
+  @media print {
+    .action-bar {
+      display: none;
+    }
+    .page {
+      max-width: none;
+      padding: 0;
+    }
+  }
 </style>
 </head>
 <body>
   <div class="page">
+    ${renderActionBar({
+      documentId: options.documentId,
+      pdfUrl: options.pdfUrl,
+    })}
+
     <div class="hero">
       <div class="brand">Alem Solutions · COA Intelligence Report</div>
       <h1>${esc(data?.product_name || "Cannabis Product")}</h1>
@@ -692,7 +835,7 @@ function prepareOCRTextForModel(cleanText = "") {
 
   return [
     text.slice(0, headLength),
-    "\n\n[TRUNCATED FOR MODEL INPUT]\n\n",
+    "\\n\\n[TRUNCATED FOR MODEL INPUT]\\n\\n",
     text.slice(-tailLength),
   ].join("");
 }
@@ -735,7 +878,7 @@ function extractTextFromOpenAIResponse(response) {
       }
     }
 
-    return chunks.join("\n").trim();
+    return chunks.join("\\n").trim();
   } catch (err) {
     console.error("extractTextFromOpenAIResponse error:", err.message);
     return "";
@@ -1033,7 +1176,7 @@ async function extractDocumentFromUrl(fileUrl) {
   const result = await poller.pollUntilDone();
 
   const pages = (result.pages || []).map((page) => {
-    const text = (page.lines || []).map((line) => line.content).join("\n");
+    const text = (page.lines || []).map((line) => line.content).join("\\n");
 
     return {
       page_number: page.pageNumber,
@@ -1058,7 +1201,7 @@ async function extractDocumentFromUrl(fileUrl) {
     })),
   }));
 
-  const plainText = pages.map((p) => p.text).join("\n\n");
+  const plainText = pages.map((p) => p.text).join("\\n\\n");
 
   return {
     mimeType,
@@ -1167,6 +1310,20 @@ async function updateDocumentStatus(documentId, values = {}) {
   }
 }
 
+async function getDocumentById(documentId) {
+  const { data, error } = await supabase
+    .from("documents")
+    .select("*")
+    .eq("id", documentId)
+    .single();
+
+  if (error) {
+    throw new Error(`Could not fetch document ${documentId}: ${error.message}`);
+  }
+
+  return data;
+}
+
 async function processCOAJob({
   documentId,
   fileUrl,
@@ -1185,12 +1342,8 @@ async function processCOAJob({
     const extracted = await extractDocumentFromUrl(fileUrl);
     const parsedJson = await safeParseCOA(extracted.plain_text);
 
-    const pdfBaseName = sanitizeFileName(
-      parsedJson?.product_name || originalFilename || `coa-${Date.now()}`
-    );
-    const fileName = `${pdfBaseName}.pdf`;
-
     await updateDocumentStatus(documentId, {
+      status: "completed",
       mime_type: extracted.mimeType,
       extracted_text: extracted.plain_text,
       parsed_json: {
@@ -1205,33 +1358,10 @@ async function processCOAJob({
       },
     });
 
-    const html = renderReportHTML(parsedJson);
-    const pdfBuffer = await buildPdfBufferFromHtml(html);
-    const pdfUrl = await uploadPdfToSupabase(fileName, pdfBuffer);
-
-    await updateDocumentStatus(documentId, {
-      status: "completed",
-      storage_path: fileName,
-      mime_type: "application/pdf",
-      parsed_json: {
-        ...parsedJson,
-        extraction_meta: {
-          source_url: fileUrl,
-          engine_used: "azure-document-intelligence",
-          model_used: "prebuilt-layout",
-          page_count: extracted.pages.length,
-          tables_found: extracted.tables.length,
-        },
-        pdf_url: pdfUrl,
-      },
-    });
-
     console.log("✅ Async job completed:", documentId);
 
     return {
       document_id: documentId,
-      file_name: fileName,
-      pdf_url: pdfUrl,
       parsed_json: parsedJson,
     };
   } catch (error) {
@@ -1247,6 +1377,41 @@ async function processCOAJob({
 
     throw error;
   }
+}
+
+async function generatePdfForDocument(documentId) {
+  const row = await getDocumentById(documentId);
+
+  const parsedJson = row?.parsed_json || {};
+  if (!parsedJson || typeof parsedJson !== "object") {
+    throw new Error("Document has no parsed_json to render");
+  }
+
+  const pdfBaseName = sanitizeFileName(
+    parsedJson?.product_name || row?.original_filename || `coa-${Date.now()}`
+  );
+  const fileName = `${pdfBaseName}.pdf`;
+
+  const html = renderReportHTML(parsedJson, {
+    documentId,
+    pdfUrl: null,
+  });
+
+  const pdfBuffer = await buildPdfBufferFromHtml(html);
+  const pdfUrl = await uploadPdfToSupabase(fileName, pdfBuffer);
+
+  await updateDocumentStatus(documentId, {
+    storage_path: fileName,
+    parsed_json: {
+      ...parsedJson,
+      pdf_url: pdfUrl,
+    },
+  });
+
+  return {
+    file_name: fileName,
+    pdf_url: pdfUrl,
+  };
 }
 
 app.get("/", (req, res) => {
@@ -1296,10 +1461,78 @@ app.get("/routes-check", (req, res) => {
       "/full-coa-pipeline",
       "/start-coa-job",
       "/job-status",
+      "/report/:id",
+      "/generate-pdf/:id",
       "/generate-report",
       "/test",
     ],
   });
+});
+
+app.get("/report/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!id) {
+      return res.status(400).send("Missing document id");
+    }
+
+    const data = await getDocumentById(id);
+    const parsedJson = data?.parsed_json || null;
+
+    if (!parsedJson) {
+      return res.status(404).send("Report data not found");
+    }
+
+    let pdfUrl = parsedJson?.pdf_url || null;
+
+    if (!pdfUrl && data?.storage_path) {
+      const { data: publicUrlData } = supabase.storage
+        .from(process.env.SUPABASE_BUCKET)
+        .getPublicUrl(data.storage_path);
+
+      pdfUrl = publicUrlData?.publicUrl || null;
+    }
+
+    const html = renderReportHTML(parsedJson, {
+      documentId: id,
+      pdfUrl,
+    });
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.status(200).send(html);
+  } catch (error) {
+    console.error("ERROR IN /report/:id:", error);
+    return res.status(500).send(`Report error: ${esc(error.message || "Unknown error")}`);
+  }
+});
+
+app.post("/generate-pdf/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: "Document id is required",
+      });
+    }
+
+    const result = await generatePdfForDocument(id);
+
+    return res.json({
+      success: true,
+      document_id: id,
+      file_name: result.file_name,
+      pdf_url: result.pdf_url,
+    });
+  } catch (error) {
+    console.error("ERROR IN /generate-pdf/:id:", error);
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Unknown PDF generation error",
+    });
+  }
 });
 
 app.post("/extract-from-url", async (req, res) => {
@@ -1396,6 +1629,7 @@ app.post("/extract-and-save", async (req, res) => {
       mime_type: extracted.mimeType,
       plain_text: extracted.plain_text,
       page_count: extracted.pages.length,
+      html_url: buildReportUrl(req, insertedRow.id),
     });
   } catch (error) {
     console.error("ERROR IN /extract-and-save:", error);
@@ -1435,7 +1669,7 @@ app.post("/extract-parse-and-save", async (req, res) => {
           original_filename: originalFilename,
           mime_type: extracted.mimeType,
           document_type: documentType,
-          status: "parsed",
+          status: "completed",
           extracted_text: extracted.plain_text,
           parsed_json: {
             ...parsedJson,
@@ -1463,6 +1697,7 @@ app.post("/extract-parse-and-save", async (req, res) => {
       mime_type: extracted.mimeType,
       plain_text: extracted.plain_text,
       parsed_json: parsedJson,
+      html_url: buildReportUrl(req, insertedRow.id),
     });
   } catch (error) {
     console.error("ERROR IN /extract-parse-and-save:", error);
@@ -1533,6 +1768,7 @@ app.post("/start-coa-job", async (req, res) => {
       job_id: row.id,
       document_id: row.id,
       status: "queued",
+      html_url: buildReportUrl(req, row.id),
     });
   } catch (error) {
     console.error("ERROR IN /start-coa-job:", error);
@@ -1555,19 +1791,11 @@ app.get("/job-status", async (req, res) => {
       });
     }
 
-    const { data, error } = await supabase
-      .from("documents")
-      .select("*")
-      .eq("id", id)
-      .single();
+    const data = await getDocumentById(id);
 
-    if (error) {
-      throw new Error(`Could not fetch job status: ${error.message}`);
-    }
+    let pdfUrl = data?.parsed_json?.pdf_url || null;
 
-    let pdfUrl = null;
-
-    if (data?.storage_path) {
+    if (!pdfUrl && data?.storage_path) {
       const { data: publicUrlData } = supabase.storage
         .from(process.env.SUPABASE_BUCKET)
         .getPublicUrl(data.storage_path);
@@ -1581,6 +1809,7 @@ app.get("/job-status", async (req, res) => {
       status: data.status,
       file_name: data.storage_path || null,
       pdf_url: pdfUrl,
+      html_url: buildReportUrl(req, data.id),
       parsed_json: data.parsed_json || null,
     });
   } catch (error) {
@@ -1649,6 +1878,7 @@ app.post("/full-coa-pipeline", async (req, res) => {
       document_id: documentId,
       job_id: documentId,
       status: "queued",
+      html_url: buildReportUrl(req, documentId),
       message: "COA job started. Check /job-status with this id.",
     });
   } catch (error) {
@@ -1675,7 +1905,7 @@ app.post("/generate-report", async (req, res) => {
   let documentId = null;
 
   try {
-    const { data, fileName } = parseIncomingBody(req.body);
+    const { data } = parseIncomingBody(req.body);
 
     const { data: documentRow, error: documentError } = await supabase
       .from("documents")
@@ -1683,10 +1913,12 @@ app.post("/generate-report", async (req, res) => {
         {
           user_id: "bubble-user",
           source: "bubble",
-          original_filename: fileName,
-          mime_type: "application/pdf",
+          original_filename:
+            sanitizeFileName(data?.product_name || `coa-${Date.now()}`) + ".pdf",
+          mime_type: "text/html",
           document_type: "coa",
-          status: "processing",
+          status: "completed",
+          parsed_json: data,
         },
       ])
       .select()
@@ -1698,24 +1930,11 @@ app.post("/generate-report", async (req, res) => {
 
     documentId = documentRow.id;
 
-    const html = renderReportHTML(data);
-    const pdfBuffer = await buildPdfBufferFromHtml(html);
-    const pdfUrl = await uploadPdfToSupabase(fileName, pdfBuffer);
-
-    await updateDocumentStatus(documentId, {
-      status: "completed",
-      storage_path: fileName,
-      extracted_text: null,
-      parsed_json: {
-        ...data,
-        pdf_url: pdfUrl,
-      },
-    });
-
     return res.json({
       success: true,
-      file_name: fileName,
-      pdf_url: pdfUrl,
+      document_id: documentId,
+      html_url: buildReportUrl(req, documentId),
+      message: "HTML report created successfully",
     });
   } catch (error) {
     console.error("ERROR IN /generate-report:", error);
