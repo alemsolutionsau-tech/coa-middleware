@@ -20,6 +20,7 @@ app.use(express.urlencoded({ extended: true }));
 
 const PORT = process.env.PORT || 3000;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5";
+const MAX_OCR_CHARS_FOR_OPENAI = Number(process.env.MAX_OCR_CHARS_FOR_OPENAI || 25000);
 
 if (
   !process.env.AZURE_DOC_INTELLIGENCE_ENDPOINT ||
@@ -610,7 +611,126 @@ function normalizeParsedCOA(data = {}) {
   };
 }
 
+function safeSnippet(value, max = 1000) {
+  return String(value || "").slice(0, max);
+}
+
+function prepareOCRTextForModel(cleanText = "") {
+  const text = String(cleanText || "").trim();
+  if (!text) return "";
+
+  if (text.length <= MAX_OCR_CHARS_FOR_OPENAI) {
+    return text;
+  }
+
+  const headLength = Math.floor(MAX_OCR_CHARS_FOR_OPENAI * 0.7);
+  const tailLength = MAX_OCR_CHARS_FOR_OPENAI - headLength;
+
+  return [
+    text.slice(0, headLength),
+    "\n\n[TRUNCATED FOR MODEL INPUT]\n\n",
+    text.slice(-tailLength),
+  ].join("");
+}
+
+function extractTextFromOpenAIResponse(response) {
+  try {
+    if (!response || typeof response !== "object") {
+      return "";
+    }
+
+    if (
+      typeof response.output_text === "string" &&
+      response.output_text.trim()
+    ) {
+      return response.output_text.trim();
+    }
+
+    const chunks = [];
+
+    if (Array.isArray(response.output)) {
+      for (const item of response.output) {
+        if (!item || !Array.isArray(item.content)) continue;
+
+        for (const part of item.content) {
+          if (!part) continue;
+
+          if (typeof part.text === "string" && part.text.trim()) {
+            chunks.push(part.text.trim());
+            continue;
+          }
+
+          if (
+            part.type === "output_text" &&
+            typeof part.text === "string" &&
+            part.text.trim()
+          ) {
+            chunks.push(part.text.trim());
+          }
+        }
+      }
+    }
+
+    return chunks.join("\n").trim();
+  } catch (err) {
+    console.error("extractTextFromOpenAIResponse error:", err.message);
+    return "";
+  }
+}
+
+function logOpenAIResponseMeta(label, response) {
+  try {
+    console.log(`${label} RESPONSE ID:`, response?.id || "");
+    console.log(`${label} RESPONSE STATUS:`, response?.status || "");
+    console.log(`${label} RESPONSE MODEL:`, response?.model || "");
+    console.log(
+      `${label} RESPONSE OUTPUT_TEXT EXISTS:`,
+      typeof response?.output_text === "string"
+    );
+    console.log(
+      `${label} RESPONSE OUTPUT COUNT:`,
+      Array.isArray(response?.output) ? response.output.length : 0
+    );
+
+    if (response?.incomplete_details) {
+      console.log(
+        `${label} RESPONSE INCOMPLETE DETAILS:`,
+        JSON.stringify(response.incomplete_details)
+      );
+    }
+
+    if (response?.error) {
+      console.log(`${label} RESPONSE ERROR:`, JSON.stringify(response.error));
+    }
+  } catch (err) {
+    console.error("logOpenAIResponseMeta error:", err.message);
+  }
+}
+
+async function callOpenAIForJSON(systemPrompt, userText, maxOutputTokens = 2200) {
+  const response = await openai.responses.create({
+    model: OPENAI_MODEL,
+    store: false,
+    reasoning: { effort: "medium" },
+    max_output_tokens: maxOutputTokens,
+    input: [
+      {
+        role: "system",
+        content: systemPrompt,
+      },
+      {
+        role: "user",
+        content: userText,
+      },
+    ],
+  });
+
+  return response;
+}
+
 async function repairJSONToSchema(cleanText = "") {
+  const modelInput = prepareOCRTextForModel(cleanText);
+
   const repairPrompt = `
 You are repairing a failed COA extraction.
 
@@ -660,40 +780,23 @@ STRICT RULES:
 - Output must parse with JSON.parse()
 `;
 
-  const response = await openai.responses.create({
-    model: OPENAI_MODEL,
-    store: false,
-    reasoning: { effort: "medium" },
-    max_output_tokens: 2200,
-    input: [
-      {
-        role: "system",
-        content: repairPrompt,
-      },
-      {
-        role: "user",
-        content: cleanText,
-      },
-    ],
-  });
+  const response = await callOpenAIForJSON(repairPrompt, modelInput, 2200);
 
-  const repairedText =
-    response.output_text ||
-    (response.output || [])
-      .map((item) =>
-        (item.content || []).map((part) => part.text || "").join("")
-      )
-      .join("\n");
+  logOpenAIResponseMeta("REPAIR", response);
+
+  const repairedText = extractTextFromOpenAIResponse(response);
 
   console.log("REPAIR OUTPUT LENGTH:", repairedText ? repairedText.length : 0);
-  console.log(
-    "REPAIR OUTPUT START:",
-    String(repairedText || "").slice(0, 1000)
-  );
-  console.log(
-    "REPAIR OUTPUT END:",
-    String(repairedText || "").slice(-1000)
-  );
+  console.log("REPAIR OUTPUT START:", safeSnippet(repairedText, 1000));
+  console.log("REPAIR OUTPUT END:", String(repairedText || "").slice(-1000));
+
+  if (!repairedText.trim()) {
+    console.error(
+      "REPAIR FULL OPENAI RESPONSE:",
+      JSON.stringify(response, null, 2)
+    );
+    throw new Error("No text received from OpenAI during repair");
+  }
 
   const cleaned = extractJSONObject(repairedText);
   return JSON.parse(cleaned);
@@ -703,6 +806,8 @@ async function parseCOAWithOpenAI(cleanText = "") {
   if (!cleanText || !String(cleanText).trim()) {
     throw new Error("cleanText is empty");
   }
+
+  const modelInput = prepareOCRTextForModel(cleanText);
 
   const extractionPrompt = `
 You are the Alem Solutions COA extraction engine.
@@ -764,42 +869,27 @@ Return this exact shape:
 `;
 
   try {
-    console.log("OCR TEXT PREVIEW:", String(cleanText).slice(0, 1000));
+    console.log("OCR TEXT ORIGINAL LENGTH:", String(cleanText).length);
+    console.log("OCR TEXT MODEL INPUT LENGTH:", String(modelInput).length);
+    console.log("OCR TEXT PREVIEW:", safeSnippet(modelInput, 1500));
 
-    const response = await openai.responses.create({
-      model: OPENAI_MODEL,
-      store: false,
-      reasoning: { effort: "medium" },
-      max_output_tokens: 2200,
-      input: [
-        {
-          role: "system",
-          content: extractionPrompt,
-        },
-        {
-          role: "user",
-          content: cleanText,
-        },
-      ],
-    });
+    const response = await callOpenAIForJSON(extractionPrompt, modelInput, 2200);
 
-    const rawText =
-      response.output_text ||
-      (response.output || [])
-        .map((item) =>
-          (item.content || []).map((part) => part.text || "").join("")
-        )
-        .join("\n");
+    logOpenAIResponseMeta("RAW", response);
+
+    const rawText = extractTextFromOpenAIResponse(response);
 
     console.log("RAW OPENAI OUTPUT LENGTH:", rawText ? rawText.length : 0);
-    console.log(
-      "RAW OPENAI OUTPUT START:",
-      String(rawText || "").slice(0, 1000)
-    );
-    console.log(
-      "RAW OPENAI OUTPUT END:",
-      String(rawText || "").slice(-1000)
-    );
+    console.log("RAW OPENAI OUTPUT START:", safeSnippet(rawText, 1000));
+    console.log("RAW OPENAI OUTPUT END:", String(rawText || "").slice(-1000));
+
+    if (!rawText.trim()) {
+      console.error(
+        "RAW FULL OPENAI RESPONSE:",
+        JSON.stringify(response, null, 2)
+      );
+      throw new Error("No text received from OpenAI");
+    }
 
     let jsonText = extractJSONObject(rawText).trim();
 
@@ -810,6 +900,7 @@ Return this exact shape:
     return normalizeParsedCOA(JSON.parse(jsonText));
   } catch (parseError) {
     console.warn("JSON parse failed, attempting repair...");
+    console.warn("PRIMARY PARSE ERROR:", parseError.message);
 
     try {
       const repaired = await repairJSONToSchema(cleanText);
@@ -837,7 +928,7 @@ Return this exact shape:
         top_terpenes: [],
         positive_flags: [],
         warning_flags: [
-          "COA parsed partially due to malformed model output",
+          "COA parsed partially due to malformed or empty model output",
         ],
       });
     }
@@ -874,9 +965,15 @@ async function safeParseCOA(cleanText = "") {
 }
 
 async function extractDocumentFromUrl(fileUrl) {
+  if (!fileUrl || typeof fileUrl !== "string") {
+    throw new Error("fileUrl must be a non-empty string");
+  }
+
   const fileResponse = await axios.get(fileUrl, {
     responseType: "arraybuffer",
     timeout: 60000,
+    maxRedirects: 5,
+    validateStatus: (status) => status >= 200 && status < 300,
   });
 
   const mimeType = detectMimeType(
@@ -1253,6 +1350,8 @@ app.post("/test", async (req, res) => {
 });
 
 app.post("/full-coa-pipeline", async (req, res) => {
+  let documentId = null;
+
   try {
     const fileUrl = req.body?.file_url;
     const originalFilename =
@@ -1308,12 +1407,13 @@ app.post("/full-coa-pipeline", async (req, res) => {
       );
     }
 
-    const documentId = documentRow.id;
+    documentId = documentRow.id;
+
     const html = renderReportHTML(parsedJson);
     const pdfBuffer = await buildPdfBufferFromHtml(html);
     const pdfUrl = await uploadPdfToSupabase(fileName, pdfBuffer);
 
-    await supabase
+    const { error: updateError } = await supabase
       .from("documents")
       .update({
         status: "completed",
@@ -1321,6 +1421,10 @@ app.post("/full-coa-pipeline", async (req, res) => {
         mime_type: "application/pdf",
       })
       .eq("id", documentId);
+
+    if (updateError) {
+      throw new Error(`Could not update completed document: ${updateError.message}`);
+    }
 
     return res.json({
       success: true,
@@ -1332,6 +1436,19 @@ app.post("/full-coa-pipeline", async (req, res) => {
   } catch (error) {
     console.error("ERROR IN /full-coa-pipeline:", error);
 
+    if (documentId) {
+      try {
+        await supabase
+          .from("documents")
+          .update({
+            status: "failed",
+          })
+          .eq("id", documentId);
+      } catch (statusErr) {
+        console.error("Failed to mark document as failed:", statusErr.message);
+      }
+    }
+
     return res.status(500).json({
       success: false,
       error: error.message || "Unknown full pipeline error",
@@ -1340,6 +1457,8 @@ app.post("/full-coa-pipeline", async (req, res) => {
 });
 
 app.post("/generate-report", async (req, res) => {
+  let documentId = null;
+
   try {
     const { data, fileName } = parseIncomingBody(req.body);
 
@@ -1362,12 +1481,13 @@ app.post("/generate-report", async (req, res) => {
       throw new Error(`Could not create document row: ${documentError.message}`);
     }
 
-    const documentId = documentRow.id;
+    documentId = documentRow.id;
+
     const html = renderReportHTML(data);
     const pdfBuffer = await buildPdfBufferFromHtml(html);
     const pdfUrl = await uploadPdfToSupabase(fileName, pdfBuffer);
 
-    await supabase
+    const { error: updateError } = await supabase
       .from("documents")
       .update({
         status: "completed",
@@ -1377,6 +1497,10 @@ app.post("/generate-report", async (req, res) => {
       })
       .eq("id", documentId);
 
+    if (updateError) {
+      throw new Error(`Could not update generated report row: ${updateError.message}`);
+    }
+
     return res.json({
       success: true,
       file_name: fileName,
@@ -1384,6 +1508,19 @@ app.post("/generate-report", async (req, res) => {
     });
   } catch (error) {
     console.error("ERROR IN /generate-report:", error);
+
+    if (documentId) {
+      try {
+        await supabase
+          .from("documents")
+          .update({
+            status: "failed",
+          })
+          .eq("id", documentId);
+      } catch (statusErr) {
+        console.error("Failed to mark generated report as failed:", statusErr.message);
+      }
+    }
 
     return res.status(500).json({
       success: false,
