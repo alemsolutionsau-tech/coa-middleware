@@ -619,9 +619,9 @@ function renderReportHTML(data = {}, options = {}) {
   const positiveFlags = getSafeArray(data?.positive_flags);
   const warningFlags = getSafeArray(data?.warning_flags);
 
-  const thcNumber = numberFromPercentString(data?.thc_total);
-  const cbdNumber = numberFromPercentString(data?.cbd_total);
-  const terpNumber = numberFromPercentString(data?.total_terpenes);
+  const thc = numberFromPercentString(data?.thc_total);
+  const cbd = numberFromPercentString(data?.cbd_total);
+  const terps = numberFromPercentString(data?.total_terpenes);
 
   const productName = data?.product_name || "Cannabis Product";
   const productType = data?.product_type || "Product type not reported";
@@ -636,31 +636,351 @@ function renderReportHTML(data = {}, options = {}) {
   const secondTerpene = topTerpenes[1]?.name || "";
   const thirdTerpene = topTerpenes[2]?.name || "";
 
-  const potency = classifyPotency(thcNumber);
-  const terpeneDensity = classifyTerpeneDensity(terpNumber);
-  const effectDirection = inferEffectDirection(dominantTerpene);
-
-  const hasMinorCannabinoids = !!String(data?.minor_cannabinoids || "").trim();
+  const hasMinor = !!String(data?.minor_cannabinoids || "").trim();
   const hasContaminants = !!String(data?.contaminant_overview || "").trim();
 
-  const executiveBrief = buildExecutiveBrief({
-    thcNumber,
-    cbdNumber,
-    terpNumber,
-    dominantTerpene,
-    hasMinorCannabinoids
-  });
+  const compareProduct = data?.compare_product && typeof data.compare_product === "object"
+    ? data.compare_product
+    : null;
 
-  const compareCards = compareAgainstBenchmarks({
-    thcNumber,
-    terpNumber,
-    topTerpenes,
-    hasMinorCannabinoids,
-    hasContaminants
-  });
+  function classifyPotency(v) {
+    if (v >= 28) return { label: "Very high potency", short: "Very high" };
+    if (v >= 24) return { label: "High potency", short: "High" };
+    if (v >= 18) return { label: "Moderate-high potency", short: "Moderate-high" };
+    if (v > 0) return { label: "Moderate potency", short: "Moderate" };
+    return { label: "Potency unclear", short: "Unknown" };
+  }
 
-  const overallScoreText =
-    data?.overall_score || executiveBrief.headline;
+  function classifyTerpeneDensity(v) {
+    if (v >= 3) return { label: "High aromatic intensity", short: "High" };
+    if (v >= 1.5) return { label: "Moderate aromatic intensity", short: "Moderate" };
+    if (v > 0) return { label: "Light aromatic intensity", short: "Light" };
+    return { label: "Aromatic intensity unclear", short: "Unknown" };
+  }
+
+  function inferEffectDirection(lead = "") {
+    const t = String(lead || "").toLowerCase();
+
+    if (t.includes("terpinolene")) {
+      return {
+        label: "Uplifting / mentally active leaning",
+        note: "Terpinolene-led profiles often feel brighter, more active, and less body-heavy."
+      };
+    }
+    if (t.includes("myrcene")) {
+      return {
+        label: "Calming / body-heavy leaning",
+        note: "Myrcene-forward profiles often read as more body-centered and calming."
+      };
+    }
+    if (t.includes("limonene")) {
+      return {
+        label: "Bright / mood-forward leaning",
+        note: "Limonene-heavy profiles are often read as brighter and more mood-forward."
+      };
+    }
+    if (t.includes("caryophyllene")) {
+      return {
+        label: "Balanced / structured leaning",
+        note: "Caryophyllene-heavy profiles often feel balanced, warm, and structured."
+      };
+    }
+    if (t.includes("pinene")) {
+      return {
+        label: "Clear / alertness leaning",
+        note: "Pinene-forward profiles are often associated with clearer, more alert expression."
+      };
+    }
+
+    return {
+      label: "General chemistry-led profile",
+      note: "A stronger directional read would require clearer terpene dominance."
+    };
+  }
+
+  function getPaletteForTerpene(lead = "") {
+    const t = String(lead || "").toLowerCase();
+
+    if (t.includes("terpinolene")) {
+      return {
+        core: "#B7FF64",
+        glow: "#6DFFB4",
+        outer: "#8EE8FF",
+        spark: "#F6FF8A",
+        bg1: "#F5FFF0",
+        bg2: "#ECFFF9"
+      };
+    }
+    if (t.includes("myrcene")) {
+      return {
+        core: "#7E9F52",
+        glow: "#B2B36D",
+        outer: "#D8A65C",
+        spark: "#EFE3B3",
+        bg1: "#F8F7EF",
+        bg2: "#FBF7ED"
+      };
+    }
+    if (t.includes("limonene")) {
+      return {
+        core: "#FFD54F",
+        glow: "#FFF176",
+        outer: "#C8FF7A",
+        spark: "#FFF8BF",
+        bg1: "#FFFDF2",
+        bg2: "#F9FFF0"
+      };
+    }
+    if (t.includes("pinene")) {
+      return {
+        core: "#4DB6AC",
+        glow: "#80CBC4",
+        outer: "#81D4FA",
+        spark: "#D9FFF8",
+        bg1: "#F1FFFC",
+        bg2: "#F2FBFF"
+      };
+    }
+    if (t.includes("caryophyllene")) {
+      return {
+        core: "#C28A52",
+        glow: "#D6B06A",
+        outer: "#5C8A5A",
+        spark: "#F8E7B8",
+        bg1: "#FFF8F1",
+        bg2: "#F6FBF2"
+      };
+    }
+
+    return {
+      core: "#7BC47F",
+      glow: "#A5D6A7",
+      outer: "#90CAF9",
+      spark: "#E8F5E9",
+      bg1: "#F7FBF7",
+      bg2: "#F6FAFF"
+    };
+  }
+
+  function buildPostHarvestInsights() {
+    const freshness =
+      terps >= 2.5
+        ? {
+            label: "Strong freshness signal",
+            note: "Terpene retention appears strong, which is generally consistent with better post-harvest preservation."
+          }
+        : terps >= 1.5
+        ? {
+            label: "Moderate freshness signal",
+            note: "Terpene retention appears reasonably preserved, suggesting the flower maintained aromatic expression through handling."
+          }
+        : terps > 0
+        ? {
+            label: "Light freshness signal",
+            note: "Some aromatic expression remains, though terpene density is not strong enough to suggest standout preservation."
+          }
+        : {
+            label: "Freshness signal limited",
+            note: "Freshness cannot be meaningfully inferred because terpene density is unclear."
+          };
+
+    const cure =
+      topTerpenes.length >= 3 && terps >= 1.5
+        ? {
+            label: "Cure signal: positive",
+            note: "The profile does not look chemically flat; visible terpene layering suggests preserved aromatic complexity."
+          }
+        : topTerpenes.length >= 2
+        ? {
+            label: "Cure signal: moderate",
+            note: "Some terpene layering is visible, but confidence remains limited."
+          }
+        : {
+            label: "Cure signal: limited",
+            note: "A stronger curing inference would require clearer terpene spread and additional post-harvest variables."
+          };
+
+    const stability =
+      hasContaminants
+        ? {
+            label: "Stability signal: partial",
+            note: "Some quality-state interpretation is possible, but true stability confidence would require moisture, water activity, oxidation, or repeat-batch data."
+          }
+        : {
+            label: "Stability signal: limited",
+            note: "Stability confidence is limited because no moisture, water activity, oxidation, or longitudinal batch data are available."
+          };
+
+    return { freshness, cure, stability };
+  }
+
+  function buildCultivationInsights() {
+    const complexityScore =
+      Math.min(
+        10,
+        topTerpenes.length +
+          (hasMinor ? 2 : 0) +
+          (thc >= 24 ? 2 : thc >= 18 ? 1 : 0)
+      );
+
+    const expression =
+      thc >= 24 && terps >= 1.8
+        ? "Strong chemotype expression"
+        : thc >= 18 && terps >= 1.5
+        ? "Good chemotype expression"
+        : "Moderate chemotype expression";
+
+    const preservation =
+      terps >= 2
+        ? "Aromatic preservation appears reasonably intact."
+        : "Aromatic preservation is present but not especially strong.";
+
+    const cultivationNote =
+      hasMinor && topTerpenes.length >= 3
+        ? "This reads more like a well-expressed profile than a flat potency-only flower."
+        : "The profile shows useful structure, though cultivation-quality inference remains moderate.";
+
+    return {
+      complexityScore,
+      expression,
+      preservation,
+      cultivationNote
+    };
+  }
+
+  function buildLineageInsights() {
+    const t = String(dominantTerpene || "").toLowerCase();
+
+    if (t.includes("terpinolene")) {
+      return {
+        family: "Haze / Jack / Durban-type families",
+        confidence: "Moderate",
+        note: "Terpinolene-dominant profiles often cluster closer to uplifting Haze-leaning chemotypes than to sedating Kush patterns."
+      };
+    }
+
+    if (t.includes("myrcene")) {
+      return {
+        family: "Kush / OG / indica-leaning families",
+        confidence: "Moderate",
+        note: "Myrcene-led chemistry often maps more closely to body-heavier or Kush-leaning profile families."
+      };
+    }
+
+    if (t.includes("limonene")) {
+      return {
+        family: "Citrus / Gelato / Runtz-like hybrid families",
+        confidence: "Moderate",
+        note: "Limonene-heavy flowers often align more closely with brighter citrus-forward hybrid families."
+      };
+    }
+
+    if (t.includes("pinene")) {
+      return {
+        family: "Pine-forward or clearer sativa-leaning families",
+        confidence: "Low-moderate",
+        note: "Pinene prominence can suggest a clearer and more alertness-oriented chemotype cluster."
+      };
+    }
+
+    if (t.includes("caryophyllene")) {
+      return {
+        family: "Balanced hybrid / spice-forward families",
+        confidence: "Low-moderate",
+        note: "Caryophyllene-forward expressions can map toward structured, spicy hybrid families."
+      };
+    }
+
+    return {
+      family: "Unclear lineage cluster",
+      confidence: "Low",
+      note: "A stronger lineage read would require clearer terpene dominance and a richer comparison database."
+    };
+  }
+
+  function buildExecutiveBrief() {
+    const potency = classifyPotency(thc);
+    const terpeneDensity = classifyTerpeneDensity(terps);
+    const effectDirection = inferEffectDirection(dominantTerpene);
+
+    const cbdText =
+      cbd > 0
+        ? "Visible CBD may provide some modulation of THC intensity."
+        : "CBD appears absent or negligible, so THC modulation from CBD is likely minimal.";
+
+    const minorText = hasMinor
+      ? "Visible minor cannabinoids add chemical depth beyond THC alone."
+      : "Minor cannabinoid depth was not clearly captured in the structured data.";
+
+    return {
+      headline: `${potency.label}, ${dominantTerpene && dominantTerpene !== "Unknown" ? `${dominantTerpene}-dominant` : "chemistry-led"} flower with ${terpeneDensity.short.toLowerCase()} terpene intensity.`,
+      bullets: [
+        potency.label === "Potency unclear"
+          ? "Potency could not be confidently classified from the extracted data."
+          : `Potency reads as ${potency.short.toLowerCase()} relative to common flower ranges.`,
+        effectDirection.note,
+        cbdText,
+        minorText
+      ]
+    };
+  }
+
+  function compareAgainstBenchmarks() {
+    return [
+      {
+        label: "vs High-THC flower",
+        value:
+          thc >= 24
+            ? "Aligned"
+            : thc >= 18
+            ? "Slightly lighter"
+            : thc > 0
+            ? "Below category"
+            : "Unknown"
+      },
+      {
+        label: "vs aromatic premium flower",
+        value:
+          terps >= 3
+            ? "Aligned"
+            : terps >= 1.5
+            ? "Moderate"
+            : terps > 0
+            ? "Below category"
+            : "Unknown"
+      },
+      {
+        label: "vs differentiated chemotype",
+        value:
+          hasMinor || topTerpenes.length >= 4
+            ? "More distinctive"
+            : topTerpenes.length >= 2
+            ? "Moderately distinctive"
+            : "More standard"
+      },
+      {
+        label: "vs data-rich COA",
+        value:
+          topTerpenes.length && hasContaminants
+            ? "Strong"
+            : topTerpenes.length || hasContaminants
+            ? "Partial"
+            : "Limited"
+      }
+    ];
+  }
+
+  const potency = classifyPotency(thc);
+  const terpeneDensity = classifyTerpeneDensity(terps);
+  const effectDirection = inferEffectDirection(dominantTerpene);
+  const executiveBrief = buildExecutiveBrief();
+  const postHarvest = buildPostHarvestInsights();
+  const cultivation = buildCultivationInsights();
+  const lineage = buildLineageInsights();
+  const compareCards = compareAgainstBenchmarks();
+  const palette = getPaletteForTerpene(dominantTerpene);
+
+  const overallScoreText = data?.overall_score || executiveBrief.headline;
 
   const regulatoryStatus = warningFlags.length
     ? "Inconclusive"
@@ -684,18 +1004,18 @@ function renderReportHTML(data = {}, options = {}) {
     : "Aromatic profile not available";
 
   const thcBand =
-    thcNumber >= 24 ? "THC-H" : thcNumber >= 18 ? "THC-M" : thcNumber > 0 ? "THC-L" : "THC-?";
+    thc >= 24 ? "THC-H" : thc >= 18 ? "THC-M" : thc > 0 ? "THC-L" : "THC-?";
   const terpBand =
-    terpNumber >= 3 ? "TERP-H" : terpNumber >= 1.5 ? "TERP-M" : terpNumber > 0 ? "TERP-L" : "TERP-?";
+    terps >= 3 ? "TERP-H" : terps >= 1.5 ? "TERP-M" : terps > 0 ? "TERP-L" : "TERP-?";
   const cbdBand =
-    cbdNumber >= 5 ? "CBD-H" : cbdNumber >= 1 ? "CBD-M" : cbdNumber > 0 ? "CBD-L" : "CBD-LOW";
+    cbd >= 5 ? "CBD-H" : cbd >= 1 ? "CBD-M" : cbd > 0 ? "CBD-L" : "CBD-LOW";
 
   const fingerprintTags = [
     thcBand,
     terpBand,
     cbdBand,
     `${String(dominantTerpene || "UNKNOWN").toUpperCase().replace(/[^A-Z0-9]+/g, "-")}-DOM`,
-    hasMinorCannabinoids ? "MC+" : "MC-LIMITED",
+    hasMinor ? "MC+" : "MC-LIMITED",
     warningFlags.length ? "REVIEW" : "CLEAN",
   ];
 
@@ -713,8 +1033,10 @@ function renderReportHTML(data = {}, options = {}) {
     )
   );
 
-  const cannabinoidVisibility = topCannabinoids.length ? "High" : data?.thc_total || data?.cbd_total ? "Moderate" : "Limited";
-  const terpeneVisibility = topTerpenes.length ? "High" : data?.total_terpenes ? "Moderate" : "Limited";
+  const cannabinoidVisibility =
+    topCannabinoids.length ? "High" : data?.thc_total || data?.cbd_total ? "Moderate" : "Limited";
+  const terpeneVisibility =
+    topTerpenes.length ? "High" : data?.total_terpenes ? "Moderate" : "Limited";
 
   const completenessItems = [
     {
@@ -761,44 +1083,48 @@ function renderReportHTML(data = {}, options = {}) {
   );
 
   const patientSafeSummary = [
-    potency.note,
+    potency.label === "Potency unclear"
+      ? "Potency could not be clearly determined from the extracted data."
+      : `This appears to be a ${potency.short.toLowerCase()} THC product.`,
     dominantTerpene && dominantTerpene !== "Unknown"
       ? `${dominantTerpene} appears to be the dominant terpene in this sample.`
       : "A dominant terpene could not be clearly identified.",
-    terpeneDensity.note,
+    terpeneDensity.label === "Aromatic intensity unclear"
+      ? "Terpene intensity could not be clearly assessed."
+      : terpeneDensity.label + " is suggested by the terpene density.",
     warningFlags.length
       ? "Some parts of the report should be read cautiously because certain fields were limited or flagged."
-      : "No major caution flags were detected in the structured output.",
+      : "No major caution flags were detected in the structured output."
   ];
 
   const clinicianInsights = [
-    cbdNumber <= 1
+    cbd <= 1
       ? "Low CBD suggests limited direct THC modulation."
       : "Visible CBD may contribute some modulation of THC-dominant effects.",
-    thcNumber >= 24
+    thc >= 24
       ? "High THC concentration warrants tolerance-aware prescribing considerations."
       : "THC potency appears less extreme than ultra-high THC flower products.",
-    hasMinorCannabinoids
+    hasMinor
       ? "Minor cannabinoids are present and may add profile complexity."
       : "Minor cannabinoid depth was not clearly reported.",
     hasContaminants
       ? "Contaminant summary was reported and should be reviewed alongside the source COA."
-      : "Contaminant interpretation is limited because no structured overview was extracted.",
+      : "Contaminant interpretation is limited because no structured overview was extracted."
   ];
 
   const industryInsights = [
     dominantTerpene && dominantTerpene !== "Unknown"
       ? `${dominantTerpene}-led chemistry can support differentiated market positioning.`
-      : "Terpene dominance is not strong enough in the current extraction to support a clear positioning angle.",
-    terpNumber >= 2.5
+      : "Terpene dominance is not strong enough to support a clear positioning angle.",
+    terps >= 2.5
       ? "Stronger terpene density supports premium aromatic positioning."
       : "Moderate terpene density may require positioning around effect profile rather than aroma intensity alone.",
-    hasMinorCannabinoids
+    hasMinor
       ? "Minor cannabinoids add product-story depth for brand and category differentiation."
       : "Limited visible minor cannabinoid depth may reduce differentiation narrative.",
     warningFlags.length
       ? "Commercial claims should be conservative until flagged issues are clarified."
-      : "Structured output suggests cleaner messaging conditions for educational positioning.",
+      : "Structured output suggests cleaner messaging conditions for educational positioning."
   ];
 
   const enthusiastInsights = [
@@ -811,38 +1137,38 @@ function renderReportHTML(data = {}, options = {}) {
       : secondTerpene
       ? `Leading terpene pairing includes ${dominantTerpene} and ${secondTerpene}.`
       : `Primary terpene signal centers on ${dominantTerpene}.`,
-    hasMinorCannabinoids
+    hasMinor
       ? "Minor cannabinoids suggest added complexity beyond THC alone."
-      : "Profile appears more driven by the major compounds captured in the report.",
+      : "Profile appears more driven by the major compounds captured in the report."
   ];
 
   const benchmarkCards = [
     {
       label: "Potency Position",
       value:
-        thcNumber >= 24
+        thc >= 24
           ? "High-tier"
-          : thcNumber >= 18
+          : thc >= 18
           ? "Mid-high"
-          : thcNumber > 0
+          : thc > 0
           ? "Moderate"
           : "Unknown",
     },
     {
       label: "Aroma Density",
       value:
-        terpNumber >= 3
+        terps >= 3
           ? "High"
-          : terpNumber >= 1.5
+          : terps >= 1.5
           ? "Moderate"
-          : terpNumber > 0
+          : terps > 0
           ? "Light"
           : "Unknown",
     },
     {
       label: "Differentiation",
       value:
-        hasMinorCannabinoids && topTerpenes.length >= 3
+        hasMinor && topTerpenes.length >= 3
           ? "Moderate-high"
           : topTerpenes.length >= 2
           ? "Moderate"
@@ -859,15 +1185,41 @@ function renderReportHTML(data = {}, options = {}) {
     dominantTerpene && dominantTerpene !== "Unknown"
       ? `Chemotype anchor: ${dominantTerpene}-dominant`
       : "Chemotype anchor unavailable",
-    thcNumber >= 24
+    thc >= 24
       ? "Similarity cluster: higher-THC flower"
-      : thcNumber >= 18
+      : thc >= 18
       ? "Similarity cluster: standard THC flower"
       : "Similarity cluster: lighter potency flower",
-    terpNumber >= 2
+    terps >= 2
       ? "Comparable set: aromatic-forward profiles"
-      : "Comparable set: lighter terpene expression",
+      : "Comparable set: lighter terpene expression"
   ];
+
+  const compareHtml = compareProduct
+    ? `
+      <section class="section">
+        <div class="card">
+          <h2 class="section-title">Live compare</h2>
+          <div class="compare-live-grid">
+            <div class="compare-live-card">
+              <div class="compare-live-title">Current</div>
+              <div class="compare-live-name">${esc(productName)}</div>
+              <div class="compare-live-row"><span>THC</span><strong>${esc(data?.thc_total || "—")}</strong></div>
+              <div class="compare-live-row"><span>Terpenes</span><strong>${esc(data?.total_terpenes || "—")}</strong></div>
+              <div class="compare-live-row"><span>Lead terpene</span><strong>${esc(dominantTerpene)}</strong></div>
+            </div>
+            <div class="compare-live-card">
+              <div class="compare-live-title">Compared product</div>
+              <div class="compare-live-name">${esc(compareProduct?.product_name || "Unnamed")}</div>
+              <div class="compare-live-row"><span>THC</span><strong>${esc(compareProduct?.thc_total || "—")}</strong></div>
+              <div class="compare-live-row"><span>Terpenes</span><strong>${esc(compareProduct?.total_terpenes || "—")}</strong></div>
+              <div class="compare-live-row"><span>Lead terpene</span><strong>${esc(compareProduct?.top_terpenes?.[0]?.name || "—")}</strong></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    `
+    : "";
 
   const renderPillList = (items = [], emptyText = "Not reported") => {
     if (!Array.isArray(items) || !items.length) {
@@ -969,6 +1321,12 @@ function renderReportHTML(data = {}, options = {}) {
     --danger: #a55757;
     --warn: #a67e2d;
     --shadow: 0 14px 38px rgba(32, 31, 28, 0.06);
+    --soul-core: ${palette.core};
+    --soul-glow: ${palette.glow};
+    --soul-outer: ${palette.outer};
+    --soul-spark: ${palette.spark};
+    --soul-bg1: ${palette.bg1};
+    --soul-bg2: ${palette.bg2};
   }
 
   * { box-sizing: border-box; }
@@ -986,7 +1344,7 @@ function renderReportHTML(data = {}, options = {}) {
   }
 
   .shell {
-    max-width: 1380px;
+    max-width: 1400px;
     margin: 0 auto;
     padding: 24px 20px 42px;
   }
@@ -1161,9 +1519,7 @@ function renderReportHTML(data = {}, options = {}) {
     color: #5b5750;
   }
 
-  .section {
-    margin-top: 22px;
-  }
+  .section { margin-top: 22px; }
 
   .section-title {
     margin: 0 0 14px;
@@ -1172,9 +1528,7 @@ function renderReportHTML(data = {}, options = {}) {
     letter-spacing: -0.03em;
   }
 
-  .section-title.small {
-    font-size: 24px;
-  }
+  .section-title.small { font-size: 24px; }
 
   .section-sub {
     color: var(--muted);
@@ -1191,9 +1545,7 @@ function renderReportHTML(data = {}, options = {}) {
     box-shadow: var(--shadow);
   }
 
-  .card-soft {
-    background: var(--panel-2);
-  }
+  .card-soft { background: var(--panel-2); }
 
   .grid-2 {
     display: grid;
@@ -1388,9 +1740,7 @@ function renderReportHTML(data = {}, options = {}) {
     font-size: 15px;
   }
 
-  .terpene-big strong {
-    color: var(--text);
-  }
+  .terpene-big strong { color: var(--text); }
 
   .aroma-box {
     margin-top: 16px;
@@ -1571,9 +1921,7 @@ function renderReportHTML(data = {}, options = {}) {
     gap: 18px;
   }
 
-  .insight-card {
-    min-height: 100%;
-  }
+  .insight-card { min-height: 100%; }
 
   .insight-label {
     font-size: 11px;
@@ -1619,13 +1967,8 @@ function renderReportHTML(data = {}, options = {}) {
     border-color: var(--green);
   }
 
-  .tab-panel {
-    display: none;
-  }
-
-  .tab-panel.active {
-    display: block;
-  }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
 
   .insight-list {
     margin: 0;
@@ -1640,81 +1983,92 @@ function renderReportHTML(data = {}, options = {}) {
 
   .fingerprint-hero {
     display: grid;
-    grid-template-columns: 0.95fr 1.05fr;
+    grid-template-columns: 0.92fr 1.08fr;
     gap: 18px;
     align-items: stretch;
   }
 
-  .fingerprint-visual {
+  .soul-shell {
     position: relative;
-    min-height: 320px;
-    border-radius: 24px;
+    min-height: 420px;
+    border-radius: 28px;
     border: 1px solid var(--line);
     overflow: hidden;
     background:
-      radial-gradient(circle at center, rgba(31,61,43,0.06) 0, rgba(31,61,43,0.06) 1px, transparent 1px),
-      linear-gradient(180deg, #fbfaf7, #ffffff);
-    background-size: 28px 28px, auto;
+      radial-gradient(circle at 15% 15%, rgba(255,255,255,0.9), transparent 26%),
+      linear-gradient(180deg, var(--soul-bg1), var(--soul-bg2));
   }
 
-  .fingerprint-center {
+  .soul-head {
     position: absolute;
-    inset: 0;
-    display: grid;
-    place-items: center;
-  }
-
-  .fingerprint-ring {
-    width: 230px;
-    height: 230px;
-    border: 1px dashed rgba(31,61,43,0.22);
-    border-radius: 50%;
-    position: relative;
-    display: grid;
-    place-items: center;
-  }
-
-  .fingerprint-ring::before,
-  .fingerprint-ring::after {
-    content: "";
-    position: absolute;
-    border-radius: 50%;
-    border: 1px dashed rgba(31,61,43,0.16);
-  }
-
-  .fingerprint-ring::before { inset: 22px; }
-  .fingerprint-ring::after { inset: 48px; }
-
-  .fingerprint-core {
-    width: 114px;
-    height: 114px;
-    border-radius: 50%;
-    background: var(--green);
-    color: #fff;
-    display: grid;
-    place-items: center;
-    text-align: center;
-    padding: 12px;
-    font-weight: 800;
-    font-size: 13px;
-    box-shadow: 0 12px 28px rgba(31,61,43,0.18);
-  }
-
-  .fp-signal {
-    position: absolute;
-    padding: 7px 10px;
+    left: 18px;
+    top: 16px;
+    z-index: 3;
+    padding: 10px 12px;
     border-radius: 999px;
-    background: rgba(255,255,255,0.96);
-    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.84);
+    border: 1px solid rgba(0,0,0,0.06);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--green);
+    backdrop-filter: blur(8px);
+  }
+
+  .soul-meta {
+    position: absolute;
+    right: 16px;
+    top: 16px;
+    z-index: 3;
+    display: grid;
+    gap: 8px;
+  }
+
+  .soul-chip {
+    padding: 8px 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.86);
+    border: 1px solid rgba(0,0,0,0.06);
     font-size: 12px;
     color: var(--muted);
-    box-shadow: 0 8px 20px rgba(0,0,0,0.03);
+    font-weight: 700;
   }
 
-  .fp-a { top: 20px; left: 22px; }
-  .fp-b { top: 34px; right: 22px; }
-  .fp-c { bottom: 26px; left: 26px; }
-  .fp-d { bottom: 34px; right: 20px; }
+  .soul-canvas-wrap {
+    position: absolute;
+    inset: 0;
+  }
+
+  #chemicalSoulCanvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  .soul-caption {
+    position: absolute;
+    left: 20px;
+    bottom: 18px;
+    right: 20px;
+    z-index: 3;
+    display: grid;
+    gap: 8px;
+  }
+
+  .soul-caption-title {
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: #223127;
+  }
+
+  .soul-caption-copy {
+    max-width: 560px;
+    color: #465046;
+    line-height: 1.7;
+    font-size: 14px;
+  }
 
   .fingerprint-tags {
     display: flex;
@@ -1734,14 +2088,18 @@ function renderReportHTML(data = {}, options = {}) {
   }
 
   .benchmark-grid,
-  .compare-grid {
+  .compare-grid,
+  .post-grid,
+  .lineage-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 14px;
   }
 
   .benchmark-card,
-  .compare-card {
+  .compare-card,
+  .post-card,
+  .lineage-card {
     border: 1px solid var(--line);
     border-radius: 18px;
     padding: 16px;
@@ -1749,7 +2107,9 @@ function renderReportHTML(data = {}, options = {}) {
   }
 
   .benchmark-label,
-  .compare-label {
+  .compare-label,
+  .post-label,
+  .lineage-label {
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.10em;
@@ -1758,11 +2118,61 @@ function renderReportHTML(data = {}, options = {}) {
   }
 
   .benchmark-value,
-  .compare-value {
-    font-size: 20px;
+  .compare-value,
+  .post-value,
+  .lineage-value {
+    font-size: 18px;
     font-weight: 800;
     color: var(--text);
+    margin-bottom: 6px;
   }
+
+  .post-note,
+  .lineage-note {
+    font-size: 13px;
+    line-height: 1.6;
+    color: #5f5a53;
+  }
+
+  .compare-live-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .compare-live-card {
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: #fff;
+    padding: 16px;
+  }
+
+  .compare-live-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.10em;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  .compare-live-name {
+    font-size: 22px;
+    font-weight: 800;
+    margin-bottom: 14px;
+    color: var(--text);
+    letter-spacing: -0.02em;
+  }
+
+  .compare-live-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 14px;
+  }
+
+  .compare-live-row strong { color: var(--text); }
 
   .future-box {
     border-radius: 24px;
@@ -1808,17 +2218,20 @@ function renderReportHTML(data = {}, options = {}) {
     padding: 0 10px;
   }
 
-  @media (max-width: 1100px) {
+  @media (max-width: 1150px) {
     .grid-2,
     .reg-grid,
     .terpene-layout,
     .insight-grid,
-    .fingerprint-hero {
+    .fingerprint-hero,
+    .compare-live-grid {
       grid-template-columns: 1fr;
     }
 
     .benchmark-grid,
-    .compare-grid {
+    .compare-grid,
+    .post-grid,
+    .lineage-grid {
       grid-template-columns: repeat(2, 1fr);
     }
 
@@ -1832,9 +2245,7 @@ function renderReportHTML(data = {}, options = {}) {
       grid-template-columns: 1fr;
     }
 
-    .hero h1 {
-      font-size: 38px;
-    }
+    .hero h1 { font-size: 38px; }
   }
 
   @media (max-width: 700px) {
@@ -1847,19 +2258,18 @@ function renderReportHTML(data = {}, options = {}) {
       border-radius: 24px;
     }
 
-    .hero h1 {
-      font-size: 31px;
-    }
+    .hero h1 { font-size: 31px; }
 
     .benchmark-grid,
     .compare-grid,
+    .post-grid,
+    .lineage-grid,
     .reg-status-cards {
       grid-template-columns: 1fr;
     }
 
-    .top-metric-value {
-      font-size: 28px;
-    }
+    .top-metric-value { font-size: 28px; }
+    .soul-shell { min-height: 360px; }
   }
 
   @media print {
@@ -1893,7 +2303,7 @@ function renderReportHTML(data = {}, options = {}) {
     <section class="hero">
       <div class="hero-top">
         <div>
-          <div class="brand-mark">ALEM COA Intelligence Interface</div>
+          <div class="brand-mark">ALEM COA Intelligence Interface V4</div>
           <h1>${esc(productName)}</h1>
           <div class="hero-subtitle">${esc(subtitle)}</div>
 
@@ -1913,6 +2323,50 @@ function renderReportHTML(data = {}, options = {}) {
           <div class="hero-score-value">${esc(overallScoreText)}</div>
           <div class="hero-score-note">
             ${esc(executiveBrief.headline)}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="card">
+        <h2 class="section-title">Chemical Soul</h2>
+        <div class="fingerprint-hero">
+          <div class="soul-shell">
+            <div class="soul-head">Chemical Soul Engine</div>
+            <div class="soul-meta">
+              <div class="soul-chip">${esc(dominantTerpene)} lead</div>
+              <div class="soul-chip">${esc(potency.short)} potency</div>
+              <div class="soul-chip">${esc(terpeneDensity.short)} aroma</div>
+            </div>
+            <div class="soul-canvas-wrap">
+              <canvas id="chemicalSoulCanvas" width="800" height="520"></canvas>
+            </div>
+            <div class="soul-caption">
+              <div class="soul-caption-title">${esc(dominantTerpene && dominantTerpene !== "Unknown" ? `${dominantTerpene}-led living fingerprint` : "Living chemical fingerprint")}</div>
+              <div class="soul-caption-copy">
+                Abstract chemotype bloom generated from potency, terpene density, minor-cannabinoid depth, diversity, dominance skew, and confidence.
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div class="section-sub">This visual translates the product’s chemical structure into an algorithmic identity — a stylized chemotype galaxy rather than a generic chart.</div>
+            <div class="fingerprint-tags">
+              ${fingerprintTags.map((tag) => `<span class="fingerprint-tag">${esc(tag)}</span>`).join("")}
+            </div>
+
+            <div class="card card-soft" style="margin-top:16px;">
+              <div class="insight-label">Similarity signals</div>
+              ${renderPillList(similaritySignals, "Similarity analysis pending")}
+            </div>
+
+            <div class="card card-soft" style="margin-top:16px;">
+              <div class="insight-label">Lineage / genetics / strain matching</div>
+              <div class="copy"><strong>Likely family:</strong> ${esc(lineage.family)}</div>
+              <div class="copy" style="margin-top:8px;"><strong>Confidence:</strong> ${esc(lineage.confidence)}</div>
+              <div class="copy" style="margin-top:8px;">${esc(lineage.note)}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -1946,7 +2400,7 @@ function renderReportHTML(data = {}, options = {}) {
         <div class="copy"><strong>Potency class:</strong> ${esc(potency.label)}</div>
         <div class="copy" style="margin-top:8px;"><strong>Total THC:</strong> ${esc(data?.thc_total || "Not reported")}</div>
         <div class="copy" style="margin-top:8px;"><strong>CBD:</strong> ${esc(data?.cbd_total || "Not reported")}</div>
-        <div class="copy" style="margin-top:8px;"><strong>Interpretation:</strong> ${esc(potency.note)}</div>
+        <div class="copy" style="margin-top:8px;"><strong>Interpretation:</strong> ${esc(classifyPotency(thc).label === "Potency unclear" ? "Potency could not be confidently classified." : `This sample reads as ${potency.short.toLowerCase()} relative to common flower potency ranges.`)}</div>
       </div>
     </section>
 
@@ -1956,6 +2410,62 @@ function renderReportHTML(data = {}, options = {}) {
         <ul class="insight-list">
           ${executiveBrief.bullets.map((x) => `<li>${esc(x)}</li>`).join("")}
         </ul>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="card">
+        <h2 class="section-title">Post-Harvest Intelligence</h2>
+        <div class="post-grid">
+          <div class="post-card">
+            <div class="post-label">Freshness</div>
+            <div class="post-value">${esc(postHarvest.freshness.label)}</div>
+            <div class="post-note">${esc(postHarvest.freshness.note)}</div>
+          </div>
+          <div class="post-card">
+            <div class="post-label">Curing</div>
+            <div class="post-value">${esc(postHarvest.cure.label)}</div>
+            <div class="post-note">${esc(postHarvest.cure.note)}</div>
+          </div>
+          <div class="post-card">
+            <div class="post-label">Stability</div>
+            <div class="post-value">${esc(postHarvest.stability.label)}</div>
+            <div class="post-note">${esc(postHarvest.stability.note)}</div>
+          </div>
+          <div class="post-card">
+            <div class="post-label">Aroma preservation</div>
+            <div class="post-value">${esc(terpeneDensity.label)}</div>
+            <div class="post-note">${esc(terpeneDensity.label === "Aromatic intensity unclear" ? "Aroma preservation is hard to assess from the current data." : "Aromatic intensity contributes to the post-harvest preservation readout.")}</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="card">
+        <h2 class="section-title">Cultivation Expression</h2>
+        <div class="lineage-grid">
+          <div class="lineage-card">
+            <div class="lineage-label">Expression</div>
+            <div class="lineage-value">${esc(cultivation.expression)}</div>
+            <div class="lineage-note">${esc(cultivation.cultivationNote)}</div>
+          </div>
+          <div class="lineage-card">
+            <div class="lineage-label">Complexity score</div>
+            <div class="lineage-value">${esc(`${cultivation.complexityScore}/10`)}</div>
+            <div class="lineage-note">Chemical depth estimated from terpene diversity, potency, and minor-cannabinoid visibility.</div>
+          </div>
+          <div class="lineage-card">
+            <div class="lineage-label">Preservation</div>
+            <div class="lineage-value">${esc(cultivation.preservation)}</div>
+            <div class="lineage-note">Aroma and structure suggest how well the profile has been preserved into the final sample.</div>
+          </div>
+          <div class="lineage-card">
+            <div class="lineage-label">Effect direction</div>
+            <div class="lineage-value">${esc(effectDirection.label)}</div>
+            <div class="lineage-note">${esc(effectDirection.note)}</div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -1999,39 +2509,6 @@ function renderReportHTML(data = {}, options = {}) {
 
     <section class="section">
       <div class="card">
-        <h2 class="section-title">Chemical fingerprint</h2>
-        <div class="fingerprint-hero">
-          <div class="fingerprint-visual">
-            <div class="fingerprint-center">
-              <div class="fingerprint-ring">
-                <div class="fingerprint-core">
-                  Fingerprint<br/>Engine
-                </div>
-              </div>
-            </div>
-            <div class="fp-signal fp-a">THC ${esc(data?.thc_total || "N/A")}</div>
-            <div class="fp-signal fp-b">Terpenes ${esc(data?.total_terpenes || "N/A")}</div>
-            <div class="fp-signal fp-c">Lead ${esc(dominantTerpene)}</div>
-            <div class="fp-signal fp-d">${esc(hasMinorCannabinoids ? "Minor cannabinoids present" : "Minor cannabinoids limited")}</div>
-          </div>
-
-          <div>
-            <div class="section-sub">A compact fingerprint layer that prepares the product for future similarity matching, clustering, and compare mode.</div>
-            <div class="fingerprint-tags">
-              ${fingerprintTags.map((tag) => `<span class="fingerprint-tag">${esc(tag)}</span>`).join("")}
-            </div>
-
-            <div class="card card-soft" style="margin-top:16px;">
-              <div class="insight-label">Similarity signals</div>
-              ${renderPillList(similaritySignals, "Similarity analysis pending")}
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="card">
         <h2 class="section-title">Benchmarking engine</h2>
         <div class="benchmark-grid">
           ${benchmarkCards
@@ -2066,6 +2543,8 @@ function renderReportHTML(data = {}, options = {}) {
       </div>
     </section>
 
+    ${compareHtml}
+
     <section class="section">
       <div class="card">
         <h2 class="section-title">Cannabinoid profile</h2>
@@ -2086,9 +2565,9 @@ function renderReportHTML(data = {}, options = {}) {
 
         <div class="grid-2" style="margin-top:18px;">
           <div>
-            ${renderBar("THC", data?.thc_total || "0", thcNumber * 3, "")}
-            ${renderBar("CBD", data?.cbd_total || "0", cbdNumber * 10, "gold")}
-            ${renderBar("Total terpenes", data?.total_terpenes || "0", terpNumber * 20, "teal")}
+            ${renderBar("THC", data?.thc_total || "0", thc * 3, "")}
+            ${renderBar("CBD", data?.cbd_total || "0", cbd * 10, "gold")}
+            ${renderBar("Total terpenes", data?.total_terpenes || "0", terps * 20, "teal")}
 
             <div class="minor-box">
               <div class="minor-title">Minor cannabinoids</div>
@@ -2215,6 +2694,13 @@ function renderReportHTML(data = {}, options = {}) {
       </div>
     </section>
 
+    <section class="future-box section">
+      <div class="future-title">Next intelligence layer</div>
+      <div class="copy">
+        This V4 page is ready for true database-backed 3D clustering, batch-to-batch compare, live nearest-neighbor profile matching, strain family probability scoring, and marketplace-grade fingerprint search.
+      </div>
+    </section>
+
     <section id="rawDataBox" class="raw-box">
       <pre>${rawJson}</pre>
     </section>
@@ -2288,6 +2774,175 @@ function renderReportHTML(data = {}, options = {}) {
           }
         });
       }
+
+      const canvas = document.getElementById("chemicalSoulCanvas");
+      if (!canvas) return;
+
+      const ctx = canvas.getContext("2d");
+      const width = canvas.width;
+      const height = canvas.height;
+      const cx = width / 2;
+      const cy = height / 2;
+
+      const palette = {
+        core: getComputedStyle(document.documentElement).getPropertyValue("--soul-core").trim(),
+        glow: getComputedStyle(document.documentElement).getPropertyValue("--soul-glow").trim(),
+        outer: getComputedStyle(document.documentElement).getPropertyValue("--soul-outer").trim(),
+        spark: getComputedStyle(document.documentElement).getPropertyValue("--soul-spark").trim()
+      };
+
+      const potency = ${JSON.stringify(Math.max(0.5, Math.min(10, thc / 3)))};
+      const aroma = ${JSON.stringify(Math.max(0.5, Math.min(10, terps * 2.2)))};
+      const complexity = ${JSON.stringify(Math.max(2, Math.min(12, topTerpenes.length + (hasMinor ? 2 : 0) + 2)))};
+      const confidence = ${JSON.stringify(dataConfidenceScore / 100)};
+      const dominance = ${JSON.stringify(topTerpenes.length > 1
+        ? Math.min(1, Math.max(0.1, Math.abs(
+            numberFromPercentString(topTerpenes[0]?.value) - numberFromPercentString(topTerpenes[1]?.value)
+          ) + 0.15))
+        : 0.55)};
+      const orbitalDots = ${JSON.stringify(Math.max(8, Math.min(28, topCannabinoids.length + topTerpenes.length + (hasMinor ? 6 : 2))))};
+
+      const particles = Array.from({ length: orbitalDots }).map((_, i) => ({
+        angle: (Math.PI * 2 * i) / orbitalDots,
+        radius: 80 + (i % 7) * 12 + complexity * 2,
+        size: 1.6 + (i % 4) * 0.8,
+        speed: 0.001 + (i % 5) * 0.0009 + dominance * 0.0009,
+        alpha: 0.25 + ((i % 5) * 0.08),
+        wobble: 4 + (i % 3) * 3
+      }));
+
+      function drawBlob(time) {
+        const petals = Math.max(6, Math.min(18, complexity));
+        const baseR = 60 + potency * 7;
+        const variance = 18 + aroma * 4;
+        const rot = time * (0.00018 + dominance * 0.0002);
+
+        ctx.beginPath();
+
+        for (let i = 0; i <= petals * 2; i++) {
+          const a = (Math.PI * 2 * i) / (petals * 2) + rot;
+          const mod = i % 2 === 0 ? 1 : 0.65 + dominance * 0.35;
+          const r = baseR + variance * mod + Math.sin(time * 0.001 + i) * 5;
+          const x = cx + Math.cos(a) * r;
+          const y = cy + Math.sin(a) * r * (0.82 + confidence * 0.22);
+
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+
+        ctx.closePath();
+
+        const grad = ctx.createRadialGradient(cx, cy, 18, cx, cy, baseR + variance + 30);
+        grad.addColorStop(0, palette.core);
+        grad.addColorStop(0.45, palette.glow);
+        grad.addColorStop(0.85, palette.outer);
+        grad.addColorStop(1, "rgba(255,255,255,0)");
+
+        ctx.fillStyle = grad;
+        ctx.globalAlpha = 0.78;
+        ctx.fill();
+
+        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = palette.spark;
+        ctx.globalAlpha = 0.32;
+        ctx.stroke();
+      }
+
+      function drawCore(time) {
+        const pulse = Math.sin(time * 0.002) * 6;
+        const r = 30 + potency * 3 + pulse;
+
+        const grad = ctx.createRadialGradient(cx, cy, 2, cx, cy, r + 36);
+        grad.addColorStop(0, "#ffffff");
+        grad.addColorStop(0.18, palette.spark);
+        grad.addColorStop(0.45, palette.core);
+        grad.addColorStop(0.8, palette.glow);
+        grad.addColorStop(1, "rgba(255,255,255,0)");
+
+        ctx.globalAlpha = 0.95;
+        ctx.beginPath();
+        ctx.fillStyle = grad;
+        ctx.arc(cx, cy, r + 36, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      function drawOrbitals(time) {
+        particles.forEach((p, idx) => {
+          const ang = p.angle + time * p.speed;
+          const wobble = Math.sin(time * 0.002 + idx) * p.wobble;
+          const rr = p.radius + wobble;
+          const x = cx + Math.cos(ang) * rr;
+          const y = cy + Math.sin(ang) * rr * 0.72;
+
+          ctx.beginPath();
+          ctx.fillStyle = idx % 3 === 0 ? palette.spark : idx % 2 === 0 ? palette.outer : palette.glow;
+          ctx.globalAlpha = p.alpha;
+          ctx.arc(x, y, p.size, 0, Math.PI * 2);
+          ctx.fill();
+
+          if (idx % 5 === 0) {
+            ctx.beginPath();
+            ctx.strokeStyle = palette.outer;
+            ctx.globalAlpha = 0.08;
+            ctx.moveTo(cx, cy);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+          }
+        });
+      }
+
+      function drawGrid() {
+        ctx.globalAlpha = 0.07;
+        ctx.strokeStyle = "#506050";
+        ctx.lineWidth = 1;
+
+        for (let x = 0; x <= width; x += 40) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, height);
+          ctx.stroke();
+        }
+
+        for (let y = 0; y <= height; y += 40) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(width, y);
+          ctx.stroke();
+        }
+
+        ctx.globalAlpha = 0.11;
+        ctx.beginPath();
+        ctx.moveTo(cx, 0);
+        ctx.lineTo(cx, height);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(0, cy);
+        ctx.lineTo(width, cy);
+        ctx.stroke();
+      }
+
+      function drawAxesLabels() {
+        ctx.globalAlpha = 0.55;
+        ctx.fillStyle = "#5f6a5f";
+        ctx.font = "12px Inter, Arial";
+
+        ctx.fillText("Potency →", width - 90, cy - 8);
+        ctx.fillText("Aroma ↑", cx + 10, 18);
+        ctx.fillText("Complexity depth", 18, height - 16);
+      }
+
+      function animate(time) {
+        ctx.clearRect(0, 0, width, height);
+        drawGrid();
+        drawBlob(time);
+        drawCore(time);
+        drawOrbitals(time);
+        drawAxesLabels();
+        requestAnimationFrame(animate);
+      }
+
+      requestAnimationFrame(animate);
     })();
   </script>
 </body>
