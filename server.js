@@ -405,7 +405,17 @@ function renderReportHTML(data = {}, options = {}) {
   const cbdNumber = numberFromPercentString(data?.cbd_total);
   const terpNumber = numberFromPercentString(data?.total_terpenes);
 
+  const productName = data?.product_name || "Cannabis Product";
+  const productType = data?.product_type || "Product type not reported";
+  const batchNumber = data?.batch_number || "Not reported";
+  const laboratoryName = data?.laboratory_name || "Lab not reported";
+  const reportDate = data?.coa_report_date || "Date not reported";
+  const subtitle =
+    data?.opening_statement ||
+    "Chemistry translated into practical intelligence from the uploaded COA.";
+
   const overallScoreText = data?.overall_score || "Interpretive summary pending";
+
   const regulatoryStatus = warningFlags.length
     ? "Inconclusive"
     : positiveFlags.length
@@ -419,6 +429,10 @@ function renderReportHTML(data = {}, options = {}) {
       ? "inconclusive"
       : "review";
 
+  const dominantTerpene = topTerpenes[0]?.name || "Unknown";
+  const secondTerpene = topTerpenes[1]?.name || "";
+  const thirdTerpene = topTerpenes[2]?.name || "";
+
   const aromaticProfile = topTerpenes.length
     ? topTerpenes
         .slice(0, 4)
@@ -427,39 +441,70 @@ function renderReportHTML(data = {}, options = {}) {
         .join(" • ")
     : "Aromatic profile not available";
 
-  const experienceProfile = positiveFlags.length
-    ? positiveFlags.slice(0, 4)
-    : [
-        "Chemotype review in progress",
-        "Awaiting more interpretive signals",
-      ];
+  const derivedProfileTag =
+    thcNumber >= 24
+      ? "High potency"
+      : thcNumber >= 18
+      ? "Moderate-high potency"
+      : thcNumber > 0
+      ? "Moderate potency"
+      : "Profile pending";
 
-  const useCases = warningFlags.length
-    ? ["Requires clinician review", "Check lab details before relying on use-case claims"]
-    : positiveFlags.slice(0, 3).length
-    ? positiveFlags.slice(0, 3)
-    : ["General interpretive guidance only"];
+  const experienceDirection =
+    dominantTerpene.toLowerCase().includes("terpinolene")
+      ? "More uplifting / mentally active leaning"
+      : dominantTerpene.toLowerCase().includes("myrcene")
+      ? "More body-heavy / calming leaning"
+      : dominantTerpene.toLowerCase().includes("limonene")
+      ? "Brighter / mood-forward leaning"
+      : dominantTerpene.toLowerCase().includes("caryophyllene")
+      ? "Balanced / spicy profile"
+      : "General chemistry-led profile";
 
-  const coaQualityScore = Math.max(
-    4,
+  const thcBand =
+    thcNumber >= 24 ? "THC-H" : thcNumber >= 18 ? "THC-M" : thcNumber > 0 ? "THC-L" : "THC-?";
+  const terpBand =
+    terpNumber >= 3 ? "TERP-H" : terpNumber >= 1.5 ? "TERP-M" : terpNumber > 0 ? "TERP-L" : "TERP-?";
+  const cbdBand =
+    cbdNumber >= 5 ? "CBD-H" : cbdNumber >= 1 ? "CBD-M" : cbdNumber > 0 ? "CBD-L" : "CBD-LOW";
+
+  const fingerprintTags = [
+    thcBand,
+    terpBand,
+    cbdBand,
+    `${String(dominantTerpene || "UNKNOWN").toUpperCase().replace(/[^A-Z0-9]+/g, "-")}-DOM`,
+    data?.minor_cannabinoids ? "MC+" : "MC-LIMITED",
+    warningFlags.length ? "REVIEW" : "CLEAN",
+  ];
+
+  const dataConfidenceScore = Math.max(
+    52,
     Math.min(
-      10,
-      (
-        (topCannabinoids.length ? 2 : 0) +
-        (topTerpenes.length ? 2 : 0) +
-        (data?.contaminant_overview ? 2 : 0) +
-        (data?.lab_quality_summary ? 2 : 0) +
-        (data?.laboratory_name ? 1 : 0) +
-        (data?.coa_report_date ? 1 : 0)
-      )
+      98,
+      50 +
+        (topCannabinoids.length ? 12 : 0) +
+        (topTerpenes.length ? 12 : 0) +
+        (data?.thc_total ? 8 : 0) +
+        (data?.total_terpenes ? 8 : 0) +
+        (data?.contaminant_overview ? 4 : 0) +
+        (data?.lab_quality_summary ? 4 : 0)
     )
   );
+
+  const cannabinoidVisibility = topCannabinoids.length ? "High" : data?.thc_total || data?.cbd_total ? "Moderate" : "Limited";
+  const terpeneVisibility = topTerpenes.length ? "High" : data?.total_terpenes ? "Moderate" : "Limited";
 
   const completenessItems = [
     {
       label: "Cannabinoids",
-      value: topCannabinoids.length || data?.thc_total || data?.cbd_total ? "Complete" : "Limited",
-      className: topCannabinoids.length || data?.thc_total || data?.cbd_total ? "good" : "warn",
+      value:
+        topCannabinoids.length || data?.thc_total || data?.cbd_total
+          ? "Complete"
+          : "Limited",
+      className:
+        topCannabinoids.length || data?.thc_total || data?.cbd_total
+          ? "good"
+          : "warn",
     },
     {
       label: "Terpenes",
@@ -473,17 +518,182 @@ function renderReportHTML(data = {}, options = {}) {
     },
     {
       label: "Lab Metadata",
-      value: data?.laboratory_name && data?.coa_report_date ? "Complete" : "Partial",
-      className: data?.laboratory_name && data?.coa_report_date ? "good" : "warn",
+      value:
+        data?.laboratory_name && data?.coa_report_date ? "Complete" : "Partial",
+      className:
+        data?.laboratory_name && data?.coa_report_date ? "good" : "warn",
     },
   ];
 
-  const renderTopMetric = (label, value, accentClass = "") => `
-    <div class="top-metric ${accentClass}">
-      <div class="top-metric-label">${esc(label)}</div>
-      <div class="top-metric-value">${esc(value || "Not reported")}</div>
-    </div>
-  `;
+  const coaQualityScore = Math.max(
+    4,
+    Math.min(
+      10,
+      (topCannabinoids.length ? 2 : 0) +
+        (topTerpenes.length ? 2 : 0) +
+        (data?.contaminant_overview ? 2 : 0) +
+        (data?.lab_quality_summary ? 2 : 0) +
+        (data?.laboratory_name ? 1 : 0) +
+        (data?.coa_report_date ? 1 : 0)
+    )
+  );
+
+  // Patient-safe AI summaries
+  const patientSafeSummary = [
+    thcNumber >= 24
+      ? "This appears to be a high-THC product and may feel strong for people with lower tolerance."
+      : thcNumber >= 18
+      ? "This appears to be a moderate-to-high THC product."
+      : thcNumber > 0
+      ? "This appears to be a more moderate potency product."
+      : "Potency could not be clearly determined from the extracted data.",
+    dominantTerpene && dominantTerpene !== "Unknown"
+      ? `${dominantTerpene} appears to be the dominant terpene in this sample.`
+      : "A dominant terpene could not be clearly identified.",
+    terpNumber >= 2
+      ? "Visible terpene content suggests a more expressive aromatic profile."
+      : terpNumber > 0
+      ? "Terpene content appears present but not especially high."
+      : "Terpene intensity could not be clearly assessed.",
+    warningFlags.length
+      ? "Some parts of the report should be read cautiously because certain fields were limited or flagged."
+      : "No major caution flags were detected in the structured output.",
+  ];
+
+  const clinicianInsights = [
+    cbdNumber <= 1
+      ? "Low CBD suggests limited direct THC modulation."
+      : "Visible CBD may contribute some modulation of THC-dominant effects.",
+    thcNumber >= 24
+      ? "High THC concentration warrants tolerance-aware prescribing considerations."
+      : "THC potency appears less extreme than ultra-high THC flower products.",
+    data?.minor_cannabinoids
+      ? "Minor cannabinoids are present and may add profile complexity."
+      : "Minor cannabinoid depth was not clearly reported.",
+    data?.contaminant_overview
+      ? "Contaminant summary was reported and should be reviewed alongside the source COA."
+      : "Contaminant interpretation is limited because no structured overview was extracted.",
+  ];
+
+  const industryInsights = [
+    dominantTerpene && dominantTerpene !== "Unknown"
+      ? `${dominantTerpene}-led chemistry can support differentiated market positioning.`
+      : "Terpene dominance is not strong enough in the current extraction to support a clear positioning angle.",
+    terpNumber >= 2.5
+      ? "Stronger terpene density supports premium aromatic positioning."
+      : "Moderate terpene density may require positioning around effect profile rather than aroma intensity alone.",
+    data?.minor_cannabinoids
+      ? "Minor cannabinoids add product-story depth for brand and category differentiation."
+      : "Limited visible minor cannabinoid depth may reduce differentiation narrative.",
+    warningFlags.length
+      ? "Commercial claims should be conservative until flagged issues are clarified."
+      : "Structured output suggests cleaner messaging conditions for educational positioning.",
+  ];
+
+  const enthusiastInsights = [
+    aromaticProfile !== "Aromatic profile not available"
+      ? `Top aromatic signals: ${aromaticProfile}.`
+      : "Aromatic structure could not be confidently extracted.",
+    experienceDirection,
+    thirdTerpene
+      ? `Layered terpene architecture includes ${dominantTerpene}, ${secondTerpene}, and ${thirdTerpene}.`
+      : secondTerpene
+      ? `Leading terpene pairing includes ${dominantTerpene} and ${secondTerpene}.`
+      : `Primary terpene signal centers on ${dominantTerpene}.`,
+    data?.minor_cannabinoids
+      ? "Minor cannabinoids suggest added complexity beyond THC alone."
+      : "Profile appears more driven by the major compounds captured in the report.",
+  ];
+
+  // Benchmarking engine
+  const benchmarkCards = [
+    {
+      label: "Potency Position",
+      value:
+        thcNumber >= 24
+          ? "High-tier"
+          : thcNumber >= 18
+          ? "Mid-high"
+          : thcNumber > 0
+          ? "Moderate"
+          : "Unknown",
+    },
+    {
+      label: "Aroma Density",
+      value:
+        terpNumber >= 3
+          ? "High"
+          : terpNumber >= 1.5
+          ? "Moderate"
+          : terpNumber > 0
+          ? "Light"
+          : "Unknown",
+    },
+    {
+      label: "Differentiation",
+      value:
+        data?.minor_cannabinoids && topTerpenes.length >= 3
+          ? "Moderate-high"
+          : topTerpenes.length >= 2
+          ? "Moderate"
+          : "Limited",
+    },
+    {
+      label: "Database Readiness",
+      value:
+        topCannabinoids.length && topTerpenes.length ? "Benchmark-ready" : "Partial",
+    },
+  ];
+
+  // Compare mode (UI only for now)
+  const compareCards = [
+    {
+      label: "vs High-THC flower",
+      value:
+        thcNumber >= 24
+          ? "Aligned"
+          : thcNumber >= 18
+          ? "Slightly lighter"
+          : "Below category",
+    },
+    {
+      label: "vs aromatic premium flower",
+      value:
+        terpNumber >= 3
+          ? "Aligned"
+          : terpNumber >= 1.5
+          ? "Moderate"
+          : "Below category",
+    },
+    {
+      label: "vs differentiated chemotype",
+      value:
+        data?.minor_cannabinoids || topTerpenes.length >= 4
+          ? "More distinctive"
+          : "More standard",
+    },
+    {
+      label: "vs data-rich COA",
+      value:
+        topCannabinoids.length && topTerpenes.length && data?.contaminant_overview
+          ? "Strong"
+          : "Partial",
+    },
+  ];
+
+  const similaritySignals = [
+    dominantTerpene && dominantTerpene !== "Unknown"
+      ? `Chemotype anchor: ${dominantTerpene}-dominant`
+      : "Chemotype anchor unavailable",
+    thcNumber >= 24
+      ? "Similarity cluster: higher-THC flower"
+      : thcNumber >= 18
+      ? "Similarity cluster: standard THC flower"
+      : "Similarity cluster: lighter potency flower",
+    terpNumber >= 2
+      ? "Comparable set: aromatic-forward profiles"
+      : "Comparable set: lighter terpene expression",
+  ];
 
   const renderPillList = (items = [], emptyText = "Not reported") => {
     if (!Array.isArray(items) || !items.length) {
@@ -491,9 +701,7 @@ function renderReportHTML(data = {}, options = {}) {
     }
     return `
       <div class="pill-wrap">
-        ${items
-          .map((item) => `<span class="pill">${esc(item)}</span>`)
-          .join("")}
+        ${items.map((item) => `<span class="pill">${esc(item)}</span>`).join("")}
       </div>
     `;
   };
@@ -562,30 +770,31 @@ function renderReportHTML(data = {}, options = {}) {
     </div>
   `;
 
+  const rawJson = esc(JSON.stringify(data, null, 2));
+
   return `
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>${esc(data?.product_name || "ALEM COA Intelligence Report")}</title>
+<title>${esc(productName)}</title>
 <style>
   :root {
-    --bg: #071d24;
-    --bg-2: #0b2830;
-    --panel: rgba(255,255,255,0.05);
-    --panel-2: rgba(255,255,255,0.08);
-    --line: rgba(255,255,255,0.10);
-    --text: #edf6f2;
-    --muted: #a8c3bc;
-    --green: #8fd7a7;
-    --green-2: #6ec594;
-    --teal: #7fd7d4;
-    --gold: #d8bf6a;
-    --navy-card: #173c63;
-    --white: #ffffff;
-    --danger: #ef8d8d;
-    --warn: #f0d18b;
+    --bg: #f5f3ef;
+    --panel: #ffffff;
+    --panel-2: #fbfaf7;
+    --line: #e5dfd5;
+    --text: #191816;
+    --muted: #706c65;
+    --green: #1f3d2b;
+    --green-2: #2e5c42;
+    --soft-green: #e7eee8;
+    --teal: #6b9f97;
+    --gold: #b5934c;
+    --danger: #a55757;
+    --warn: #a67e2d;
+    --shadow: 0 14px 38px rgba(32, 31, 28, 0.06);
   }
 
   * { box-sizing: border-box; }
@@ -594,32 +803,19 @@ function renderReportHTML(data = {}, options = {}) {
     margin: 0;
     padding: 0;
     background:
-      radial-gradient(circle at top right, rgba(111, 213, 164, 0.10), transparent 24%),
-      radial-gradient(circle at top left, rgba(87, 164, 210, 0.09), transparent 28%),
-      linear-gradient(180deg, #051720 0%, #08202a 50%, #061922 100%);
+      radial-gradient(circle at top right, rgba(31,61,43,0.05), transparent 22%),
+      radial-gradient(circle at top left, rgba(107,159,151,0.05), transparent 22%),
+      linear-gradient(180deg, #f7f5f1 0%, #f4f1eb 100%);
     color: var(--text);
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: Inter, Arial, Helvetica, sans-serif;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
 
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    background:
-      linear-gradient(rgba(7,29,36,0.72), rgba(7,29,36,0.90)),
-      url("https://images.unsplash.com/photo-1603909223429-69bb7101f420?auto=format&fit=crop&w=1200&q=60") center/cover no-repeat;
-    opacity: 0.12;
-  }
-
   .shell {
-    position: relative;
-    z-index: 1;
-    max-width: 1320px;
+    max-width: 1380px;
     margin: 0 auto;
-    padding: 24px 22px 42px;
+    padding: 24px 20px 42px;
   }
 
   .action-bar {
@@ -634,13 +830,14 @@ function renderReportHTML(data = {}, options = {}) {
     padding: 14px 16px;
     border: 1px solid var(--line);
     border-radius: 18px;
-    background: rgba(5, 18, 24, 0.84);
+    background: rgba(255,255,255,0.88);
     backdrop-filter: blur(10px);
+    box-shadow: var(--shadow);
   }
 
   .btn {
     appearance: none;
-    border: 0;
+    border: 1px solid var(--line);
     border-radius: 999px;
     padding: 12px 18px;
     font-size: 14px;
@@ -650,15 +847,18 @@ function renderReportHTML(data = {}, options = {}) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    background: #fff;
+    color: var(--text);
   }
 
   .btn-primary {
-    background: linear-gradient(90deg, var(--green), #b0f0c4);
-    color: #052129;
+    background: linear-gradient(90deg, var(--green), var(--green-2));
+    color: #fff;
+    border-color: var(--green);
   }
 
   .btn-secondary {
-    background: rgba(255,255,255,0.07);
+    background: rgba(255,255,255,0.88);
     color: var(--text);
     border: 1px solid var(--line);
   }
@@ -676,24 +876,24 @@ function renderReportHTML(data = {}, options = {}) {
   .hero {
     position: relative;
     overflow: hidden;
-    border: 1px solid rgba(143,215,167,0.18);
+    border: 1px solid var(--line);
     border-radius: 30px;
-    padding: 34px 30px 28px;
+    padding: 32px 28px 26px;
     background:
-      linear-gradient(135deg, rgba(7,29,36,0.95), rgba(10,36,44,0.90)),
-      radial-gradient(circle at right top, rgba(143,215,167,0.16), transparent 32%);
-    box-shadow: 0 18px 50px rgba(0,0,0,0.25);
+      linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.98)),
+      radial-gradient(circle at right top, rgba(31,61,43,0.08), transparent 30%);
+    box-shadow: var(--shadow);
   }
 
   .hero::after {
     content: "";
     position: absolute;
-    right: -80px;
-    top: -80px;
+    right: -90px;
+    top: -90px;
     width: 280px;
     height: 280px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(143,215,167,0.13), transparent 70%);
+    background: radial-gradient(circle, rgba(31,61,43,0.08), transparent 70%);
   }
 
   .hero-top {
@@ -717,13 +917,14 @@ function renderReportHTML(data = {}, options = {}) {
     margin: 0;
     font-size: 48px;
     line-height: 1.02;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.03em;
+    color: var(--text);
   }
 
   .hero-subtitle {
     margin-top: 14px;
-    max-width: 780px;
-    color: #d6e6df;
+    max-width: 820px;
+    color: #3f3b35;
     font-size: 16px;
     line-height: 1.75;
   }
@@ -742,37 +943,38 @@ function renderReportHTML(data = {}, options = {}) {
     padding: 10px 14px;
     border-radius: 999px;
     border: 1px solid var(--line);
-    background: rgba(255,255,255,0.05);
+    background: #fff;
     color: var(--text);
     font-size: 13px;
     font-weight: 700;
   }
 
   .status-badge.approved {
-    background: rgba(110, 197, 148, 0.14);
-    border-color: rgba(110, 197, 148, 0.35);
-    color: #c9f2d8;
+    background: rgba(31,61,43,0.08);
+    border-color: rgba(31,61,43,0.20);
+    color: var(--green);
   }
 
   .status-badge.inconclusive {
-    background: rgba(216, 191, 106, 0.14);
-    border-color: rgba(216, 191, 106, 0.35);
-    color: #f3e4b7;
+    background: rgba(181,147,76,0.10);
+    border-color: rgba(181,147,76,0.24);
+    color: #876822;
   }
 
   .status-badge.review {
-    background: rgba(127, 215, 212, 0.14);
-    border-color: rgba(127, 215, 212, 0.35);
-    color: #d2f4f3;
+    background: rgba(107,159,151,0.10);
+    border-color: rgba(107,159,151,0.24);
+    color: #456d67;
   }
 
   .hero-score {
-    min-width: 220px;
+    min-width: 260px;
     border: 1px solid var(--line);
     border-radius: 26px;
     padding: 18px 18px 16px;
-    background: rgba(255,255,255,0.05);
+    background: #fff;
     text-align: center;
+    box-shadow: 0 8px 24px rgba(32, 31, 28, 0.04);
   }
 
   .hero-score-label {
@@ -784,17 +986,17 @@ function renderReportHTML(data = {}, options = {}) {
   }
 
   .hero-score-value {
-    font-size: 30px;
+    font-size: 24px;
     font-weight: 800;
     color: var(--green);
-    line-height: 1.1;
+    line-height: 1.2;
   }
 
   .hero-score-note {
     margin-top: 8px;
     font-size: 13px;
     line-height: 1.5;
-    color: #d5e2dc;
+    color: #5b5750;
   }
 
   .section {
@@ -804,8 +1006,8 @@ function renderReportHTML(data = {}, options = {}) {
   .section-title {
     margin: 0 0 14px;
     font-size: 30px;
-    color: var(--white);
-    letter-spacing: -0.02em;
+    color: var(--text);
+    letter-spacing: -0.03em;
   }
 
   .section-title.small {
@@ -824,24 +1026,22 @@ function renderReportHTML(data = {}, options = {}) {
     border-radius: 24px;
     background: var(--panel);
     padding: 20px;
-    box-shadow: 0 10px 24px rgba(0,0,0,0.14);
+    box-shadow: var(--shadow);
+  }
+
+  .card-soft {
+    background: var(--panel-2);
   }
 
   .grid-2 {
     display: grid;
-    grid-template-columns: 1.1fr 0.9fr;
+    grid-template-columns: 1.08fr 0.92fr;
     gap: 18px;
   }
 
   .grid-3 {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
-  }
-
-  .grid-4 {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
     gap: 14px;
   }
 
@@ -873,27 +1073,27 @@ function renderReportHTML(data = {}, options = {}) {
   .top-metric {
     border-radius: 22px;
     padding: 16px 18px;
-    background: rgba(255,255,255,0.05);
+    background: #fff;
     border: 1px solid var(--line);
   }
 
   .top-metric.thc {
-    background: linear-gradient(180deg, rgba(23,60,99,0.85), rgba(23,60,99,0.65));
+    background: linear-gradient(180deg, #f2f6f3, #ffffff);
   }
 
   .top-metric.cbd {
-    background: linear-gradient(180deg, rgba(216,191,106,0.18), rgba(216,191,106,0.10));
+    background: linear-gradient(180deg, #faf6ec, #ffffff);
   }
 
   .top-metric.terps {
-    background: linear-gradient(180deg, rgba(110,197,148,0.22), rgba(110,197,148,0.10));
+    background: linear-gradient(180deg, #eef5f3, #ffffff);
   }
 
   .top-metric-label {
     font-size: 11px;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: #dce9e5;
+    color: var(--muted);
     margin-bottom: 10px;
   }
 
@@ -901,27 +1101,28 @@ function renderReportHTML(data = {}, options = {}) {
     font-size: 34px;
     font-weight: 800;
     line-height: 1.05;
+    color: var(--text);
   }
 
   .minor-box {
     margin-top: 14px;
     padding: 16px;
     border-radius: 18px;
-    background: rgba(23,60,99,0.72);
-    border: 1px solid rgba(255,255,255,0.10);
+    background: #f8f6f1;
+    border: 1px solid var(--line);
   }
 
   .minor-title {
     font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.1em;
-    color: #dce9e5;
+    color: var(--muted);
     text-transform: uppercase;
     margin-bottom: 8px;
   }
 
   .minor-copy {
-    color: #f1f6f3;
+    color: var(--text);
     line-height: 1.7;
     font-size: 14px;
   }
@@ -940,30 +1141,30 @@ function renderReportHTML(data = {}, options = {}) {
 
   .bar-row-head strong {
     font-size: 14px;
-    color: var(--white);
+    color: var(--text);
   }
 
   .bar-shell {
     height: 14px;
     border-radius: 999px;
     overflow: hidden;
-    background: rgba(255,255,255,0.07);
-    border: 1px solid rgba(255,255,255,0.06);
+    background: #f1eee8;
+    border: 1px solid #e9e3d7;
   }
 
   .bar-shell span {
     display: block;
     height: 100%;
     border-radius: inherit;
-    background: linear-gradient(90deg, var(--green-2), #c0f0cf);
+    background: linear-gradient(90deg, var(--green-2), #6f907c);
   }
 
   .bar-shell.gold span {
-    background: linear-gradient(90deg, #d2b75d, #f2df9a);
+    background: linear-gradient(90deg, #b5934c, #dcc189);
   }
 
   .bar-shell.teal span {
-    background: linear-gradient(90deg, #60cfd0, #9febea);
+    background: linear-gradient(90deg, #6b9f97, #9dc1bb);
   }
 
   .compound-grid {
@@ -976,7 +1177,7 @@ function renderReportHTML(data = {}, options = {}) {
     border: 1px solid var(--line);
     border-radius: 18px;
     padding: 14px;
-    background: rgba(255,255,255,0.04);
+    background: var(--panel-2);
   }
 
   .compound-name {
@@ -989,7 +1190,7 @@ function renderReportHTML(data = {}, options = {}) {
   .compound-value {
     font-size: 18px;
     font-weight: 800;
-    color: var(--white);
+    color: var(--text);
   }
 
   .compound-note {
@@ -1006,8 +1207,8 @@ function renderReportHTML(data = {}, options = {}) {
   }
 
   .terpene-hero-box {
-    background: linear-gradient(180deg, rgba(23,60,99,0.92), rgba(23,60,99,0.72));
-    border: 1px solid rgba(255,255,255,0.10);
+    background: linear-gradient(180deg, #f6f8f7, #ffffff);
+    border: 1px solid var(--line);
     border-radius: 24px;
     padding: 22px;
   }
@@ -1016,7 +1217,7 @@ function renderReportHTML(data = {}, options = {}) {
     font-size: 12px;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: #d7ebe3;
+    color: var(--muted);
     margin-bottom: 12px;
   }
 
@@ -1031,20 +1232,20 @@ function renderReportHTML(data = {}, options = {}) {
     justify-content: space-between;
     gap: 12px;
     padding-bottom: 10px;
-    border-bottom: 1px solid rgba(255,255,255,0.10);
+    border-bottom: 1px solid var(--line);
     font-size: 15px;
   }
 
   .terpene-big strong {
-    color: var(--white);
+    color: var(--text);
   }
 
   .aroma-box {
     margin-top: 16px;
     padding: 14px 16px;
     border-radius: 18px;
-    background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.08);
+    background: #fbfaf7;
+    border: 1px solid var(--line);
   }
 
   .aroma-title {
@@ -1056,7 +1257,7 @@ function renderReportHTML(data = {}, options = {}) {
   }
 
   .aroma-copy {
-    color: var(--white);
+    color: var(--text);
     line-height: 1.7;
     font-size: 15px;
   }
@@ -1077,7 +1278,7 @@ function renderReportHTML(data = {}, options = {}) {
   }
 
   .terpene-list-item strong {
-    color: var(--white);
+    color: var(--text);
     white-space: nowrap;
   }
 
@@ -1099,7 +1300,7 @@ function renderReportHTML(data = {}, options = {}) {
     padding: 16px 12px;
     text-align: center;
     border: 1px solid var(--line);
-    background: rgba(255,255,255,0.04);
+    background: #fff;
     font-weight: 800;
     font-size: 13px;
     letter-spacing: 0.06em;
@@ -1107,21 +1308,21 @@ function renderReportHTML(data = {}, options = {}) {
   }
 
   .status-card.active.approved {
-    background: rgba(110,197,148,0.16);
-    border-color: rgba(110,197,148,0.34);
-    color: #d2f5de;
+    background: rgba(31,61,43,0.08);
+    border-color: rgba(31,61,43,0.20);
+    color: var(--green);
   }
 
   .status-card.active.inconclusive {
-    background: rgba(216,191,106,0.16);
-    border-color: rgba(216,191,106,0.34);
-    color: #f3e4b7;
+    background: rgba(181,147,76,0.10);
+    border-color: rgba(181,147,76,0.24);
+    color: #876822;
   }
 
   .status-card.active.review {
-    background: rgba(127,215,212,0.16);
-    border-color: rgba(127,215,212,0.34);
-    color: #d2f4f3;
+    background: rgba(107,159,151,0.10);
+    border-color: rgba(107,159,151,0.24);
+    color: #456d67;
   }
 
   .check-list {
@@ -1136,7 +1337,7 @@ function renderReportHTML(data = {}, options = {}) {
     gap: 12px;
     padding: 12px 14px;
     border-radius: 16px;
-    background: rgba(255,255,255,0.04);
+    background: #fff;
     border: 1px solid var(--line);
     font-size: 14px;
   }
@@ -1151,15 +1352,15 @@ function renderReportHTML(data = {}, options = {}) {
   }
 
   .check-pill.good {
-    background: rgba(110,197,148,0.16);
-    color: #cef4db;
-    border: 1px solid rgba(110,197,148,0.30);
+    background: rgba(31,61,43,0.08);
+    color: var(--green);
+    border: 1px solid rgba(31,61,43,0.18);
   }
 
   .check-pill.warn {
-    background: rgba(216,191,106,0.16);
-    color: #f2e4b8;
-    border: 1px solid rgba(216,191,106,0.30);
+    background: rgba(181,147,76,0.10);
+    color: #876822;
+    border: 1px solid rgba(181,147,76,0.22);
   }
 
   .score-ring {
@@ -1173,14 +1374,13 @@ function renderReportHTML(data = {}, options = {}) {
     width: 190px;
     height: 190px;
     border-radius: 50%;
-    border: 10px solid rgba(143,215,167,0.20);
+    border: 10px solid rgba(31,61,43,0.14);
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    background:
-      radial-gradient(circle at center, rgba(143,215,167,0.14), rgba(255,255,255,0.02));
-    box-shadow: inset 0 0 30px rgba(0,0,0,0.12);
+    background: radial-gradient(circle at center, rgba(31,61,43,0.05), rgba(255,255,255,1));
+    box-shadow: inset 0 0 30px rgba(0,0,0,0.03);
   }
 
   .score-ring-value {
@@ -1209,9 +1409,9 @@ function renderReportHTML(data = {}, options = {}) {
     align-items: center;
     padding: 10px 12px;
     border-radius: 999px;
-    background: rgba(255,255,255,0.06);
+    background: #fff;
     border: 1px solid var(--line);
-    color: var(--white);
+    color: var(--text);
     font-size: 13px;
     line-height: 1.3;
   }
@@ -1238,7 +1438,7 @@ function renderReportHTML(data = {}, options = {}) {
   .copy {
     font-size: 14px;
     line-height: 1.8;
-    color: #e4eeea;
+    color: #2f2b26;
   }
 
   .muted {
@@ -1247,11 +1447,207 @@ function renderReportHTML(data = {}, options = {}) {
     color: var(--muted);
   }
 
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .tab-btn {
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--text);
+    padding: 10px 14px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-weight: 700;
+  }
+
+  .tab-btn.active {
+    background: var(--green);
+    color: #fff;
+    border-color: var(--green);
+  }
+
+  .tab-panel {
+    display: none;
+  }
+
+  .tab-panel.active {
+    display: block;
+  }
+
+  .insight-list {
+    margin: 0;
+    padding-left: 20px;
+  }
+
+  .insight-list li {
+    margin: 10px 0;
+    color: #2e2a25;
+    line-height: 1.7;
+  }
+
+  .fingerprint-hero {
+    display: grid;
+    grid-template-columns: 0.95fr 1.05fr;
+    gap: 18px;
+    align-items: stretch;
+  }
+
+  .fingerprint-visual {
+    position: relative;
+    min-height: 320px;
+    border-radius: 24px;
+    border: 1px solid var(--line);
+    overflow: hidden;
+    background:
+      radial-gradient(circle at center, rgba(31,61,43,0.06) 0, rgba(31,61,43,0.06) 1px, transparent 1px),
+      linear-gradient(180deg, #fbfaf7, #ffffff);
+    background-size: 28px 28px, auto;
+  }
+
+  .fingerprint-center {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+  }
+
+  .fingerprint-ring {
+    width: 230px;
+    height: 230px;
+    border: 1px dashed rgba(31,61,43,0.22);
+    border-radius: 50%;
+    position: relative;
+    display: grid;
+    place-items: center;
+  }
+
+  .fingerprint-ring::before,
+  .fingerprint-ring::after {
+    content: "";
+    position: absolute;
+    border-radius: 50%;
+    border: 1px dashed rgba(31,61,43,0.16);
+  }
+
+  .fingerprint-ring::before {
+    inset: 22px;
+  }
+
+  .fingerprint-ring::after {
+    inset: 48px;
+  }
+
+  .fingerprint-core {
+    width: 114px;
+    height: 114px;
+    border-radius: 50%;
+    background: var(--green);
+    color: #fff;
+    display: grid;
+    place-items: center;
+    text-align: center;
+    padding: 12px;
+    font-weight: 800;
+    font-size: 13px;
+    box-shadow: 0 12px 28px rgba(31,61,43,0.18);
+  }
+
+  .fp-signal {
+    position: absolute;
+    padding: 7px 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.96);
+    border: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--muted);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.03);
+  }
+
+  .fp-a { top: 20px; left: 22px; }
+  .fp-b { top: 34px; right: 22px; }
+  .fp-c { bottom: 26px; left: 26px; }
+  .fp-d { bottom: 34px; right: 20px; }
+
+  .fingerprint-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .fingerprint-tag {
+    padding: 10px 12px;
+    border-radius: 999px;
+    background: var(--soft-green);
+    color: var(--green);
+    border: 1px solid rgba(31,61,43,0.12);
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+  }
+
+  .benchmark-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+
+  .benchmark-card {
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 16px;
+    background: #fff;
+  }
+
+  .benchmark-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.10em;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  .benchmark-value {
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--text);
+  }
+
+  .compare-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+
+  .compare-card {
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 16px;
+    background: #fff;
+  }
+
+  .compare-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.10em;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  .compare-value {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--text);
+  }
+
   .future-box {
     border-radius: 24px;
-    border: 1px dashed rgba(143,215,167,0.30);
+    border: 1px dashed rgba(31,61,43,0.24);
     padding: 20px;
-    background: rgba(255,255,255,0.03);
+    background: rgba(255,255,255,0.5);
   }
 
   .future-title {
@@ -1261,6 +1657,25 @@ function renderReportHTML(data = {}, options = {}) {
     color: var(--green);
     margin-bottom: 10px;
     font-weight: 700;
+  }
+
+  .raw-box {
+    display: none;
+    margin-top: 22px;
+  }
+
+  .raw-box pre {
+    margin: 0;
+    padding: 18px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 12px;
+    line-height: 1.6;
+    color: #2f2b26;
   }
 
   .footer {
@@ -1276,11 +1691,13 @@ function renderReportHTML(data = {}, options = {}) {
     .grid-2,
     .reg-grid,
     .terpene-layout,
-    .insight-grid {
+    .insight-grid,
+    .fingerprint-hero {
       grid-template-columns: 1fr;
     }
 
-    .grid-4 {
+    .benchmark-grid,
+    .compare-grid {
       grid-template-columns: repeat(2, 1fr);
     }
 
@@ -1313,7 +1730,8 @@ function renderReportHTML(data = {}, options = {}) {
       font-size: 31px;
     }
 
-    .grid-4,
+    .benchmark-grid,
+    .compare-grid,
     .reg-status-cards {
       grid-template-columns: 1fr;
     }
@@ -1331,9 +1749,6 @@ function renderReportHTML(data = {}, options = {}) {
       max-width: none;
       padding: 0;
     }
-    body::before {
-      opacity: 0.08;
-    }
   }
 </style>
 </head>
@@ -1349,6 +1764,7 @@ function renderReportHTML(data = {}, options = {}) {
               ? `<a class="btn btn-secondary" href="${esc(options.pdfUrl)}" target="_blank" rel="noopener noreferrer">Open current PDF</a>`
               : ""
           }
+          <button id="toggleRawBtn" class="btn btn-secondary" type="button">Raw Data</button>
           <span id="pdfStatus" class="action-status"></span>
         </div>
       `
@@ -1358,29 +1774,26 @@ function renderReportHTML(data = {}, options = {}) {
     <section class="hero">
       <div class="hero-top">
         <div>
-          <div class="brand-mark">ALEM COA Intelligence Report</div>
-          <h1>${esc(data?.product_name || "Cannabis Product")}</h1>
-          <div class="hero-subtitle">
-            ${esc(
-              data?.opening_statement ||
-                "Medicinal cannabis interpretive report generated from certificate of analysis data."
-            )}
-          </div>
+          <div class="brand-mark">ALEM COA Intelligence Interface</div>
+          <h1>${esc(productName)}</h1>
+          <div class="hero-subtitle">${esc(subtitle)}</div>
 
           <div class="hero-badges">
-            <span class="badge">Batch ${esc(data?.batch_number || "Not reported")}</span>
-            <span class="badge">${esc(data?.product_type || "Product type not reported")}</span>
-            <span class="badge">${esc(data?.laboratory_name || "Lab not reported")}</span>
-            <span class="badge">${esc(data?.coa_report_date || "Date not reported")}</span>
+            <span class="badge">Batch ${esc(batchNumber)}</span>
+            <span class="badge">${esc(productType)}</span>
+            <span class="badge">${esc(laboratoryName)}</span>
+            <span class="badge">${esc(reportDate)}</span>
+            <span class="badge">${esc(derivedProfileTag)}</span>
+            <span class="badge">Confidence ${esc(`${dataConfidenceScore}%`)}</span>
             <span class="badge status-badge ${statusClass}">${esc(regulatoryStatus)}</span>
           </div>
         </div>
 
         <div class="hero-score">
-          <div class="hero-score-label">Overall Intelligence Score</div>
+          <div class="hero-score-label">AI Chemical Brief</div>
           <div class="hero-score-value">${esc(overallScoreText)}</div>
           <div class="hero-score-note">
-            Educational interpretive summary aligned to the Alem COA Analyzer style.
+            Educational, clinical, enthusiast, and industry-facing intelligence generated from the structured COA data.
           </div>
         </div>
       </div>
@@ -1392,28 +1805,137 @@ function renderReportHTML(data = {}, options = {}) {
         <div class="meta-grid">
           <div class="meta-item">
             <div class="meta-label">Batch number</div>
-            <div class="meta-value">${esc(data?.batch_number || "Not reported")}</div>
+            <div class="meta-value">${esc(batchNumber)}</div>
           </div>
           <div class="meta-item">
             <div class="meta-label">COA report date</div>
-            <div class="meta-value">${esc(data?.coa_report_date || "Not reported")}</div>
+            <div class="meta-value">${esc(reportDate)}</div>
           </div>
           <div class="meta-item">
             <div class="meta-label">Product type</div>
-            <div class="meta-value">${esc(data?.product_type || "Not reported")}</div>
+            <div class="meta-value">${esc(productType)}</div>
           </div>
           <div class="meta-item">
             <div class="meta-label">Laboratory name</div>
-            <div class="meta-value">${esc(data?.laboratory_name || "Not reported")}</div>
+            <div class="meta-value">${esc(laboratoryName)}</div>
           </div>
         </div>
       </div>
 
       <div class="card">
-        <h2 class="section-title">Interpretive summary</h2>
-        <div class="copy"><strong>Overall score:</strong> ${esc(data?.overall_score || "Not reported")}</div>
-        <div class="copy" style="margin-top:10px;"><strong>Contaminant overview:</strong> ${esc(data?.contaminant_overview || "Not reported")}</div>
-        <div class="copy" style="margin-top:10px;"><strong>Lab quality summary:</strong> ${esc(data?.lab_quality_summary || "Not reported")}</div>
+        <h2 class="section-title">Patient-safe summary</h2>
+        <ul class="insight-list">
+          ${patientSafeSummary.map((x) => `<li>${esc(x)}</li>`).join("")}
+        </ul>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="card card-soft">
+        <h2 class="section-title">Audience lens</h2>
+        <div class="section-sub">The same chemistry interpreted through different user contexts.</div>
+
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="patient">Patient View</button>
+          <button class="tab-btn" data-tab="clinician">Clinician View</button>
+          <button class="tab-btn" data-tab="industry">Industry View</button>
+          <button class="tab-btn" data-tab="enthusiast">Enthusiast View</button>
+        </div>
+
+        <div class="tab-panel active" id="tab-patient">
+          <ul class="insight-list">
+            ${patientSafeSummary.map((x) => `<li>${esc(x)}</li>`).join("")}
+          </ul>
+        </div>
+
+        <div class="tab-panel" id="tab-clinician">
+          <ul class="insight-list">
+            ${clinicianInsights.map((x) => `<li>${esc(x)}</li>`).join("")}
+          </ul>
+        </div>
+
+        <div class="tab-panel" id="tab-industry">
+          <ul class="insight-list">
+            ${industryInsights.map((x) => `<li>${esc(x)}</li>`).join("")}
+          </ul>
+        </div>
+
+        <div class="tab-panel" id="tab-enthusiast">
+          <ul class="insight-list">
+            ${enthusiastInsights.map((x) => `<li>${esc(x)}</li>`).join("")}
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="card">
+        <h2 class="section-title">Chemical fingerprint</h2>
+        <div class="fingerprint-hero">
+          <div class="fingerprint-visual">
+            <div class="fingerprint-center">
+              <div class="fingerprint-ring">
+                <div class="fingerprint-core">
+                  Fingerprint<br/>Engine
+                </div>
+              </div>
+            </div>
+            <div class="fp-signal fp-a">THC ${esc(data?.thc_total || "N/A")}</div>
+            <div class="fp-signal fp-b">Terpenes ${esc(data?.total_terpenes || "N/A")}</div>
+            <div class="fp-signal fp-c">Lead ${esc(dominantTerpene)}</div>
+            <div class="fp-signal fp-d">${esc(data?.minor_cannabinoids ? "Minor cannabinoids present" : "Minor cannabinoids limited")}</div>
+          </div>
+
+          <div>
+            <div class="section-sub">A compact fingerprint layer that prepares the product for future similarity matching, clustering, and compare mode.</div>
+            <div class="fingerprint-tags">
+              ${fingerprintTags.map((tag) => `<span class="fingerprint-tag">${esc(tag)}</span>`).join("")}
+            </div>
+
+            <div class="card card-soft" style="margin-top:16px;">
+              <div class="insight-label">Similarity signals</div>
+              ${renderPillList(similaritySignals, "Similarity analysis pending")}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="card">
+        <h2 class="section-title">Benchmarking engine</h2>
+        <div class="section-sub">This section prepares the report for future compare mode, database ranking, and profile clustering.</div>
+        <div class="benchmark-grid">
+          ${benchmarkCards
+            .map(
+              (item) => `
+            <div class="benchmark-card">
+              <div class="benchmark-label">${esc(item.label)}</div>
+              <div class="benchmark-value">${esc(item.value)}</div>
+            </div>
+          `
+            )
+            .join("")}
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="card">
+        <h2 class="section-title">Compare mode</h2>
+        <div class="section-sub">UI-ready comparison layer against broad internal benchmark categories.</div>
+        <div class="compare-grid">
+          ${compareCards
+            .map(
+              (item) => `
+            <div class="compare-card">
+              <div class="compare-label">${esc(item.label)}</div>
+              <div class="compare-value">${esc(item.value)}</div>
+            </div>
+          `
+            )
+            .join("")}
+        </div>
       </div>
     </section>
 
@@ -1421,9 +1943,18 @@ function renderReportHTML(data = {}, options = {}) {
       <div class="card">
         <h2 class="section-title">Cannabinoid profile</h2>
         <div class="grid-3">
-          ${renderTopMetric("THC", data?.thc_total, "thc")}
-          ${renderTopMetric("CBD", data?.cbd_total, "cbd")}
-          ${renderTopMetric("Terpenes", data?.total_terpenes, "terps")}
+          <div class="top-metric thc">
+            <div class="top-metric-label">THC</div>
+            <div class="top-metric-value">${esc(data?.thc_total || "Not reported")}</div>
+          </div>
+          <div class="top-metric cbd">
+            <div class="top-metric-label">CBD</div>
+            <div class="top-metric-value">${esc(data?.cbd_total || "Not reported")}</div>
+          </div>
+          <div class="top-metric terps">
+            <div class="top-metric-label">Terpenes</div>
+            <div class="top-metric-value">${esc(data?.total_terpenes || "Not reported")}</div>
+          </div>
         </div>
 
         <div class="grid-2" style="margin-top:18px;">
@@ -1530,21 +2061,55 @@ function renderReportHTML(data = {}, options = {}) {
       </div>
     </section>
 
+    <section class="section grid-2">
+      <div class="card">
+        <div class="insight-label">Confidence layer</div>
+        <div class="copy"><strong>Extraction confidence:</strong> ${esc(`${dataConfidenceScore}%`)}</div>
+        <div class="copy" style="margin-top:8px;"><strong>Cannabinoid visibility:</strong> ${esc(cannabinoidVisibility)}</div>
+        <div class="copy" style="margin-top:8px;"><strong>Terpene visibility:</strong> ${esc(terpeneVisibility)}</div>
+        <div class="copy" style="margin-top:8px;"><strong>Interpretation note:</strong> ${esc(warningFlags.length ? "Some outputs should be read cautiously due to flagged or incomplete areas." : "Interpretation is reasonably supported by the available structured fields.")}</div>
+      </div>
+
+      <div class="card">
+        <div class="insight-label">Scientific context</div>
+        <div class="copy">${esc(data?.scientific_references || "No scientific notes included.")}</div>
+      </div>
+    </section>
+
     <section class="section">
       <div class="insight-grid">
         <div class="card insight-card">
           <div class="insight-label">Experience profile</div>
-          ${renderPillList(experienceProfile, "No experiential interpretation available")}
+          ${renderPillList(positiveFlags.length ? positiveFlags : patientSafeSummary.slice(0, 3), "No experiential interpretation available")}
         </div>
 
         <div class="card insight-card">
           <div class="insight-label">Potential use cases</div>
-          ${renderPillList(useCases, "No use-case guidance available")}
+          ${renderPillList(
+            warningFlags.length
+              ? [
+                  "Requires clinician review",
+                  "Check source COA before relying on product-positioning claims",
+                ]
+              : [
+                  thcNumber >= 24 ? "Higher-intensity use profile" : "Moderate potency profile",
+                  terpNumber >= 2 ? "Aroma-forward positioning" : "Subtler aromatic profile",
+                  data?.minor_cannabinoids ? "Complexity-driven education angle" : "Major-compound-driven profile",
+                ],
+            "No use-case guidance available"
+          )}
         </div>
 
         <div class="card insight-card">
-          <div class="insight-label">Scientific notes</div>
-          <div class="copy">${esc(data?.scientific_references || "No scientific notes included.")}</div>
+          <div class="insight-label">Market interpretation</div>
+          <div class="copy">
+            ${esc(
+              data?.lab_quality_summary ||
+                (data?.minor_cannabinoids
+                  ? "This profile has enough visible chemical depth to support stronger education and product-storytelling angles."
+                  : "Market differentiation appears more dependent on dominant potency and terpene architecture than minor cannabinoid depth.")
+            )}
+          </div>
         </div>
       </div>
     </section>
@@ -1563,11 +2128,15 @@ function renderReportHTML(data = {}, options = {}) {
 
     <section class="section">
       <div class="future-box">
-        <div class="future-title">Chemical fingerprint</div>
+        <div class="future-title">Next intelligence layer</div>
         <div class="copy">
-          This section is reserved for your future fingerprint radar, chemotype clustering, strain similarity, and breeding signal detection layer.
+          This page is now ready for future additions such as true batch-to-batch compare mode, database-wide similarity ranking, fingerprint radar plotting, strain/lineage matching, and chemotype clustering.
         </div>
       </div>
+    </section>
+
+    <section id="rawDataBox" class="raw-box">
+      <pre>${rawJson}</pre>
     </section>
 
     <div class="footer">
@@ -1575,54 +2144,72 @@ function renderReportHTML(data = {}, options = {}) {
     </div>
   </div>
 
-  ${
-    options.documentId
-      ? `
-      <script>
-        (function () {
-          const btn = document.getElementById("generatePdfBtn");
-          const status = document.getElementById("pdfStatus");
+  <script>
+    (function () {
+      const tabButtons = document.querySelectorAll(".tab-btn");
+      const tabPanels = document.querySelectorAll(".tab-panel");
 
-          if (!btn) return;
+      tabButtons.forEach((btn) => {
+        btn.addEventListener("click", function () {
+          const tab = btn.getAttribute("data-tab");
 
-          btn.addEventListener("click", async function () {
-            try {
-              btn.disabled = true;
-              btn.textContent = "Generating PDF...";
-              if (status) status.textContent = "";
+          tabButtons.forEach((b) => b.classList.remove("active"));
+          tabPanels.forEach((p) => p.classList.remove("active"));
 
-              const response = await fetch("/generate-pdf/${options.documentId}", {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json"
-                }
-              });
+          btn.classList.add("active");
+          const target = document.getElementById("tab-" + tab);
+          if (target) target.classList.add("active");
+        });
+      });
 
-              const result = await response.json();
+      const pdfBtn = document.getElementById("generatePdfBtn");
+      const pdfStatus = document.getElementById("pdfStatus");
+      const rawBtn = document.getElementById("toggleRawBtn");
+      const rawBox = document.getElementById("rawDataBox");
 
-              if (!response.ok || !result.success) {
-                throw new Error(result.error || "Failed to generate PDF");
-              }
+      if (rawBtn && rawBox) {
+        rawBtn.addEventListener("click", function () {
+          const hidden = rawBox.style.display === "none" || !rawBox.style.display;
+          rawBox.style.display = hidden ? "block" : "none";
+          if (hidden) rawBox.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      }
 
-              if (status) status.textContent = "PDF ready";
-              btn.textContent = "Generate PDF again";
+      if (pdfBtn) {
+        pdfBtn.addEventListener("click", async function () {
+          try {
+            pdfBtn.disabled = true;
+            pdfBtn.textContent = "Generating PDF...";
+            if (pdfStatus) pdfStatus.textContent = "";
 
-              if (result.pdf_url) {
-                window.open(result.pdf_url, "_blank");
-              }
-            } catch (err) {
-              console.error(err);
-              if (status) status.textContent = err.message || "PDF generation failed";
-              btn.textContent = "Generate PDF";
-            } finally {
-              btn.disabled = false;
+            const response = await fetch("/generate-pdf/${options.documentId || ""}", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" }
+            });
+
+            const result = await response.json();
+
+            if (!response.ok || !result.success) {
+              throw new Error(result.error || "Failed to generate PDF");
             }
-          });
-        })();
-      </script>
-    `
-      : ""
-  }
+
+            if (pdfStatus) pdfStatus.textContent = "PDF ready";
+            pdfBtn.textContent = "Generate PDF again";
+
+            if (result.pdf_url) {
+              window.open(result.pdf_url, "_blank");
+            }
+          } catch (err) {
+            console.error(err);
+            if (pdfStatus) pdfStatus.textContent = err.message || "PDF generation failed";
+            pdfBtn.textContent = "Generate PDF";
+          } finally {
+            pdfBtn.disabled = false;
+          }
+        });
+      }
+    })();
+  </script>
 </body>
 </html>
 `;
