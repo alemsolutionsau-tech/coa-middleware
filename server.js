@@ -110,7 +110,7 @@ Return this exact shape:
   ]
 }
 
-For hero_narrative: write 2 concise sentences describing the product's chemical identity and positioning potential. Be factual, not promotional. Do not mention brand names. Focus on chemotype, potency tier, and terpene character.
+For hero_narrative: write 2 precise, clinical sentences about this specific product's chemistry. State the chemotype identity (dominant terpene + potency tier), then describe what makes this profile distinctive. Use factual chemical language. Do NOT use phrases like "making it suitable for", "seeking strong effects", "unique aromatic character", or any consumer-facing promotional language. Focus on: what the chemistry IS, not what it does to users.
 `;
 
 const CONTAMINANT_EXTRACTION_PROMPT = `
@@ -571,6 +571,16 @@ function normalizeChemistry(data = {}) {
     return clean;
   };
 
+  // Normalise common cannabinoid name variants
+  const normCannName = (name) => {
+    const n = s(name).trim();
+    if (/^thca-a$/i.test(n)) return "THCA";
+    if (/^cbda-a$/i.test(n)) return "CBDA";
+    if (/^d9-?thc$/i.test(n)) return "D9-THC";
+    if (/^d8-?thc$/i.test(n)) return "D8-THC";
+    return n;
+  };
+
   return {
     product_name: s(data.product_name),
     batch_number: s(data.batch_number),
@@ -596,7 +606,7 @@ function normalizeChemistry(data = {}) {
     total_cannabinoids: s(data.total_cannabinoids),
     hero_narrative: s(data.hero_narrative),
     top_cannabinoids: a(data.top_cannabinoids).slice(0, 10).map(i => ({
-      name: s(i?.name),
+      name: normCannName(i?.name),
       value: s(i?.value),
       unit: fixUnit(i?.unit),
       notes: s(i?.notes),
@@ -1313,22 +1323,22 @@ pre {
   <div class="section g4">
     <div class="card">
       <div class="card-label">THC total</div>
-      <div class="card-value">${esc(chemistry.thc_total || "ND")} <span class="card-unit">${esc(chemistry.thc_total_unit || "wt%")}</span></div>
+      <div class="card-value">${esc(chemistry.thc_total || "ND")} <span class="card-unit">${chemistry.thc_total && chemistry.thc_total !== "ND" ? esc(chemistry.thc_total_unit || "wt%") : ""}</span></div>
       <div class="card-note">${thc >= 24 ? "High range — above market average for medical dried flower." : thc >= 18 ? "Moderate-to-high range." : thc > 0 ? "Moderate range." : "Not detected or not reported."}</div>
     </div>
     <div class="card">
       <div class="card-label">THCA</div>
-      <div class="card-value">${esc(chemistry.thca || "ND")} <span class="card-unit">${esc(chemistry.thca_unit || "wt%")}</span></div>
+      <div class="card-value">${esc(chemistry.thca || "ND")} <span class="card-unit">${chemistry.thca && chemistry.thca !== "ND" ? esc(chemistry.thca_unit || "wt%") : ""}</span></div>
       <div class="card-note">Precursor potency — converts to active THC on heating (× 0.877).</div>
     </div>
     <div class="card">
       <div class="card-label">Total terpenes</div>
-      <div class="card-value">${esc(chemistry.total_terpenes || "ND")} <span class="card-unit">${esc(chemistry.total_terpenes_unit || "wt%")}</span></div>
+      <div class="card-value">${esc(chemistry.total_terpenes || "ND")} <span class="card-unit">${chemistry.total_terpenes && chemistry.total_terpenes !== "ND" ? esc(chemistry.total_terpenes_unit || "wt%") : ""}</span></div>
       <div class="card-note">${terps >= 3 ? "Strong — upper range of dried flower terpene density." : terps >= 1.8 ? "Good — meaningful aromatic presence." : terps > 0 ? "Moderate aromatic expression." : "Not reported."}</div>
     </div>
     <div class="card">
       <div class="card-label">CBD total</div>
-      <div class="card-value">${esc(chemistry.cbd_total || "ND")} <span class="card-unit">${esc(chemistry.cbd_total_unit || "wt%")}</span></div>
+      <div class="card-value">${esc(chemistry.cbd_total || "ND")} <span class="card-unit">${chemistry.cbd_total && chemistry.cbd_total !== "ND" ? esc(chemistry.cbd_total_unit || "wt%") : ""}</span></div>
       <div class="card-note">${cbd > 0.5 ? "Visible CBD — may provide some modulation of THC intensity." : "Minimal or not detected — no intrinsic CBD modulation."}</div>
     </div>
   </div>
