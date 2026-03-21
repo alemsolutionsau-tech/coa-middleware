@@ -20,6 +20,11 @@ const upload = multer({
 
 const app = express();
 
+app.get("/", (req, res) => {
+  res.sendFile(__dirname + "/public/index.html");
+});
+
+app.use(express.static("public"));
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true }));
@@ -3647,13 +3652,6 @@ async function generatePdfForDocument(documentId) {
     pdf_url: pdfUrl,
   };
 }
-
-app.get("/", (req, res) => {
-  res.json({
-    success: true,
-    message: "Middleware is running",
-  });
-});
 
 app.get("/health", async (req, res) => {
   try {
