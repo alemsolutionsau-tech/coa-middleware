@@ -1,5 +1,23 @@
 require("dotenv").config();
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = [
+      "application/pdf",
+      "image/png",
+      "image/jpeg",
+      "image/jpg",
+      "image/tiff"
+    ];
 
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only PDF or image files allowed"));
+    }
+  },
+});
 const express = require("express");
 const cors = require("cors");
 const puppeteer = require("puppeteer");
@@ -569,6 +587,30 @@ function renderActionBar({ documentId, pdfUrl }) {
     </div>
 
     <script>
+    <script>
+async function uploadCOA(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch("/upload-coa", {
+    method: "POST",
+    body: formData,
+  });
+
+  const result = await response.json();
+
+  if (result.success) {
+    window.location.href = result.report_url;
+  } else {
+    alert("Error: " + result.error);
+  }
+}
+
+document.getElementById("fileInput").addEventListener("change", function (e) {
+  const file = e.target.files[0];
+  if (file) uploadCOA(file);
+});
+</script>
       (function () {
         const btn = document.getElementById("generatePdfBtn");
         const status = document.getElementById("pdfStatus");
@@ -3980,6 +4022,120 @@ app.post("/start-coa-job", async (req, res) => {
     return res.status(500).json({
       success: false,
       error: error.message || "Unknown async job error",
+    });
+  }
+});
+
+app.post("/upload-coa", upload.single("file"), async (req, res) => {
+  try {
+    console.log("📥 Upload received");
+
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    const fileBuffer = req.file.buffer;
+
+    // -----------------------------
+    // 1. OCR WITH AZURE
+    // -----------------------------
+    console.log("🔍 Sending to Azure OCR...");
+
+    const poller = await azureClient.beginAnalyzeDocument(
+      "prebuilt-document",
+      fileBuffer
+    );
+
+    const result = await poller.pollUntilDone();
+
+    const ocrText = result?.content || "";
+
+    if (!ocrText) {
+      throw new Error("OCR returned empty content");
+    }
+
+    console.log("✅ OCR complete");
+
+    const trimmedText = ocrText.slice(0, MAX_OCR_CHARS_FOR_OPENAI);
+
+    // -----------------------------
+    // 2. OPENAI PARSE
+    // -----------------------------
+    console.log("🧠 Sending to OpenAI...");
+
+    const aiResponse = await openai.responses.create({
+      model: OPENAI_MODEL,
+      input: [
+        {
+          role: "system",
+          content: extractionPrompt,
+        },
+        {
+          role: "user",
+          content: trimmedText,
+        },
+      ],
+      max_output_tokens: 4000,
+    });
+
+    const rawText =
+      aiResponse.output_text ||
+      (aiResponse.output || [])
+        .map((item) =>
+          (item.content || []).map((p) => p.text || "").join("")
+        )
+        .join("");
+
+    let parsed;
+
+    try {
+      parsed = JSON.parse(rawText);
+    } catch (err) {
+      console.error("❌ JSON PARSE ERROR:", rawText);
+      throw new Error("OpenAI did not return valid JSON");
+    }
+
+    console.log("✅ AI parsing complete");
+
+    // -----------------------------
+    // 3. SAVE TO SUPABASE
+    // -----------------------------
+    const { data, error } = await supabase
+      .from("coa_reports")
+      .insert([
+        {
+          file_name: req.file.originalname,
+          report_json: parsed,
+        },
+      ])
+      .select()
+      .single();
+
+    if (error) {
+      console.error(error);
+      throw new Error("Supabase insert failed");
+    }
+
+    const documentId = data.id;
+
+    // -----------------------------
+    // 4. RETURN REPORT URL
+    // -----------------------------
+    const reportUrl = buildReportUrl(req, documentId);
+
+    console.log("🚀 Done:", reportUrl);
+
+    res.json({
+      success: true,
+      report_url: reportUrl,
+      id: documentId,
+    });
+  } catch (err) {
+    console.error("❌ Upload pipeline error:", err.message);
+
+    res.status(500).json({
+      success: false,
+      error: err.message,
     });
   }
 });
