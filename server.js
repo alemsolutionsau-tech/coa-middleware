@@ -3648,7 +3648,6 @@ async function generatePdfForDocument(documentId) {
   });
 
   return {
-    file_name: fileName,
     pdf_url: pdfUrl,
   };
 }
@@ -4186,22 +4185,20 @@ app.post("/full-coa-pipeline", async (req, res) => {
       });
     }
 
-    const { data: row, error } = await supabase
-      .from("documents")
-      .insert([
-        {
-          user_id: "bubble-user",
-          source: "bubble",
-          original_filename: originalFilename,
-          document_type: documentType,
-          status: "queued",
-          parsed_json: {
-            source_url: fileUrl,
-          },
-        },
-      ])
-      .select()
-      .single();
+const { data, error } = await supabase
+  .from("coa_ai_reports")
+  .insert([
+    {
+      report_json: parsedJson, // 🔥 THIS is your main data
+      overall_score: parsedJson.overall_score || null,
+      report_confidence_score: parsedJson.report_confidence_score || null,
+      chemotype_identity: parsedJson.chemotype_identity || null,
+      chemotype_descriptor: parsedJson.chemotype_descriptor || null,
+      fingerprint_id: parsedJson.fingerprint_id || null,
+    },
+  ])
+  .select()
+  .single();
 
     if (error) {
       throw new Error(`Could not create pipeline document row: ${error.message}`);
