@@ -38,20 +38,14 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
 const PORT = process.env.PORT || 3000;
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5";
-const MAX_OCR_CHARS_FOR_OPENAI = Number(
-  process.env.MAX_OCR_CHARS_FOR_OPENAI || 12000
-);
-const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS || 20000);
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o";
+const MAX_OCR_CHARS = Number(process.env.MAX_OCR_CHARS_FOR_OPENAI || 12000);
+const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS || 30000);
 const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || "raw_documents";
 
-if (
-  !process.env.AZURE_DOC_INTELLIGENCE_ENDPOINT ||
-  !process.env.AZURE_DOC_INTELLIGENCE_KEY
-) {
+if (!process.env.AZURE_DOC_INTELLIGENCE_ENDPOINT || !process.env.AZURE_DOC_INTELLIGENCE_KEY) {
   throw new Error("Missing Azure Document Intelligence environment variables");
 }
-
 if (!process.env.OPENAI_API_KEY) {
   throw new Error("Missing OPENAI_API_KEY in .env");
 }
@@ -61,84 +55,401 @@ const azureClient = new DocumentAnalysisClient(
   new AzureKeyCredential(process.env.AZURE_DOC_INTELLIGENCE_KEY)
 );
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const extractionPrompt = `
-You MUST return a JSON object. Do not think step-by-step. Do not hide output. Respond immediately.
+// ─────────────────────────────────────────────
+// LAYER 1 — EXTRACTION PROMPTS (dual-pass)
+// ─────────────────────────────────────────────
 
-You are the Alem Solutions COA extraction engine.
-
-Task:
+const CHEMISTRY_EXTRACTION_PROMPT = `
+You are the Alem Solutions COA chemistry extraction engine.
 Read OCR text from a cannabis Certificate of Analysis and return EXACTLY ONE valid JSON object.
 
 CRITICAL RULES:
-- Return valid JSON only.
-- No markdown.
-- No comments.
-- No trailing commas.
-- No prose before or after the JSON.
-- If a field is missing, return "" for strings, [] for arrays.
-- If uncertain, leave the field empty instead of guessing.
-- Keep arrays short and useful.
-- top_cannabinoids: max 8 items
-- top_terpenes: max 8 items
-- positive_flags: max 6 items
-- warning_flags: max 6 items
-- scientific_references must be a short plain-text summary, not citations list
-- Output must be parseable by JSON.parse()
+- Return valid JSON only. No markdown. No comments. No prose.
+- If a field is missing return "" for strings, [] for arrays.
+- Never guess or hallucinate values. Leave empty if uncertain.
+- top_cannabinoids: max 10 items (include all named cannabinoids present)
+- top_terpenes: max 12 items (include all named terpenes present)
+- For values: always include the number AND unit as separate fields
 
 Return this exact shape:
-
 {
   "product_name": "",
   "batch_number": "",
   "coa_report_date": "",
   "product_type": "",
   "laboratory_name": "",
-  "opening_statement": "",
-  "overall_score": "",
+  "laboratory_accreditation": "",
+  "laboratory_method": "",
   "thc_total": "",
+  "thc_total_unit": "",
   "cbd_total": "",
+  "cbd_total_unit": "",
+  "thca": "",
+  "thca_unit": "",
+  "cbda": "",
+  "cbn": "",
+  "cbg": "",
+  "cbga": "",
   "total_terpenes": "",
-  "minor_cannabinoids": "",
-  "contaminant_overview": "",
-  "lab_quality_summary": "",
-  "scientific_references": "",
+  "total_terpenes_unit": "",
+  "total_cannabinoids": "",
+  "hero_narrative": "",
   "top_cannabinoids": [
-    {
-      "name": "",
-      "value": "",
-      "unit": "",
-      "notes": ""
-    }
+    { "name": "", "value": "", "unit": "", "notes": "" }
   ],
   "top_terpenes": [
-    {
-      "name": "",
-      "value": "",
-      "unit": ""
-    }
-  ],
+    { "name": "", "value": "", "unit": "" }
+  ]
+}
+
+For hero_narrative: write 2 concise sentences describing the product's chemical identity and positioning potential. Be factual, not promotional. Do not mention brand names. Focus on chemotype, potency tier, and terpene character.
+`;
+
+const CONTAMINANT_EXTRACTION_PROMPT = `
+You are the Alem Solutions COA safety extraction engine.
+Read OCR text from a cannabis Certificate of Analysis and extract ONLY safety, compliance, and contaminant data.
+
+CRITICAL RULES:
+- Return valid JSON only. No markdown. No prose.
+- For each contaminant category, record the result status: "Pass", "Fail", "ND" (not detected), "Not tested", or the actual value if reported.
+- Do not invent pass/fail results. Only record what is explicitly stated in the document.
+- positive_flags: things that indicate quality or compliance (max 8)
+- warning_flags: things that are missing, borderline, or concerning (max 6)
+
+Return this exact shape:
+{
+  "pesticides_status": "",
+  "pesticides_detail": "",
+  "heavy_metals_status": "",
+  "heavy_metals_detail": "",
+  "microbials_status": "",
+  "microbials_detail": "",
+  "mycotoxins_status": "",
+  "residual_solvents_status": "",
+  "moisture_content": "",
+  "water_activity": "",
+  "foreign_matter_status": "",
+  "contaminant_narrative": "",
+  "lab_quality_summary": "",
   "positive_flags": [""],
   "warning_flags": [""]
 }
+
+For contaminant_narrative: write 1-2 sentences summarising the safety profile. If data is absent, state clearly what is missing rather than assuming compliance.
+For lab_quality_summary: describe the laboratory's accreditation, method standards, and any notable analytical details found in the document.
 `;
 
+// ─────────────────────────────────────────────
+// LAYER 2 — COMPOSITE SCORING ENGINE
+// Deterministic — no AI, no hallucination risk
+// ─────────────────────────────────────────────
+
+function computeIntelligenceScore(extracted, contaminants) {
+  let score = 0;
+  const breakdown = {};
+
+  // ── Potency (25 pts) ──────────────────────
+  const thc = toNum(extracted.thc_total);
+  let potencyScore = 0;
+  if (thc >= 28) potencyScore = 25;
+  else if (thc >= 24) potencyScore = 22;
+  else if (thc >= 20) potencyScore = 18;
+  else if (thc >= 15) potencyScore = 13;
+  else if (thc > 0) potencyScore = 8;
+  // CBD-dominant products score differently
+  const cbd = toNum(extracted.cbd_total);
+  if (cbd >= 15 && thc < 5) potencyScore = Math.max(potencyScore, 20);
+  breakdown.potency = { score: potencyScore, max: 25 };
+  score += potencyScore;
+
+  // ── Terpenes (25 pts) ─────────────────────
+  const terps = toNum(extracted.total_terpenes);
+  const terpCount = (extracted.top_terpenes || []).filter(t => toNum(t.value) > 0).length;
+  let terpScore = 0;
+  if (terps >= 3.5) terpScore = 22;
+  else if (terps >= 2.5) terpScore = 20;
+  else if (terps >= 1.8) terpScore = 16;
+  else if (terps >= 1.0) terpScore = 11;
+  else if (terps > 0) terpScore = 6;
+  // Bonus for breadth
+  if (terpCount >= 8) terpScore = Math.min(25, terpScore + 5);
+  else if (terpCount >= 5) terpScore = Math.min(25, terpScore + 3);
+  breakdown.terpenes = { score: terpScore, max: 25 };
+  score += terpScore;
+
+  // ── Minor cannabinoids (20 pts) ───────────
+  const cbga = toNum(extracted.cbga);
+  const cbn = toNum(extracted.cbn);
+  const cbg = toNum(extracted.cbg);
+  const cbda = toNum(extracted.cbda);
+  const minorCount = [cbga, cbn, cbg, cbda].filter(v => v > 0).length;
+  const totalMinors = toNum(extracted.total_cannabinoids) - thc - cbd;
+  let minorScore = 0;
+  if (totalMinors >= 5) minorScore = 20;
+  else if (totalMinors >= 3) minorScore = 16;
+  else if (totalMinors >= 1.5) minorScore = 12;
+  else if (minorCount >= 3) minorScore = 10;
+  else if (minorCount >= 1) minorScore = 6;
+  // Penalise if CBN is high (degradation signal)
+  if (cbn >= 1) minorScore = Math.max(0, minorScore - 4);
+  breakdown.minors = { score: minorScore, max: 20 };
+  score += minorScore;
+
+  // ── Safety / contaminants (20 pts) ────────
+  let safetyScore = 0;
+  const pest = String(contaminants.pesticides_status || "").toLowerCase();
+  const metals = String(contaminants.heavy_metals_status || "").toLowerCase();
+  const micro = String(contaminants.microbials_status || "").toLowerCase();
+  const accred = String(contaminants.lab_quality_summary || "").toLowerCase();
+  if (pest.includes("pass") || pest.includes("nd")) safetyScore += 7;
+  else if (pest.includes("not tested") || !pest) safetyScore += 2;
+  if (metals.includes("pass") || metals.includes("nd")) safetyScore += 7;
+  else if (metals.includes("not tested") || !metals) safetyScore += 2;
+  if (micro.includes("pass") || micro.includes("nd")) safetyScore += 6;
+  else if (micro.includes("not tested") || !micro) safetyScore += 1;
+  // Lab accreditation bonus
+  if (accred.includes("17025") || accred.includes("iso")) safetyScore = Math.min(20, safetyScore + 3);
+  breakdown.safety = { score: safetyScore, max: 20 };
+  score += safetyScore;
+
+  // ── Data completeness (10 pts) ────────────
+  let dataScore = 0;
+  if (extracted.thc_total) dataScore += 2;
+  if (extracted.total_terpenes) dataScore += 2;
+  if ((extracted.top_terpenes || []).length >= 3) dataScore += 2;
+  if ((extracted.top_cannabinoids || []).length >= 3) dataScore += 1;
+  if (extracted.coa_report_date) dataScore += 1;
+  if (extracted.laboratory_name) dataScore += 1;
+  if (extracted.batch_number) dataScore += 1;
+  breakdown.dataCompleteness = { score: dataScore, max: 10 };
+  score += dataScore;
+
+  const grade = score >= 90 ? "A+" : score >= 85 ? "A" : score >= 78 ? "A-"
+    : score >= 74 ? "B+" : score >= 70 ? "B" : score >= 65 ? "B-"
+    : score >= 58 ? "C+" : score >= 50 ? "C" : "D";
+
+  const tier = score >= 85 ? "Exceptional"
+    : score >= 74 ? "Strong"
+    : score >= 60 ? "Moderate"
+    : "Limited";
+
+  return { total: score, grade, tier, breakdown };
+}
+
+// ─────────────────────────────────────────────
+// LAYER 3 — INTELLIGENCE GENERATION
+// ─────────────────────────────────────────────
+
+const TERPENE_INTEL = {
+  terpinolene: {
+    direction: "Uplifting / mentally active",
+    note: "Terpinolene-dominant profiles often feel brighter, more mentally active, and less body-heavy. Associated with Haze and Jack-type chemotype families.",
+    lineage: "Haze / Jack / Durban-type families",
+    lineageConfidence: "Moderate",
+  },
+  myrcene: {
+    direction: "Calming / body-centred",
+    note: "Myrcene-dominant profiles tend toward more calming, body-heavy experiences. Common in Kush and OG-type chemotype families.",
+    lineage: "Kush / OG / indica-leaning families",
+    lineageConfidence: "Moderate",
+  },
+  "beta-myrcene": {
+    direction: "Calming / body-centred",
+    note: "Myrcene-dominant profiles tend toward more calming, body-heavy experiences. Common in Kush and OG-type chemotype families.",
+    lineage: "Kush / OG / indica-leaning families",
+    lineageConfidence: "Moderate",
+  },
+  limonene: {
+    direction: "Bright / mood-forward",
+    note: "Limonene-forward profiles are typically positioned as brighter, more mood-forward, and citrus-dominant in aroma.",
+    lineage: "Citrus hybrid / Gelato / Runtz-type families",
+    lineageConfidence: "Moderate",
+  },
+  caryophyllene: {
+    direction: "Balanced / structured",
+    note: "Caryophyllene-led profiles often read as warm, structured, and balanced — with spice-forward aromatic character.",
+    lineage: "Balanced hybrid / spice-forward families",
+    lineageConfidence: "Low-moderate",
+  },
+  "trans-caryophyllene": {
+    direction: "Balanced / structured",
+    note: "Caryophyllene-led profiles often read as warm, structured, and balanced — with spice-forward aromatic character.",
+    lineage: "Balanced hybrid / spice-forward families",
+    lineageConfidence: "Low-moderate",
+  },
+  pinene: {
+    direction: "Clear / alert",
+    note: "Pinene-prominent profiles are often interpreted as clearer and more alertness-oriented, with a fresh, pine-forward aroma.",
+    lineage: "Pine-forward / clear sativa-leaning families",
+    lineageConfidence: "Low-moderate",
+  },
+  "alpha-pinene": {
+    direction: "Clear / alert",
+    note: "Alpha-pinene contributes a fresh, sharp aromatic quality and is associated with clearer, more alert experiential profiles.",
+    lineage: "Pine-forward / clear sativa-leaning families",
+    lineageConfidence: "Low-moderate",
+  },
+  ocimene: {
+    direction: "Bright / floral / complex",
+    note: "Ocimene adds floral, herbal, and tropical aromatic complexity. As a secondary terpene it supports a distinctive multi-layered aromatic fingerprint.",
+    lineage: "Haze / tropical-adjacent families",
+    lineageConfidence: "Low",
+  },
+  linalool: {
+    direction: "Calming / floral",
+    note: "Linalool is associated with floral, lavender-like aromas and calmer, more relaxing experiential profiles.",
+    lineage: "Floral / indica-adjacent families",
+    lineageConfidence: "Low-moderate",
+  },
+  bisabolol: {
+    direction: "Gentle / smooth",
+    note: "Bisabolol contributes a smooth, gentle aromatic character and is associated with softer, more relaxed profiles.",
+    lineage: "Smooth hybrid families",
+    lineageConfidence: "Low",
+  },
+  humulene: {
+    direction: "Earthy / structured",
+    note: "Humulene adds earthy, woody aromatic depth and contributes to a grounded, structured profile character.",
+    lineage: "OG / earthy hybrid families",
+    lineageConfidence: "Low",
+  },
+  farnesene: {
+    direction: "Floral / fruity / complex",
+    note: "Farnesene contributes apple-adjacent, floral, and fruity aromatic notes. Relatively rare as a dominant terpene — adds differentiation value.",
+    lineage: "Complex hybrid families",
+    lineageConfidence: "Low",
+  },
+};
+
+function getTerpeneIntel(terpName = "") {
+  const key = String(terpName).toLowerCase().trim();
+  for (const [k, v] of Object.entries(TERPENE_INTEL)) {
+    if (key.includes(k)) return v;
+  }
+  return {
+    direction: "Chemistry-led",
+    note: "A clearer directional read would require stronger terpene dominance or a broader comparison dataset.",
+    lineage: "Unclear cluster",
+    lineageConfidence: "Low",
+  };
+}
+
+function generateFingerprintId(terpenes = []) {
+  const top3 = terpenes
+    .filter(t => toNum(t.value) > 0)
+    .slice(0, 3)
+    .map(t => String(t.name || "").replace(/[^a-zA-Z]/g, "").slice(0, 3).toUpperCase());
+  if (!top3.length) return "UNK";
+  return top3.join("-");
+}
+
+function buildAudienceNarratives(extracted, contaminants, scoring) {
+  const thc = toNum(extracted.thc_total);
+  const cbd = toNum(extracted.cbd_total);
+  const terps = toNum(extracted.total_terpenes);
+  const cbga = toNum(extracted.cbga);
+  const cbn = toNum(extracted.cbn);
+  const terpenes = extracted.top_terpenes || [];
+  const lead = terpenes[0]?.name || "";
+  const second = terpenes[1]?.name || "";
+  const intel = getTerpeneIntel(lead);
+  const score = scoring.total;
+
+  const brand = [];
+  if (lead) {
+    const rarity = ["terpinolene", "ocimene", "farnesene"].some(t => lead.toLowerCase().includes(t));
+    brand.push(rarity
+      ? `${lead} dominance is a genuine market differentiator — fewer than 15% of dried flower products lead with this compound. Supports a distinct, premium identity.`
+      : `${lead}-dominant chemistry is well-recognised in market positioning and supports clear directional messaging around ${intel.direction.toLowerCase()}.`
+    );
+  }
+  brand.push(`Intelligence score ${score}/100 (${scoring.tier}). ${scoring.breakdown.safety.score < 10 ? "Safety data gap limits maximum score — structured contaminant detail should be captured in future submissions." : "Strong across all five scoring dimensions."}`);
+  if (cbga >= 1) brand.push(`CBGA at ${cbga.toFixed(2)} wt% is notable — elevated CBGA can support a biosynthetic depth narrative and minor cannabinoid product story for premium positioning.`);
+  if (terps >= 2) brand.push(`Total terpene content of ${terps.toFixed(2)} wt% sits in the upper range for dried flower. Supports premium aromatic positioning and commands attention in terpene-literate markets.`);
+
+  const clinical = [];
+  clinical.push(`THC total: ${thc.toFixed(1)} wt% — ${thc >= 24 ? "high range. Tolerance-aware patient selection and dose titration is warranted." : thc >= 18 ? "moderate-to-high range. Appropriate patient education on dose sensitivity recommended." : "moderate range."}`);
+  clinical.push(cbd > 0.5 ? `CBD present at ${cbd.toFixed(2)} wt% — may provide some modulation of THC-dominant effects.` : "CBD not detected — no intrinsic CBD modulation of THC intensity in this profile.");
+  clinical.push(`Terpene direction: ${intel.note}`);
+  clinical.push(cbn >= 0.5 ? `CBN detected at ${cbn.toFixed(2)} wt% — may indicate some THC oxidative degradation. Consider storage conditions.` : "CBN not detected — minimal oxidative degradation signal.");
+  const safetyNote = contaminants.pesticides_status && !contaminants.pesticides_status.toLowerCase().includes("not tested")
+    ? `Pesticide panel: ${contaminants.pesticides_status}. ${contaminants.heavy_metals_status ? "Heavy metals: " + contaminants.heavy_metals_status + "." : ""}`
+    : "Structured contaminant pass/fail data not captured — review source COA directly for pesticide, heavy metals, and microbial panels before prescribing.";
+  clinical.push(safetyNote);
+
+  const patient = [];
+  patient.push(thc >= 24 ? "This is a high-THC product. It is likely to feel strong, especially for patients with lower tolerance or those new to cannabis." : thc >= 18 ? "This product has moderate-to-high THC content. Start with a low dose and increase gradually." : "This product has moderate THC content.");
+  patient.push(lead ? `The leading terpene — ${lead} — is typically associated with ${intel.direction.toLowerCase()} experiences.` : "A clear terpene direction could not be identified from this report.");
+  patient.push(cbd > 0.5 ? `CBD is present at ${cbd.toFixed(2)} wt%, which may provide some balancing effect.` : "CBD is not detected in this product — there is no built-in balance from CBD.");
+  if (lead || second) patient.push(`Expect a${["aeiou"].join("").includes((lead || second)[0].toLowerCase()) ? "n" : ""} ${[lead, second].filter(Boolean).join(" and ")}-forward aroma.`);
+
+  const buyer = [];
+  buyer.push(`Intelligence score: ${score}/100 — ${scoring.tier}. ${scoring.breakdown.terpenes.score >= 18 ? "Leads on terpene richness." : ""} ${scoring.breakdown.safety.score < 10 ? "Safety data gap is the primary score limiter — request full compliance documentation." : "Clean safety profile."}`);
+  if (lead) buyer.push(`${lead}-dominant COA in a predominantly myrcene-heavy market. Above-average shelf differentiation potential.`);
+  buyer.push(terps >= 2 ? `Total terpene content (${terps.toFixed(2)} wt%) supports premium pricing. Terpene richness and chemotype clarity justify category-leading positioning.` : `Terpene content (${terps.toFixed(2)} wt%) is serviceable. Pricing should align with mid-tier terpene density.`);
+  const safetyBuyerNote = (!contaminants.pesticides_status || contaminants.pesticides_status.toLowerCase().includes("not tested"))
+    ? "Structured contaminant overview not captured. Request full compliance panel from producer before listing."
+    : `Contaminant overview: Pesticides — ${contaminants.pesticides_status}. Metals — ${contaminants.heavy_metals_status || "not reported"}.`;
+  buyer.push(safetyBuyerNote);
+
+  return { brand, clinical, patient, buyer };
+}
+
+function buildPostHarvestIntel(extracted, contaminants) {
+  const terps = toNum(extracted.total_terpenes);
+  const terpCount = (extracted.top_terpenes || []).filter(t => toNum(t.value) > 0).length;
+  const cbn = toNum(extracted.cbn);
+
+  const freshness = terps >= 3
+    ? { label: "Strong", note: "Terpene retention is high — consistent with excellent post-harvest preservation." }
+    : terps >= 2
+    ? { label: "Good", note: "Terpene retention suggests well-preserved aromatic content through handling and storage." }
+    : terps >= 1.2
+    ? { label: "Moderate", note: "Some aromatic expression remains, though terpene density is not exceptional." }
+    : terps > 0
+    ? { label: "Light", note: "Lower terpene density may suggest some aromatic loss through processing or storage." }
+    : { label: "Unknown", note: "Freshness cannot be inferred — terpene density not captured." };
+
+  const curing = terpCount >= 6 && terps >= 1.5
+    ? { label: "Positive signal", note: "Broad terpene spectrum without flat profile suggests preserved aromatic complexity through curing." }
+    : terpCount >= 3
+    ? { label: "Moderate signal", note: "Some terpene layering visible. Confidence in curing quality is limited without additional data." }
+    : { label: "Limited signal", note: "Insufficient terpene breadth to draw a confident curing quality inference." };
+
+  const degradation = cbn >= 1.5
+    ? { label: "Notable", note: `CBN at ${cbn.toFixed(2)} wt% suggests meaningful THC oxidative degradation. Review storage conditions.` }
+    : cbn >= 0.5
+    ? { label: "Low signal", note: `CBN detected at ${cbn.toFixed(2)} wt% — minor degradation signal. Not clinically significant at this level.` }
+    : { label: "Minimal", note: "CBN not detected — minimal evidence of THC oxidative degradation." };
+
+  const moisture = extracted.moisture_content || contaminants.moisture_content;
+  const stability = moisture
+    ? { label: "Data present", note: `Moisture content: ${moisture}. ${parseFloat(moisture) <= 12 ? "Within acceptable range for storage stability." : "Review against target range for product category."}` }
+    : { label: "Limited", note: "Moisture and water activity data not captured — stability confidence is limited to terpene-based inference only." };
+
+  return { freshness, curing, degradation, stability };
+}
+
+// ─────────────────────────────────────────────
+// UTILITY FUNCTIONS
+// ─────────────────────────────────────────────
+
+function toNum(value) {
+  if (value === null || value === undefined) return 0;
+  const raw = String(value).trim().toLowerCase();
+  if (!raw || raw === "nd" || raw === "n/d" || raw.includes("not detected") || raw.includes("<loq") || raw.includes("< lod")) return 0;
+  const match = raw.match(/-?\d+(\.\d+)?/);
+  return match ? Number(match[0]) : 0;
+}
+
 function esc(v = "") {
-  return String(v ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+  return String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 function sanitizeFileName(name = "") {
-  return String(name || "")
-    .replace(/[^a-zA-Z0-9-_.]/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "");
+  return String(name || "").replace(/[^a-zA-Z0-9-_.]/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "");
 }
 
 function getBaseUrl(req) {
@@ -146,2049 +457,1098 @@ function getBaseUrl(req) {
   return `${proto}://${req.get("host")}`;
 }
 
-function buildReportUrl(req, id) {
-  return `${getBaseUrl(req)}/report/${id}`;
-}
-
-function buildPdfUrl(req, id) {
-  return `${getBaseUrl(req)}/pdf/${id}`;
-}
-
 function detectMimeType(url = "", headerContentType = "") {
   const lowerUrl = String(url || "").toLowerCase();
   const lowerHeader = String(headerContentType || "").toLowerCase();
-
-  if (lowerHeader.includes("application/pdf") || lowerUrl.endsWith(".pdf")) {
-    return "application/pdf";
-  }
-  if (lowerHeader.includes("image/png") || lowerUrl.endsWith(".png")) {
-    return "image/png";
-  }
-  if (
-    lowerHeader.includes("image/jpeg") ||
-    lowerUrl.endsWith(".jpg") ||
-    lowerUrl.endsWith(".jpeg")
-  ) {
-    return "image/jpeg";
-  }
-  if (
-    lowerHeader.includes("image/tiff") ||
-    lowerUrl.endsWith(".tif") ||
-    lowerUrl.endsWith(".tiff")
-  ) {
-    return "image/tiff";
-  }
-
+  if (lowerHeader.includes("application/pdf") || lowerUrl.endsWith(".pdf")) return "application/pdf";
+  if (lowerHeader.includes("image/png") || lowerUrl.endsWith(".png")) return "image/png";
+  if (lowerHeader.includes("image/jpeg") || lowerUrl.endsWith(".jpg") || lowerUrl.endsWith(".jpeg")) return "image/jpeg";
+  if (lowerHeader.includes("image/tiff") || lowerUrl.endsWith(".tif") || lowerUrl.endsWith(".tiff")) return "image/tiff";
   return "application/octet-stream";
+}
+
+function prepareOCRText(cleanText = "") {
+  const text = String(cleanText || "").trim();
+  if (!text) return "";
+  if (text.length <= MAX_OCR_CHARS) return text;
+  const headLen = Math.floor(MAX_OCR_CHARS * 0.7);
+  const tailLen = MAX_OCR_CHARS - headLen;
+  return [text.slice(0, headLen), "\n\n[TRUNCATED]\n\n", text.slice(-tailLen)].join("");
 }
 
 function safeSnippet(value, max = 1000) {
   return String(value || "").slice(0, max);
 }
 
-function prepareOCRTextForModel(cleanText = "") {
-  const text = String(cleanText || "").trim();
-  if (!text) return "";
+// ─────────────────────────────────────────────
+// OPENAI CALL WRAPPER
+// ─────────────────────────────────────────────
 
-  if (text.length <= MAX_OCR_CHARS_FOR_OPENAI) {
-    return text;
-  }
-
-  const headLength = Math.floor(MAX_OCR_CHARS_FOR_OPENAI * 0.7);
-  const tailLength = MAX_OCR_CHARS_FOR_OPENAI - headLength;
-
-  return [
-    text.slice(0, headLength),
-    "\n\n[TRUNCATED FOR MODEL INPUT]\n\n",
-    text.slice(-tailLength),
-  ].join("");
-}
-
-function extractTextFromOpenAIResponse(response) {
-  try {
-    if (!response || typeof response !== "object") return "";
-
-    if (
-      typeof response.output_text === "string" &&
-      response.output_text.trim()
-    ) {
-      return response.output_text.trim();
-    }
-
-    const chunks = [];
-
-    if (Array.isArray(response.output)) {
-      for (const item of response.output) {
-        if (!item || !Array.isArray(item.content)) continue;
-
-        for (const part of item.content) {
-          if (!part) continue;
-
-          if (typeof part.text === "string" && part.text.trim()) {
-            chunks.push(part.text.trim());
-            continue;
-          }
-
-          if (
-            part.type === "output_text" &&
-            typeof part.text === "string" &&
-            part.text.trim()
-          ) {
-            chunks.push(part.text.trim());
-          }
-        }
-      }
-    }
-
-    return chunks.join("\n").trim();
-  } catch (err) {
-    console.error("extractTextFromOpenAIResponse error:", err.message);
-    return "";
-  }
-}
-
-function extractJSONObject(text = "") {
-  const trimmed = String(text || "").trim();
-
-  if (!trimmed) {
-    throw new Error("OpenAI returned empty text");
-  }
-
-  const firstBrace = trimmed.indexOf("{");
-  const lastBrace = trimmed.lastIndexOf("}");
-
-  if (firstBrace === -1) {
-    throw new Error("No opening JSON brace found in OpenAI output");
-  }
-
-  if (lastBrace === -1 || lastBrace <= firstBrace) {
-    throw new Error("No closing JSON brace found in OpenAI output");
-  }
-
-  return trimmed.slice(firstBrace, lastBrace + 1);
-}
-
-function normalizeParsedCOA(data = {}) {
-  const toString = (v) => (v === null || v === undefined ? "" : String(v));
-  const toArray = (v) => (Array.isArray(v) ? v : []);
-
-  return {
-    product_name: toString(data.product_name),
-    batch_number: toString(data.batch_number),
-    coa_report_date: toString(data.coa_report_date),
-    product_type: toString(data.product_type),
-    laboratory_name: toString(data.laboratory_name),
-    opening_statement: toString(data.opening_statement),
-    overall_score: toString(data.overall_score),
-    thc_total: toString(data.thc_total),
-    cbd_total: toString(data.cbd_total),
-    total_terpenes: toString(data.total_terpenes),
-    minor_cannabinoids: toString(data.minor_cannabinoids),
-    contaminant_overview: toString(data.contaminant_overview),
-    lab_quality_summary: toString(data.lab_quality_summary),
-    scientific_references: toString(data.scientific_references),
-
-    top_cannabinoids: toArray(data.top_cannabinoids)
-      .slice(0, 8)
-      .map((item) => ({
-        name: toString(item?.name),
-        value: toString(item?.value),
-        unit: toString(item?.unit),
-        notes: toString(item?.notes),
-      })),
-
-    top_terpenes: toArray(data.top_terpenes)
-      .slice(0, 8)
-      .map((item) => ({
-        name: toString(item?.name),
-        value: toString(item?.value),
-        unit: toString(item?.unit),
-      })),
-
-    positive_flags: toArray(data.positive_flags)
-      .slice(0, 6)
-      .map((x) => toString(x)),
-
-    warning_flags: toArray(data.warning_flags)
-      .slice(0, 6)
-      .map((x) => toString(x)),
-  };
-}
-
-function logOpenAIResponseMeta(label, response) {
-  try {
-    console.log(`${label} RESPONSE ID:`, response?.id || "");
-    console.log(`${label} RESPONSE STATUS:`, response?.status || "");
-    console.log(`${label} RESPONSE MODEL:`, response?.model || "");
-    console.log(
-      `${label} RESPONSE OUTPUT_TEXT EXISTS:`,
-      typeof response?.output_text === "string"
-    );
-    console.log(
-      `${label} RESPONSE OUTPUT COUNT:`,
-      Array.isArray(response?.output) ? response.output.length : 0
-    );
-
-    if (response?.incomplete_details) {
-      console.log(
-        `${label} RESPONSE INCOMPLETE DETAILS:`,
-        JSON.stringify(response.incomplete_details)
-      );
-    }
-
-    if (response?.error) {
-      console.log(`${label} RESPONSE ERROR:`, JSON.stringify(response.error));
-    }
-  } catch (err) {
-    console.error("logOpenAIResponseMeta error:", err.message);
-  }
-}
-
-async function callOpenAIForJSON(systemPrompt, userText, maxOutputTokens = 1200) {
-  console.log("🚀 Sending request to OpenAI.");
-
+async function callOpenAI(systemPrompt, userText, maxTokens = 1600) {
   const response = await Promise.race([
-    openai.responses.create({
+    openai.chat.completions.create({
       model: OPENAI_MODEL,
-      store: false,
-      text: { format: { type: "text" } },
-      reasoning: { effort: "minimal" },
-      max_output_tokens: maxOutputTokens,
-      input: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
-        {
-          role: "user",
-          content: userText,
-        },
+      max_tokens: maxTokens,
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userText },
       ],
     }),
     new Promise((_, reject) =>
-      setTimeout(
-        () => reject(new Error(`OpenAI timeout after ${OPENAI_TIMEOUT_MS}ms`)),
-        OPENAI_TIMEOUT_MS
-      )
+      setTimeout(() => reject(new Error(`OpenAI timeout after ${OPENAI_TIMEOUT_MS}ms`)), OPENAI_TIMEOUT_MS)
     ),
   ]);
-
-  console.log("✅ OpenAI responded");
-  return response;
+  return response.choices?.[0]?.message?.content || "";
 }
 
-async function repairJSONToSchema(cleanText = "") {
-  const modelInput = prepareOCRTextForModel(cleanText);
-
-  const repairPrompt = `
-You are repairing a failed COA extraction.
-
-Return EXACTLY ONE valid JSON object in this exact shape:
-
-{
-  "product_name": "",
-  "batch_number": "",
-  "coa_report_date": "",
-  "product_type": "",
-  "laboratory_name": "",
-  "opening_statement": "",
-  "overall_score": "",
-  "thc_total": "",
-  "cbd_total": "",
-  "total_terpenes": "",
-  "minor_cannabinoids": "",
-  "contaminant_overview": "",
-  "lab_quality_summary": "",
-  "scientific_references": "",
-  "top_cannabinoids": [
-    {
-      "name": "",
-      "value": "",
-      "unit": "",
-      "notes": ""
-    }
-  ],
-  "top_terpenes": [
-    {
-      "name": "",
-      "value": "",
-      "unit": ""
-    }
-  ],
-  "positive_flags": [""],
-  "warning_flags": [""]
+function extractJSON(text = "") {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) throw new Error("Empty OpenAI response");
+  const first = trimmed.indexOf("{");
+  const last = trimmed.lastIndexOf("}");
+  if (first === -1 || last === -1 || last <= first) throw new Error("No valid JSON object found");
+  return trimmed.slice(first, last + 1);
 }
 
-Rules:
-- Return JSON only
-- No markdown
-- No explanation
-- Fill missing values conservatively
-`;
-
-  const response = await callOpenAIForJSON(repairPrompt, modelInput, 1200);
-  logOpenAIResponseMeta("REPAIR", response);
-
-  const rawText = extractTextFromOpenAIResponse(response);
-  const jsonText = extractJSONObject(rawText);
-  return normalizeParsedCOA(JSON.parse(jsonText));
+function normalizeChemistry(data = {}) {
+  const s = (v) => (v === null || v === undefined ? "" : String(v));
+  const a = (v) => (Array.isArray(v) ? v : []);
+  return {
+    product_name: s(data.product_name),
+    batch_number: s(data.batch_number),
+    coa_report_date: s(data.coa_report_date),
+    product_type: s(data.product_type),
+    laboratory_name: s(data.laboratory_name),
+    laboratory_accreditation: s(data.laboratory_accreditation),
+    laboratory_method: s(data.laboratory_method),
+    thc_total: s(data.thc_total),
+    thc_total_unit: s(data.thc_total_unit),
+    cbd_total: s(data.cbd_total),
+    cbd_total_unit: s(data.cbd_total_unit),
+    thca: s(data.thca),
+    thca_unit: s(data.thca_unit),
+    cbda: s(data.cbda),
+    cbn: s(data.cbn),
+    cbg: s(data.cbg),
+    cbga: s(data.cbga),
+    total_terpenes: s(data.total_terpenes),
+    total_terpenes_unit: s(data.total_terpenes_unit),
+    total_cannabinoids: s(data.total_cannabinoids),
+    hero_narrative: s(data.hero_narrative),
+    top_cannabinoids: a(data.top_cannabinoids).slice(0, 10).map(i => ({
+      name: s(i?.name), value: s(i?.value), unit: s(i?.unit), notes: s(i?.notes),
+    })),
+    top_terpenes: a(data.top_terpenes).slice(0, 12).map(i => ({
+      name: s(i?.name), value: s(i?.value), unit: s(i?.unit),
+    })),
+  };
 }
 
-async function parseCOAWithOpenAI(cleanText = "") {
-  if (!cleanText || !String(cleanText).trim()) {
-    throw new Error("cleanText is empty");
-  }
+function normalizeContaminants(data = {}) {
+  const s = (v) => (v === null || v === undefined ? "" : String(v));
+  const a = (v) => (Array.isArray(v) ? v : []);
+  return {
+    pesticides_status: s(data.pesticides_status),
+    pesticides_detail: s(data.pesticides_detail),
+    heavy_metals_status: s(data.heavy_metals_status),
+    heavy_metals_detail: s(data.heavy_metals_detail),
+    microbials_status: s(data.microbials_status),
+    microbials_detail: s(data.microbials_detail),
+    mycotoxins_status: s(data.mycotoxins_status),
+    residual_solvents_status: s(data.residual_solvents_status),
+    moisture_content: s(data.moisture_content),
+    water_activity: s(data.water_activity),
+    foreign_matter_status: s(data.foreign_matter_status),
+    contaminant_narrative: s(data.contaminant_narrative),
+    lab_quality_summary: s(data.lab_quality_summary),
+    positive_flags: a(data.positive_flags).slice(0, 8).map(x => s(x)),
+    warning_flags: a(data.warning_flags).slice(0, 6).map(x => s(x)),
+  };
+}
 
-  const modelInput = prepareOCRTextForModel(cleanText);
+// ─────────────────────────────────────────────
+// DUAL-PASS EXTRACTION
+// ─────────────────────────────────────────────
 
+async function extractChemistry(ocrText) {
+  const modelInput = prepareOCRText(ocrText);
+  console.log("🧪 Chemistry extraction pass...");
   try {
-    console.log("OCR TEXT ORIGINAL LENGTH:", String(cleanText).length);
-    console.log("OCR TEXT MODEL INPUT LENGTH:", String(modelInput).length);
-    console.log("OCR TEXT PREVIEW:", safeSnippet(modelInput, 1500));
-
-    const response = await callOpenAIForJSON(extractionPrompt, modelInput, 1200);
-    logOpenAIResponseMeta("RAW", response);
-
-    const rawText = extractTextFromOpenAIResponse(response);
-
-    console.log("RAW OPENAI OUTPUT LENGTH:", rawText ? rawText.length : 0);
-    console.log("RAW OPENAI OUTPUT START:", safeSnippet(rawText, 1000));
-    console.log("RAW OPENAI OUTPUT END:", String(rawText || "").slice(-1000));
-
-    if (!rawText.trim()) {
-      console.warn("⚠️ Empty OpenAI output, retrying with fallback prompt...");
-
-      const retry = await callOpenAIForJSON(
-        "Return only one valid JSON object. No thinking. No explanation. No markdown.",
-        modelInput.slice(0, 9000),
-        900
-      );
-
-      logOpenAIResponseMeta("RETRY", retry);
-
-      const retryText = extractTextFromOpenAIResponse(retry);
-
-      console.log("RETRY OUTPUT LENGTH:", retryText ? retryText.length : 0);
-      console.log("RETRY OUTPUT START:", safeSnippet(retryText, 1000));
-      console.log("RETRY OUTPUT END:", String(retryText || "").slice(-1000));
-
-      if (retryText.trim()) {
-        let retryJson = extractJSONObject(retryText).trim();
-        if (retryJson.endsWith(",")) retryJson = retryJson.slice(0, -1);
-        return normalizeParsedCOA(JSON.parse(retryJson));
-      }
-
-      throw new Error("No text received from OpenAI after retry");
-    }
-
-    let jsonText = extractJSONObject(rawText).trim();
-    if (jsonText.endsWith(",")) jsonText = jsonText.slice(0, -1);
-
-    return normalizeParsedCOA(JSON.parse(jsonText));
-  } catch (parseError) {
-    console.warn("JSON parse failed, attempting repair.");
-    console.warn("PRIMARY PARSE ERROR:", parseError.message);
-
-    try {
-      const repaired = await repairJSONToSchema(cleanText);
-      console.log("JSON repaired successfully");
-      return normalizeParsedCOA(repaired);
-    } catch (repairError) {
-      console.error("JSON repair failed:", repairError.message);
-
-      return normalizeParsedCOA({
-        product_name: "",
-        batch_number: "",
-        coa_report_date: "",
-        product_type: "",
-        laboratory_name: "",
-        opening_statement: "Partial parse only.",
-        overall_score: "",
-        thc_total: "",
-        cbd_total: "",
-        total_terpenes: "",
-        minor_cannabinoids: "",
-        contaminant_overview: "",
-        lab_quality_summary: "",
-        scientific_references: "",
-        top_cannabinoids: [],
-        top_terpenes: [],
-        positive_flags: [],
-        warning_flags: [
-          "COA parsed partially due to malformed, timeout, or empty model output",
-        ],
-      });
-    }
+    const raw = await callOpenAI(CHEMISTRY_EXTRACTION_PROMPT, modelInput, 1800);
+    const json = extractJSON(raw);
+    return normalizeChemistry(JSON.parse(json));
+  } catch (err) {
+    console.warn("Chemistry extraction failed, returning empty:", err.message);
+    return normalizeChemistry({});
   }
 }
 
-async function safeParseCOA(cleanText = "") {
+async function extractContaminants(ocrText) {
+  const modelInput = prepareOCRText(ocrText);
+  console.log("🛡️ Contaminant extraction pass...");
   try {
-    return await parseCOAWithOpenAI(cleanText);
-  } catch (error) {
-    console.error("safeParseCOA fallback triggered:", error.message);
-
-    return normalizeParsedCOA({
-      product_name: "",
-      batch_number: "",
-      coa_report_date: "",
-      product_type: "",
-      laboratory_name: "",
-      opening_statement: "COA could not be fully parsed automatically.",
-      overall_score: "",
-      thc_total: "",
-      cbd_total: "",
-      total_terpenes: "",
-      minor_cannabinoids: "",
-      contaminant_overview: "",
-      lab_quality_summary: "",
-      scientific_references: "",
-      top_cannabinoids: [],
-      top_terpenes: [],
-      positive_flags: [],
-      warning_flags: ["Automatic extraction failed"],
-    });
+    const raw = await callOpenAI(CONTAMINANT_EXTRACTION_PROMPT, modelInput, 1000);
+    const json = extractJSON(raw);
+    return normalizeContaminants(JSON.parse(json));
+  } catch (err) {
+    console.warn("Contaminant extraction failed, returning empty:", err.message);
+    return normalizeContaminants({});
   }
 }
+
+async function runDualPassExtraction(ocrText) {
+  const [chemistry, contaminants] = await Promise.all([
+    extractChemistry(ocrText),
+    extractContaminants(ocrText),
+  ]);
+  return { chemistry, contaminants };
+}
+
+// ─────────────────────────────────────────────
+// AZURE OCR
+// ─────────────────────────────────────────────
 
 async function extractDocumentFromUrl(fileUrl) {
-  if (!fileUrl || typeof fileUrl !== "string") {
-    throw new Error("fileUrl must be a non-empty string");
-  }
-
+  if (!fileUrl || typeof fileUrl !== "string") throw new Error("fileUrl must be a non-empty string");
   const fileResponse = await axios.get(fileUrl, {
-    responseType: "arraybuffer",
-    timeout: 60000,
-    maxRedirects: 5,
+    responseType: "arraybuffer", timeout: 60000, maxRedirects: 5,
     validateStatus: (status) => status >= 200 && status < 300,
   });
-
-  const mimeType = detectMimeType(
-    fileUrl,
-    fileResponse.headers["content-type"]
-  );
-
-  const poller = await azureClient.beginAnalyzeDocument(
-    "prebuilt-layout",
-    fileResponse.data,
-    {
-      contentType: mimeType,
-    }
-  );
-
+  const mimeType = detectMimeType(fileUrl, fileResponse.headers["content-type"]);
+  const poller = await azureClient.beginAnalyzeDocument("prebuilt-layout", fileResponse.data, { contentType: mimeType });
   const result = await poller.pollUntilDone();
-
-  const pages = (result.pages || []).map((page) => {
-    const text = (page.lines || []).map((line) => line.content).join("\n");
-
-    return {
-      page_number: page.pageNumber,
-      width: page.width,
-      height: page.height,
-      unit: page.unit,
-      text,
-    };
-  });
-
-  const plainText = pages.map((p) => p.text).join("\n\n").trim();
-
-  const tables = (result.tables || []).map((table, index) => ({
-    table_index: index + 1,
-    row_count: table.rowCount,
-    column_count: table.columnCount,
+  const pages = (result.pages || []).map(page => ({
+    page_number: page.pageNumber,
+    text: (page.lines || []).map(line => line.content).join("\n"),
   }));
-
   return {
     mimeType,
-    plain_text: plainText,
-    pages,
-    tables,
-    raw: result,
+    plain_text: pages.map(p => p.text).join("\n\n").trim(),
+    page_count: pages.length,
+    table_count: (result.tables || []).length,
   };
 }
 
-async function uploadBufferToSupabase({
-  buffer,
-  originalName,
-  mimeType,
-  folder = "raw_documents",
-}) {
+// ─────────────────────────────────────────────
+// SUPABASE
+// ─────────────────────────────────────────────
+
+async function uploadBufferToSupabase({ buffer, originalName, mimeType, folder = "raw_documents" }) {
   const safeName = sanitizeFileName(originalName || `upload-${Date.now()}`);
   const storagePath = `${folder}/${Date.now()}-${safeName}`;
-
-  const { error: uploadError } = await supabase.storage
-    .from(SUPABASE_BUCKET)
-    .upload(storagePath, buffer, {
-      contentType: mimeType || "application/octet-stream",
-      upsert: false,
-    });
-
-  if (uploadError) {
-    throw new Error(`Supabase storage upload failed: ${uploadError.message}`);
-  }
-
-  const { data: publicData } = supabase.storage
-    .from(SUPABASE_BUCKET)
-    .getPublicUrl(storagePath);
-
-  const publicUrl = publicData?.publicUrl;
-  if (!publicUrl) {
-    throw new Error("Failed to generate public URL");
-  }
-
-  return {
-    storagePath,
-    publicUrl,
-  };
+  const { error } = await supabase.storage.from(SUPABASE_BUCKET).upload(storagePath, buffer, {
+    contentType: mimeType || "application/octet-stream", upsert: false,
+  });
+  if (error) throw new Error(`Supabase upload failed: ${error.message}`);
+  const { data: publicData } = supabase.storage.from(SUPABASE_BUCKET).getPublicUrl(storagePath);
+  if (!publicData?.publicUrl) throw new Error("Failed to generate public URL");
+  return { storagePath, publicUrl: publicData.publicUrl };
 }
 
-async function insertCOAReport({
-  parsedJson,
-  sourceUrl,
-  storagePath,
-  originalFilename,
-  mimeType,
-}) {
+async function insertCOAReport({ chemistry, contaminants, scoring, intelligence, sourceUrl, storagePath, originalFilename, mimeType }) {
   const payload = {
     report_json: {
-      ...parsedJson,
+      chemistry,
+      contaminants,
+      scoring,
+      intelligence,
       _meta: {
         source_url: sourceUrl || "",
         storage_path: storagePath || "",
         original_filename: originalFilename || "",
         mime_type: mimeType || "",
         saved_at: new Date().toISOString(),
+        schema_version: "5.0",
       },
     },
-    overall_score: parsedJson.overall_score || null,
-    report_confidence_score: null,
-    chemotype_identity: null,
-    chemotype_descriptor: null,
-    fingerprint_id: null,
+    overall_score: scoring.total,
+    report_confidence_score: scoring.breakdown.dataCompleteness.score,
+    chemotype_identity: intelligence.fingerprintId,
+    chemotype_descriptor: intelligence.effectDirection,
+    fingerprint_id: intelligence.fingerprintId,
   };
-
-  const { data, error } = await supabase
-    .from("coa_ai_reports")
-    .insert([payload])
-    .select()
-    .single();
-
-  if (error) {
-    throw new Error(`Supabase insert failed: ${error.message}`);
-  }
-
+  const { data, error } = await supabase.from("coa_ai_reports").insert([payload]).select().single();
+  if (error) throw new Error(`Supabase insert failed: ${error.message}`);
   return data;
 }
 
 async function getReportById(id) {
-  const { data, error } = await supabase
-    .from("coa_ai_reports")
-    .select("*")
-    .eq("id", id)
-    .single();
-
-  if (error) {
-    throw new Error(`Could not load report: ${error.message}`);
-  }
-
+  const { data, error } = await supabase.from("coa_ai_reports").select("*").eq("id", id).single();
+  if (error) throw new Error(`Could not load report: ${error.message}`);
   return data;
 }
 
-function renderMetric(label, value) {
-  return `
-    <div class="metric">
-      <div class="metric-label">${esc(label)}</div>
-      <div class="metric-value">${esc(value || "Not reported")}</div>
-    </div>
-  `;
-}
+// ─────────────────────────────────────────────
+// LAYER 5 — REPORT HTML RENDERER
+// ─────────────────────────────────────────────
 
-function renderList(items = [], emptyText = "Not reported") {
-  if (!Array.isArray(items) || !items.length) {
-    return `<div class="muted">${esc(emptyText)}</div>`;
+function renderReportHTML(reportJson = {}, options = {}) {
+  const chemistry = reportJson.chemistry || {};
+  const contaminants = reportJson.contaminants || {};
+  const scoring = reportJson.scoring || computeIntelligenceScore(chemistry, contaminants);
+  const intelligence = reportJson.intelligence || {};
+
+  const terpenes = chemistry.top_terpenes || [];
+  const cannabinoids = chemistry.top_cannabinoids || [];
+  const thc = toNum(chemistry.thc_total);
+  const cbd = toNum(chemistry.cbd_total);
+  const terps = toNum(chemistry.total_terpenes);
+  const leadTerpene = terpenes[0]?.name || "";
+  const secondTerpene = terpenes[1]?.name || "";
+  const thirdTerpene = terpenes[2]?.name || "";
+  const terpIntel = getTerpeneIntel(leadTerpene);
+  const fingerprintId = intelligence.fingerprintId || generateFingerprintId(terpenes);
+  const audiences = intelligence.audiences || buildAudienceNarratives(chemistry, contaminants, scoring);
+  const postHarvest = intelligence.postHarvest || buildPostHarvestIntel(chemistry, contaminants);
+
+  const maxTerpVal = Math.max(...terpenes.map(t => toNum(t.value)), 0.001);
+
+  const productName = chemistry.product_name || "COA Report";
+  const heroNarrative = chemistry.hero_narrative || `${leadTerpene ? leadTerpene + "-dominant" : "Cannabis"} profile with ${terps > 2 ? "strong" : terps > 1 ? "moderate" : "light"} terpene expression and ${thc >= 24 ? "high" : thc >= 18 ? "moderate-high" : "moderate"} THC content.`;
+
+  function renderAudiencePanel(items = [], id) {
+    if (!items.length) return `<div class="empty">No intelligence available for this audience.</div>`;
+    return items.map(line => `<div class="insight-line">${esc(line)}</div>`).join("");
   }
 
-  return `<ul>${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
-}
-
-function renderCannabinoids(items = []) {
-  if (!Array.isArray(items) || !items.length) {
-    return `<div class="muted">No cannabinoid rows reported.</div>`;
-  }
-
-  return `
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr><th>Name</th><th>Value</th><th>Unit</th><th>Notes</th></tr>
-        </thead>
-        <tbody>
-          ${items
-            .map(
-              (item) => `
-              <tr>
-                <td>${esc(item?.name)}</td>
-                <td>${esc(item?.value)}</td>
-                <td>${esc(item?.unit)}</td>
-                <td>${esc(item?.notes)}</td>
-              </tr>
-            `
-            )
-            .join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-function renderTerpenes(items = []) {
-  if (!Array.isArray(items) || !items.length) {
-    return `<div class="muted">No terpene rows reported.</div>`;
-  }
-
-  return `
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr><th>Name</th><th>Value</th><th>Unit</th></tr>
-        </thead>
-        <tbody>
-          ${items
-            .map(
-              (item) => `
-              <tr>
-                <td>${esc(item?.name)}</td>
-                <td>${esc(item?.value)}</td>
-                <td>${esc(item?.unit)}</td>
-              </tr>
-            `
-            )
-            .join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-function renderReportHTML(data = {}, options = {}) {
-  const topCannabinoids = Array.isArray(data.top_cannabinoids)
-    ? data.top_cannabinoids
-    : [];
-  const topTerpenes = Array.isArray(data.top_terpenes) ? data.top_terpenes : [];
-  const positiveFlags = Array.isArray(data.positive_flags)
-    ? data.positive_flags
-    : [];
-  const warningFlags = Array.isArray(data.warning_flags)
-    ? data.warning_flags
-    : [];
-
-  const toNum = (value) => {
-    if (value === null || value === undefined) return 0;
-    const raw = String(value).trim().toLowerCase();
-    if (
-      !raw ||
-      raw === "nd" ||
-      raw === "n/d" ||
-      raw.includes("not detected") ||
-      raw.includes("<loq") ||
-      raw.includes("< lod")
-    ) {
-      return 0;
-    }
-    const match = raw.match(/-?\d+(\.\d+)?/);
-    return match ? Number(match[0]) : 0;
-  };
-
-  const thc = toNum(data.thc_total);
-  const cbd = toNum(data.cbd_total);
-  const terps = toNum(data.total_terpenes);
-
-  const productName = data.product_name || "COA Report";
-  const dominantTerpene = topTerpenes[0]?.name || "";
-  const secondTerpene = topTerpenes[1]?.name || "";
-  const thirdTerpene = topTerpenes[2]?.name || "";
-  const aromaticProfile = topTerpenes.length
-    ? topTerpenes.slice(0, 5).map((t) => t?.name).filter(Boolean).join(" • ")
-    : "Not clearly reported";
-
-  const hasMinorCannabinoids = !!String(data.minor_cannabinoids || "").trim();
-  const hasContaminants = !!String(data.contaminant_overview || "").trim();
-
-  function classifyPotency(v) {
-    if (v >= 28) {
-      return {
-        label: "Very high",
-        note: "This sits in the upper end of flower potency and is likely to feel strong for many users."
-      };
-    }
-    if (v >= 24) {
-      return {
-        label: "High",
-        note: "This is a high-THC flower profile and likely stronger than average."
-      };
-    }
-    if (v >= 18) {
-      return {
-        label: "Moderate-high",
-        note: "This sits in the moderate-to-high THC range and may suit users comfortable with THC."
-      };
-    }
-    if (v > 0) {
-      return {
-        label: "Moderate",
-        note: "This appears more moderate in THC intensity than high-potency flower products."
-      };
-    }
-    return {
-      label: "Unknown",
-      note: "Potency could not be confidently classified from the extracted data."
-    };
-  }
-
-  function classifyTerpenes(v) {
-    if (v >= 3) {
-      return {
-        label: "High",
-        note: "This suggests stronger aromatic expression than average."
-      };
-    }
-    if (v >= 1.5) {
-      return {
-        label: "Moderate-high",
-        note: "This suggests a meaningful terpene presence without being extremely terpene-dense."
-      };
-    }
-    if (v > 0) {
-      return {
-        label: "Light",
-        note: "This suggests lighter terpene expression."
-      };
-    }
-    return {
-      label: "Unknown",
-      note: "Terpene density could not be confidently classified."
-    };
-  }
-
-  function inferDirection(lead = "") {
-    const t = String(lead || "").toLowerCase();
-
-    if (t.includes("terpinolene")) {
-      return {
-        label: "Uplifting / mentally active",
-        note: "Terpinolene-led profiles often feel brighter, more mentally active, and less body-heavy than sedating chemotypes."
-      };
-    }
-    if (t.includes("myrcene")) {
-      return {
-        label: "Calming / body-heavy",
-        note: "Myrcene-dominant profiles often lean more calming and body-centered."
-      };
-    }
-    if (t.includes("limonene")) {
-      return {
-        label: "Bright / mood-forward",
-        note: "Limonene-forward profiles are often positioned as brighter and more mood-forward."
-      };
-    }
-    if (t.includes("caryophyllene")) {
-      return {
-        label: "Balanced / structured",
-        note: "Caryophyllene-led profiles often read as balanced, warm, and structured."
-      };
-    }
-    if (t.includes("pinene")) {
-      return {
-        label: "Clear / alert",
-        note: "Pinene-heavy profiles are often interpreted as clearer and more alertness-oriented."
-      };
-    }
-
-    return {
-      label: "Chemistry-led",
-      note: "A stronger directional effect readout would require clearer terpene dominance."
-    };
-  }
-
-  function classifyCompleteness() {
-    const score =
-      (topCannabinoids.length ? 1 : 0) +
-      (topTerpenes.length ? 1 : 0) +
-      (data.thc_total ? 1 : 0) +
-      (data.total_terpenes ? 1 : 0) +
-      (hasContaminants ? 1 : 0) +
-      (data.laboratory_name ? 1 : 0) +
-      (data.coa_report_date ? 1 : 0);
-
-    if (score >= 6) {
-      return { label: "Strong", note: "This COA gives a useful level of structured chemistry detail." };
-    }
-    if (score >= 4) {
-      return { label: "Moderate", note: "This COA is useful, but interpretation is still limited in some areas." };
-    }
-    return { label: "Limited", note: "Interpretation is constrained by missing or incomplete chemistry fields." };
-  }
-
-  function buildExecutiveBrief() {
-    const potency = classifyPotency(thc);
-    const terpeneDensity = classifyTerpenes(terps);
-    const effectDirection = inferDirection(dominantTerpene);
-
-    const cbdText =
-      cbd > 0
-        ? "Visible CBD may provide some modulation of THC intensity."
-        : "CBD appears absent or negligible, so THC modulation from CBD is likely minimal.";
-
-    const minorText = hasMinorCannabinoids
-      ? "Visible minor cannabinoids add chemical depth beyond THC alone."
-      : "Minor cannabinoid depth was not clearly captured in the structured data.";
-
-    return {
-      headline: `${potency.label} potency, ${
-        dominantTerpene ? `${dominantTerpene}-led` : "chemistry-led"
-      } flower with ${terpeneDensity.label.toLowerCase()} terpene intensity.`,
-      bullets: [
-        potency.note,
-        effectDirection.note,
-        cbdText,
-        minorText
-      ]
-    };
-  }
-
-  function buildWhatStandsOut() {
-    const bullets = [];
-
-    if (thc >= 24) {
-      bullets.push("THC sits firmly in the high range, suggesting a stronger-than-average flower profile.");
-    } else if (thc >= 18) {
-      bullets.push("THC sits in the moderate-to-high range, indicating meaningful potency without being ultra-high.");
-    }
-
-    if (dominantTerpene) {
-      bullets.push(`${dominantTerpene} appears to be the leading terpene, shaping the profile direction and aromatic identity.`);
-    }
-
-    if (terps >= 1.5) {
-      bullets.push("Total terpene content suggests a meaningful aromatic presence rather than a flat chemistry profile.");
-    }
-
-    if (hasMinorCannabinoids) {
-      bullets.push("Minor cannabinoids add chemistry depth beyond THC alone, which may support a more differentiated chemotype.");
-    }
-
-    if (!bullets.length) {
-      bullets.push("This report is readable, but the chemistry data are not rich enough to support stronger interpretation.");
-    }
-
-    return bullets.slice(0, 4);
-  }
-
-  function buildPostHarvestInsights() {
-    const freshness =
-      terps >= 2.5
-        ? {
-            label: "Strong freshness signal",
-            note: "Terpene retention appears strong, which is generally consistent with better post-harvest preservation."
-          }
-        : terps >= 1.5
-        ? {
-            label: "Moderate freshness signal",
-            note: "Terpene retention appears reasonably preserved, suggesting the flower maintained aromatic expression through handling."
-          }
-        : terps > 0
-        ? {
-            label: "Light freshness signal",
-            note: "Some aromatic expression remains, though terpene density is not strong enough to suggest standout preservation."
-          }
-        : {
-            label: "Freshness signal limited",
-            note: "Freshness cannot be meaningfully inferred because terpene density is unclear."
-          };
-
-    const cure =
-      topTerpenes.length >= 3 && terps >= 1.5
-        ? {
-            label: "Cure signal: positive",
-            note: "The profile does not look chemically flat; visible terpene layering suggests preserved aromatic complexity."
-          }
-        : topTerpenes.length >= 2
-        ? {
-            label: "Cure signal: moderate",
-            note: "Some terpene layering is visible, but confidence remains limited."
-          }
-        : {
-            label: "Cure signal: limited",
-            note: "A stronger curing inference would require clearer terpene spread and additional post-harvest variables."
-          };
-
-    const stability =
-      hasContaminants
-        ? {
-            label: "Stability signal: partial",
-            note: "Some quality-state interpretation is possible, but true stability confidence would require moisture, water activity, oxidation, or repeat-batch data."
-          }
-        : {
-            label: "Stability signal: limited",
-            note: "Stability confidence is limited because no moisture, water activity, oxidation, or longitudinal batch data are available."
-          };
-
-    return { freshness, cure, stability };
-  }
-
-  function buildCultivationInsights() {
-    const expression =
-      thc >= 24 && terps >= 1.8
-        ? "Strong chemotype expression"
-        : thc >= 18 && terps >= 1.5
-        ? "Good chemotype expression"
-        : "Moderate chemotype expression";
-
-    const preservation =
-      terps >= 2
-        ? "Aromatic preservation appears reasonably intact."
-        : "Aromatic preservation is present but not especially strong.";
-
-    const cultivationNote =
-      hasMinorCannabinoids && topTerpenes.length >= 3
-        ? "This reads more like a well-expressed profile than a flat potency-only flower."
-        : "The profile shows useful structure, though cultivation-quality inference remains moderate.";
-
-    return {
-      expression,
-      preservation,
-      cultivationNote
-    };
-  }
-
-  function buildLineageInsights() {
-    const t = String(dominantTerpene || "").toLowerCase();
-
-    if (t.includes("terpinolene")) {
-      return {
-        family: "Haze / Jack / Durban-type families",
-        confidence: "Moderate",
-        note: "Terpinolene-dominant profiles often cluster closer to uplifting Haze-leaning chemotypes than to sedating Kush patterns."
-      };
-    }
-
-    if (t.includes("myrcene")) {
-      return {
-        family: "Kush / OG / indica-leaning families",
-        confidence: "Moderate",
-        note: "Myrcene-led chemistry often maps more closely to body-heavier or Kush-leaning profile families."
-      };
-    }
-
-    if (t.includes("limonene")) {
-      return {
-        family: "Citrus / Gelato / Runtz-like hybrid families",
-        confidence: "Moderate",
-        note: "Limonene-heavy flowers often align more closely with brighter citrus-forward hybrid families."
-      };
-    }
-
-    if (t.includes("pinene")) {
-      return {
-        family: "Pine-forward or clearer sativa-leaning families",
-        confidence: "Low-moderate",
-        note: "Pinene prominence can suggest a clearer and more alertness-oriented chemotype cluster."
-      };
-    }
-
-    if (t.includes("caryophyllene")) {
-      return {
-        family: "Balanced hybrid / spice-forward families",
-        confidence: "Low-moderate",
-        note: "Caryophyllene-forward expressions can map toward structured, spicy hybrid families."
-      };
-    }
-
-    return {
-      family: "Unclear lineage cluster",
-      confidence: "Low",
-      note: "A stronger lineage read would require clearer terpene dominance and a richer comparison database."
-    };
-  }
-
-  function buildBestUseCases() {
-    const useCases = [];
-    const avoidCases = [];
-
-    if (thc >= 24) {
-      useCases.push("Experienced THC users");
-      avoidCases.push("THC-sensitive or low-tolerance users");
-    } else if (thc >= 18) {
-      useCases.push("Users comfortable with moderate-to-high THC");
-    }
-
-    const lead = String(dominantTerpene || "").toLowerCase();
-
-    if (lead.includes("terpinolene") || lead.includes("pinene") || lead.includes("limonene")) {
-      useCases.push("Daytime or early-evening use");
-      useCases.push("Creative, mentally active, or focus-oriented settings");
-      avoidCases.push("Primary sleep-focused use");
-    }
-
-    if (lead.includes("myrcene")) {
-      useCases.push("Calmer evening use");
-      useCases.push("Body-centered relaxation contexts");
-    }
-
-    if (!useCases.length) {
-      useCases.push("General adult-use or exploratory chemistry interest");
-    }
-
-    if (!avoidCases.length && thc >= 24) {
-      avoidCases.push("Situations requiring very low intoxication intensity");
-    }
-
-    return {
-      useCases: useCases.slice(0, 4),
-      avoidCases: avoidCases.slice(0, 4)
-    };
-  }
-
-  function buildAudienceInsights() {
-    const direction = inferDirection(dominantTerpene);
-
-    const patient = [
-      thc >= 24
-        ? "This appears to be a high-THC product and may feel intense for lower-tolerance patients."
-        : thc >= 18
-        ? "This appears to be a moderate-to-high THC product."
-        : "This product does not appear to sit in the highest THC bracket.",
-      dominantTerpene
-        ? `${dominantTerpene} is the leading terpene, which may shape the overall feel of the product.`
-        : "A dominant terpene could not be clearly identified.",
-      direction.note,
-    ];
-
-    const clinician = [
-      cbd <= 1
-        ? "Low CBD suggests limited direct modulation of THC intensity."
-        : "Visible CBD may contribute some modulation of the THC-dominant profile.",
-      thc >= 24
-        ? "High THC concentration warrants tolerance-aware selection and patient education."
-        : "THC concentration appears less extreme than ultra-high potency flower products.",
-      hasContaminants
-        ? "Contaminant summary was reported and should be reviewed alongside the source COA."
-        : "Contaminant interpretation is limited because no structured overview was extracted.",
-    ];
-
-    const industry = [
-      dominantTerpene
-        ? `${dominantTerpene}-led chemistry can support differentiated market positioning.`
-        : "Terpene dominance is not strong enough to support a clear positioning angle.",
-      terps >= 2.5
-        ? "Stronger terpene density supports premium aromatic positioning."
-        : "Moderate terpene density may require positioning around effect profile rather than aroma intensity alone.",
-      hasMinorCannabinoids
-        ? "Minor cannabinoids add product-story depth for brand and category differentiation."
-        : "Limited visible minor cannabinoid depth may reduce differentiation narrative.",
-    ];
-
-    const enthusiast = [
-      aromaticProfile !== "Not clearly reported"
-        ? `Top aromatic signals: ${aromaticProfile}.`
-        : "Aromatic structure could not be confidently extracted.",
-      direction.label,
-      thirdTerpene
-        ? `Layered terpene architecture includes ${dominantTerpene}, ${secondTerpene}, and ${thirdTerpene}.`
-        : secondTerpene
-        ? `Leading terpene pairing includes ${dominantTerpene} and ${secondTerpene}.`
-        : dominantTerpene
-        ? `Primary terpene signal centers on ${dominantTerpene}.`
-        : "No clear lead terpene was extracted.",
-    ];
-
-    return { patient, clinician, industry, enthusiast };
-  }
-
-  function renderMetric(label, value, note = "") {
+  function renderTerpBar(t, i) {
+    const val = toNum(t.value);
+    const width = Math.max(4, (val / maxTerpVal) * 100);
+    const opacity = Math.max(0.4, 1 - i * 0.09);
     return `
-      <div class="metric">
-        <div class="metric-label">${esc(label)}</div>
-        <div class="metric-value">${esc(value || "Not reported")}</div>
-        ${note ? `<div class="metric-note">${esc(note)}</div>` : ""}
-      </div>
-    `;
+      <div class="bar-row">
+        <div class="bar-head">
+          <span class="bar-name">${esc(t.name)}</span>
+          <span class="bar-val">${esc([t.value, t.unit].filter(Boolean).join(" "))}</span>
+        </div>
+        <div class="bar-track">
+          <div class="bar-fill" style="width:${width.toFixed(1)}%;opacity:${opacity.toFixed(2)}"></div>
+        </div>
+      </div>`;
   }
 
-  function renderFlagPills(items, tone = "good", emptyText = "None reported") {
-    if (!items.length) {
-      return `<div class="muted">${esc(emptyText)}</div>`;
-    }
-
+  function renderCannCard(c) {
+    const isMain = ["total thc", "thca", "total cbd", "cbd"].some(k => (c.name || "").toLowerCase().includes(k));
     return `
-      <div class="pill-wrap">
-        ${items
-          .map((item) => `<span class="pill ${tone}">${esc(item)}</span>`)
-          .join("")}
-      </div>
-    `;
+      <div class="cann-card${isMain ? " cann-primary" : ""}">
+        <div class="cann-name">${esc(c.name)}</div>
+        <div class="cann-val">${esc(c.value)} <span class="cann-unit">${esc(c.unit)}</span></div>
+        ${c.notes ? `<div class="cann-note">${esc(c.notes)}</div>` : ""}
+      </div>`;
   }
 
-  function renderTerpeneBars(items = []) {
-    if (!items.length) {
-      return `<div class="muted">No terpene rows reported.</div>`;
-    }
-
-    const maxVal = Math.max(
-      ...items.map((item) => {
-        const num = toNum(item?.value);
-        return num > 0 ? num : 0;
-      }),
-      0.01
-    );
-
+  function renderContRow(label, status, standard) {
+    const isPass = /pass|nd|not detected/i.test(status);
+    const isFail = /fail/i.test(status);
+    const isMissing = !status || /not tested|not reported/i.test(status);
+    const cls = isFail ? "cont-fail" : isMissing ? "cont-missing" : isPass ? "cont-pass" : "cont-value";
+    const display = status || "Not reported";
     return `
-      <div class="bars">
-        ${items
-          .slice(0, 8)
-          .map((item) => {
-            const num = toNum(item?.value);
-            const width = Math.max(6, (num / maxVal) * 100);
-            return `
-              <div class="bar-row">
-                <div class="bar-head">
-                  <span>${esc(item?.name || "Unnamed")}</span>
-                  <strong>${esc(
-                    [item?.value, item?.unit].filter(Boolean).join(" ") || "—"
-                  )}</strong>
-                </div>
-                <div class="bar-shell">
-                  <span style="width:${width}%"></span>
-                </div>
-              </div>
-            `;
-          })
-          .join("")}
-      </div>
-    `;
+      <div class="cont-row">
+        <span class="cont-cat">${esc(label)}</span>
+        <span class="cont-status ${cls}">${esc(display)}</span>
+        <span class="cont-std">${esc(standard)}</span>
+      </div>`;
   }
 
-  function renderCannabinoidCards(items = []) {
-    if (!items.length) {
-      return `<div class="muted">No cannabinoid rows reported.</div>`;
-    }
-
-    return `
-      <div class="compound-grid">
-        ${items
-          .slice(0, 8)
-          .map(
-            (item) => `
-            <div class="compound-card">
-              <div class="compound-name">${esc(item?.name || "Unnamed")}</div>
-              <div class="compound-value">${esc(
-                [item?.value, item?.unit].filter(Boolean).join(" ") || "—"
-              )}</div>
-              ${
-                item?.notes
-                  ? `<div class="compound-note">${esc(item.notes)}</div>`
-                  : ""
-              }
-            </div>
-          `
-          )
-          .join("")}
-      </div>
-    `;
+  function renderPill(text, type = "good") {
+    return `<span class="pill ${type}">${esc(text)}</span>`;
   }
 
-  function renderInsightList(items = []) {
-    if (!items.length) return `<div class="muted">No insight available.</div>`;
-    return `<ul class="insight-list">${items.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>`;
-  }
+  const scoreDims = [
+    { label: "Potency", ...scoring.breakdown.potency },
+    { label: "Terpenes", ...scoring.breakdown.terpenes },
+    { label: "Minor cannabinoids", ...scoring.breakdown.minors },
+    { label: "Safety data", ...scoring.breakdown.safety },
+    { label: "Data completeness", ...scoring.breakdown.dataCompleteness },
+  ];
 
-  const potency = classifyPotency(thc);
-  const aroma = classifyTerpenes(terps);
-  const direction = inferDirection(dominantTerpene);
-  const completeness = classifyCompleteness();
-  const executiveBrief = buildExecutiveBrief();
-  const standoutBullets = buildWhatStandsOut();
-  const postHarvest = buildPostHarvestInsights();
-  const cultivation = buildCultivationInsights();
-  const lineage = buildLineageInsights();
-  const useCases = buildBestUseCases();
-  const audience = buildAudienceInsights();
+  const posFlags = contaminants.positive_flags || [];
+  const warnFlags = contaminants.warning_flags || [];
+  const rawJson = esc(JSON.stringify(reportJson, null, 2));
 
-  const rawJson = esc(JSON.stringify(data, null, 2));
-
-  return `
-<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>${esc(productName)}</title>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>${esc(productName)} — Alem Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <style>
-  :root {
-    --bg: #f4efe4;
-    --bg2: #fbf8f1;
-    --panel: rgba(255,255,255,0.88);
-    --line: rgba(25,24,22,0.09);
-    --text: #191816;
-    --muted: #6e6961;
-    --green: #1f3d2b;
-    --green2: #2f5a43;
-    --gold: #b99657;
-    --goodBg: rgba(31,61,43,0.08);
-    --warnBg: rgba(185,150,87,0.12);
-    --shadow: 0 16px 45px rgba(25,24,22,0.07);
-  }
-
-  * { box-sizing: border-box; }
-
-  body {
-    margin: 0;
-    font-family: Inter, Arial, sans-serif;
-    color: var(--text);
-    background:
-      radial-gradient(circle at top left, rgba(185,150,87,0.10), transparent 26%),
-      radial-gradient(circle at 85% 10%, rgba(31,61,43,0.07), transparent 22%),
-      linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%);
-  }
-
-  .shell {
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 24px 18px 60px;
-  }
-
-  .topbar {
-    display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
-    margin-bottom: 18px;
-  }
-
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    text-decoration: none;
-    border-radius: 999px;
-    border: 1px solid var(--line);
-    padding: 12px 18px;
-    background: rgba(255,255,255,0.92);
-    color: var(--text);
-    font-weight: 700;
-    cursor: pointer;
-  }
-
-  .btn-primary {
-    background: linear-gradient(90deg, var(--green), var(--green2));
-    color: #fff;
-    border-color: var(--green);
-  }
-
-  .hero,
-  .card {
-    border: 1px solid var(--line);
-    border-radius: 28px;
-    background: var(--panel);
-    backdrop-filter: blur(12px);
-    box-shadow: var(--shadow);
-  }
-
-  .hero {
-    padding: 30px;
-    overflow: hidden;
-    position: relative;
-  }
-
-  .hero::after {
-    content: "";
-    position: absolute;
-    right: -40px;
-    bottom: -50px;
-    width: 240px;
-    height: 240px;
-    background: radial-gradient(circle, rgba(185,150,87,0.16), transparent 65%);
-    pointer-events: none;
-  }
-
-  .eyebrow {
-    color: var(--green);
-    text-transform: uppercase;
-    letter-spacing: 0.18em;
-    font-size: 11px;
-    font-weight: 800;
-    margin-bottom: 12px;
-  }
-
-  .hero-grid {
-    display: grid;
-    grid-template-columns: 1.15fr 0.85fr;
-    gap: 20px;
-    align-items: start;
-  }
-
-  h1 {
-    margin: 0 0 12px;
-    font-size: clamp(2.1rem, 4vw, 3.6rem);
-    line-height: 0.95;
-    letter-spacing: -0.05em;
-    max-width: 10ch;
-  }
-
-  .hero-summary {
-    font-size: 1.02rem;
-    color: #423d36;
-    line-height: 1.8;
-    max-width: 62ch;
-  }
-
-  .hero-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 18px;
-  }
-
-  .badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 10px 12px;
-    border-radius: 999px;
-    background: rgba(255,255,255,0.88);
-    border: 1px solid var(--line);
-    font-size: 12px;
-    font-weight: 700;
-  }
-
-  .hero-score {
-    border: 1px solid var(--line);
-    border-radius: 24px;
-    padding: 18px;
-    background: rgba(255,255,255,0.92);
-  }
-
-  .hero-score-label {
-    font-size: 11px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 10px;
-  }
-
-  .hero-score-value {
-    font-size: 1.55rem;
-    font-weight: 800;
-    color: var(--green);
-    line-height: 1.2;
-  }
-
-  .hero-score-note {
-    margin-top: 8px;
-    color: var(--muted);
-    line-height: 1.65;
-    font-size: 14px;
-  }
-
-  .section {
-    margin-top: 18px;
-  }
-
-  .card {
-    padding: 22px;
-  }
-
-  .grid-4 {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 14px;
-  }
-
-  .grid-3 {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
-  }
-
-  .grid-2 {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 18px;
-  }
-
-  .section-title {
-    margin: 0 0 14px;
-    font-size: 1.55rem;
-    letter-spacing: -0.04em;
-  }
-
-  .section-sub {
-    color: var(--muted);
-    font-size: 14px;
-    line-height: 1.7;
-    margin-bottom: 14px;
-  }
-
-  .insight-card {
-    padding: 18px;
-    border-radius: 22px;
-    border: 1px solid var(--line);
-    background: rgba(255,255,255,0.82);
-  }
-
-  .insight-label {
-    font-size: 11px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 10px;
-    font-weight: 800;
-  }
-
-  .insight-value {
-    font-size: 1.35rem;
-    font-weight: 800;
-    letter-spacing: -0.03em;
-    margin-bottom: 8px;
-  }
-
-  .insight-note {
-    color: var(--muted);
-    line-height: 1.65;
-    font-size: 14px;
-  }
-
-  .metric {
-    border: 1px solid var(--line);
-    border-radius: 20px;
-    padding: 18px;
-    background: rgba(255,255,255,0.82);
-  }
-
-  .metric-label {
-    font-size: 11px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 10px;
-  }
-
-  .metric-value {
-    font-size: 2rem;
-    font-weight: 800;
-    line-height: 1.05;
-  }
-
-  .metric-note {
-    margin-top: 8px;
-    font-size: 13px;
-    line-height: 1.6;
-    color: var(--muted);
-  }
-
-  .muted {
-    color: var(--muted);
-    line-height: 1.75;
-    font-size: 14px;
-  }
-
-  .detail-list {
-    display: grid;
-    gap: 12px;
-  }
-
-  .detail-item {
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .detail-key {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.11em;
-    color: var(--muted);
-    margin-bottom: 6px;
-  }
-
-  .detail-value {
-    font-size: 15px;
-    font-weight: 700;
-    line-height: 1.6;
-  }
-
-  .standout-list,
-  .insight-list {
-    margin: 0;
-    padding-left: 18px;
-  }
-
-  .standout-list li,
-  .insight-list li {
-    margin: 10px 0;
-    line-height: 1.75;
-  }
-
-  .bars {
-    display: grid;
-    gap: 14px;
-  }
-
-  .bar-row { display: grid; gap: 7px; }
-
-  .bar-head {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    font-size: 14px;
-  }
-
-  .bar-head strong {
-    color: var(--text);
-    white-space: nowrap;
-  }
-
-  .bar-shell {
-    height: 14px;
-    border-radius: 999px;
-    overflow: hidden;
-    background: #eee8dd;
-    border: 1px solid #e3dccc;
-  }
-
-  .bar-shell span {
-    display: block;
-    height: 100%;
-    border-radius: inherit;
-    background: linear-gradient(90deg, var(--green), var(--gold));
-  }
-
-  .compound-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-  }
-
-  .compound-card {
-    border: 1px solid var(--line);
-    border-radius: 18px;
-    padding: 14px;
-    background: rgba(255,255,255,0.82);
-  }
-
-  .compound-name {
-    font-size: 13px;
-    font-weight: 800;
-    color: var(--green);
-    margin-bottom: 6px;
-  }
-
-  .compound-value {
-    font-size: 18px;
-    font-weight: 800;
-    margin-bottom: 4px;
-  }
-
-  .compound-note {
-    font-size: 12px;
-    color: var(--muted);
-    line-height: 1.55;
-  }
-
-  .pill-wrap {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-  }
-
-  .pill {
-    display: inline-flex;
-    align-items: center;
-    padding: 10px 12px;
-    border-radius: 999px;
-    font-size: 13px;
-    line-height: 1.35;
-    border: 1px solid var(--line);
-  }
-
-  .pill.good {
-    background: var(--goodBg);
-    color: var(--green);
-    border-color: rgba(31,61,43,0.16);
-  }
-
-  .pill.warn {
-    background: var(--warnBg);
-    color: #7b5a20;
-    border-color: rgba(185,150,87,0.2);
-  }
-
-  .mini-card {
-    border: 1px solid var(--line);
-    border-radius: 18px;
-    padding: 16px;
-    background: rgba(255,255,255,0.82);
-  }
-
-  .mini-label {
-    font-size: 11px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 8px;
-  }
-
-  .mini-value {
-    font-size: 1.05rem;
-    font-weight: 800;
-    margin-bottom: 6px;
-  }
-
-  .mini-note {
-    color: var(--muted);
-    font-size: 13px;
-    line-height: 1.6;
-  }
-
-  .toggle-row {
-    margin-top: 14px;
-  }
-
-  .raw-box {
-    display: none;
-    margin-top: 14px;
-  }
-
-  .raw-box.open {
-    display: block;
-  }
-
-  pre {
-    margin: 0;
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-size: 12px;
-    line-height: 1.6;
-    background: rgba(255,255,255,0.82);
-    border: 1px solid var(--line);
-    border-radius: 18px;
-    padding: 16px;
-  }
-
-  @media (max-width: 980px) {
-    .hero-grid,
-    .grid-4,
-    .grid-3,
-    .grid-2,
-    .compound-grid {
-      grid-template-columns: 1fr;
-    }
-  }
+:root {
+  --bg: #f7f5f0;
+  --surface: #ffffff;
+  --surface2: #f2f0eb;
+  --border: rgba(30,28,24,0.10);
+  --border-strong: rgba(30,28,24,0.18);
+  --text: #1a1815;
+  --muted: #6b6760;
+  --hint: #9e9b96;
+  --green: #1c3d2b;
+  --green-mid: #2d5c42;
+  --green-light: #e8f2ec;
+  --green-border: rgba(28,61,43,0.18);
+  --amber: #92650a;
+  --amber-light: #fdf3e0;
+  --amber-border: rgba(146,101,10,0.18);
+  --red: #8b2020;
+  --red-light: #fdeaea;
+  --red-border: rgba(139,32,32,0.18);
+  --radius: 14px;
+  --radius-sm: 8px;
+  --radius-pill: 999px;
+  --shadow: 0 1px 3px rgba(30,28,24,0.06), 0 4px 16px rgba(30,28,24,0.04);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.shell {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 24px 20px 72px;
+}
+
+/* ── Top bar ── */
+.topbar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+.btn:hover { background: var(--surface2); color: var(--text); }
+.btn-primary {
+  background: var(--green);
+  color: #fff;
+  border-color: var(--green);
+}
+.btn-primary:hover { background: var(--green-mid); color: #fff; }
+
+/* ── Hero ── */
+.hero {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 28px 24px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow);
+}
+
+.hero-eyebrow {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--hint);
+  margin-bottom: 14px;
+}
+
+.hero-layout {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 24px;
+  align-items: start;
+}
+
+.product-name {
+  font-size: 38px;
+  font-weight: 600;
+  line-height: 1.0;
+  letter-spacing: -.04em;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+
+.hero-narrative {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.75;
+  max-width: 56ch;
+  margin-bottom: 16px;
+}
+
+.badge-row { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.badge {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 4px 11px;
+}
+
+/* ── Score card ── */
+.score-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 18px 20px;
+}
+
+.score-top {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.score-number {
+  font-size: 52px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text);
+  letter-spacing: -.04em;
+}
+
+.score-denom {
+  font-size: 18px;
+  color: var(--hint);
+  font-weight: 300;
+}
+
+.score-grade {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--green-mid);
+  margin-bottom: 12px;
+}
+
+.score-track {
+  height: 5px;
+  background: var(--border);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+
+.score-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--green);
+}
+
+.dim-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 5px;
+}
+
+.dim-label {
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dim-mini-track {
+  width: 60px;
+  height: 3px;
+  background: var(--border);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.dim-mini-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--green-mid);
+}
+
+.dim-val {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  font-family: 'DM Mono', monospace;
+}
+
+/* ── Grid layouts ── */
+.section { margin-bottom: 14px; }
+.g4 { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; }
+.g3 { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+.g2 { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; }
+.g3sig { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
+
+/* ── Cards ── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+  box-shadow: var(--shadow);
+}
+
+.card-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--hint);
+  margin-bottom: 6px;
+}
+
+.card-value {
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.1;
+  margin-bottom: 3px;
+  letter-spacing: -.03em;
+}
+
+.card-unit {
+  font-size: 14px;
+  color: var(--hint);
+  font-weight: 300;
+}
+
+.card-note {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.55;
+  margin-top: 6px;
+}
+
+.card-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -.02em;
+  margin-bottom: 14px;
+}
+
+/* ── Audience tabs ── */
+.atabs { display: flex; gap: 5px; margin-bottom: 14px; }
+.atab {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.atab:hover { border-color: var(--border-strong); color: var(--text); }
+.atab.active {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+
+.apanel { display: none; }
+.apanel.active { display: block; }
+
+.insight-line {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.7;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.insight-line:last-child { border-bottom: none; }
+
+/* ── Terpene bars ── */
+.bars { display: grid; gap: 10px; }
+.bar-row { display: grid; gap: 5px; }
+.bar-head { display: flex; justify-content: space-between; }
+.bar-name { font-size: 13px; color: var(--text); }
+.bar-val { font-size: 13px; color: var(--muted); font-family: 'DM Mono', monospace; }
+.bar-track {
+  height: 7px;
+  background: var(--surface2);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.bar-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--green);
+  transition: width 0.6s ease;
+}
+
+/* ── Fingerprint ── */
+.fp-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.fp-id {
+  font-family: 'DM Mono', monospace;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--green-mid);
+  background: var(--green-light);
+  border: 1px solid var(--green-border);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+}
+.fp-label { font-size: 12px; color: var(--muted); }
+
+/* ── Cannabinoid grid ── */
+.cann-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cann-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: var(--surface2);
+}
+.cann-primary { border-color: var(--green-border); background: var(--green-light); }
+.cann-name { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--green-mid); margin-bottom: 3px; }
+.cann-val { font-size: 18px; font-weight: 600; color: var(--text); line-height: 1.1; }
+.cann-unit { font-size: 12px; color: var(--hint); font-weight: 300; }
+.cann-note { font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+
+/* ── Pills ── */
+.pill-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.pill { font-size: 12px; padding: 5px 11px; border-radius: var(--radius-pill); border: 1px solid; font-weight: 500; }
+.pill.good { background: var(--green-light); color: var(--green-mid); border-color: var(--green-border); }
+.pill.warn { background: var(--amber-light); color: var(--amber); border-color: var(--amber-border); }
+.pill.danger { background: var(--red-light); color: var(--red); border-color: var(--red-border); }
+
+/* ── Contaminant rows ── */
+.cont-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.cont-row:last-child { border-bottom: none; }
+.cont-cat { color: var(--muted); }
+.cont-status { font-weight: 500; }
+.cont-pass { color: var(--green-mid); }
+.cont-fail { color: var(--red); }
+.cont-missing { color: var(--hint); }
+.cont-value { color: var(--text); }
+.cont-std { font-size: 11px; color: var(--hint); font-family: 'DM Mono', monospace; }
+
+/* ── Signal grid ── */
+.signal-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  background: var(--surface2);
+}
+.signal-label { font-size: 10px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--hint); margin-bottom: 4px; }
+.signal-val { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.signal-note { font-size: 11px; color: var(--muted); line-height: 1.5; }
+
+/* ── Lineage / detail rows ── */
+.detail-list { display: grid; gap: 0; }
+.detail-row { display: grid; grid-template-columns: 140px 1fr; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.detail-row:last-child { border-bottom: none; }
+.detail-key { color: var(--hint); font-size: 12px; }
+.detail-val { color: var(--text); line-height: 1.6; }
+
+/* ── Raw JSON ── */
+.raw-box { display: none; margin-top: 14px; }
+.raw-box.open { display: block; }
+pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  font-family: 'DM Mono', monospace;
+  line-height: 1.6;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  color: var(--muted);
+}
+
+.empty { color: var(--hint); font-size: 13px; padding: 8px 0; }
+
+@media(max-width:900px) {
+  .hero-layout,.g4,.g3,.g2,.cann-grid,.g3sig { grid-template-columns: 1fr; }
+}
 </style>
 </head>
 <body>
-  <div class="shell">
-    <div class="topbar">
-      <a class="btn" href="/">New Upload</a>
-      ${
-        options.documentId
-          ? `<a class="btn btn-primary" href="/pdf/${options.documentId}" target="_blank" rel="noopener noreferrer">Open PDF</a>`
-          : ""
-      }
-    </div>
+<div class="shell">
 
-    <section class="hero">
-      <div class="hero-grid">
-        <div>
-          <div class="eyebrow">ALEM Chemical Intelligence V4</div>
-          <h1>${esc(productName)}</h1>
-          <div class="hero-summary">${esc(
-            data.opening_statement || executiveBrief.headline
-          )}</div>
-
-          <div class="hero-meta">
-            <span class="badge">Batch ${esc(data.batch_number || "Not reported")}</span>
-            <span class="badge">${esc(data.product_type || "Product type not reported")}</span>
-            <span class="badge">${esc(data.laboratory_name || "Lab not reported")}</span>
-            <span class="badge">${esc(data.coa_report_date || "Date not reported")}</span>
-          </div>
-        </div>
-
-        <div class="hero-score">
-          <div class="hero-score-label">Executive readout</div>
-          <div class="hero-score-value">${esc(
-            data.overall_score || executiveBrief.headline
-          )}</div>
-          <div class="hero-score-note">
-            ${executiveBrief.bullets.map((b) => `• ${esc(b)}`).join("<br />")}
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="grid-4">
-        <div class="insight-card">
-          <div class="insight-label">Potency</div>
-          <div class="insight-value">${esc(potency.label)}</div>
-          <div class="insight-note">${esc(potency.note)}</div>
-        </div>
-
-        <div class="insight-card">
-          <div class="insight-label">Aroma density</div>
-          <div class="insight-value">${esc(aroma.label)}</div>
-          <div class="insight-note">${esc(aroma.note)}</div>
-        </div>
-
-        <div class="insight-card">
-          <div class="insight-label">Direction</div>
-          <div class="insight-value">${esc(direction.label)}</div>
-          <div class="insight-note">${esc(direction.note)}</div>
-        </div>
-
-        <div class="insight-card">
-          <div class="insight-label">COA completeness</div>
-          <div class="insight-value">${esc(completeness.label)}</div>
-          <div class="insight-note">${esc(completeness.note)}</div>
-        </div>
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="grid-3">
-        ${renderMetric("THC Total", data.thc_total, potency.note)}
-        ${renderMetric(
-          "CBD Total",
-          data.cbd_total,
-          cbd > 0
-            ? "Visible CBD may slightly soften or modulate the THC-dominant profile."
-            : "CBD appears minimal or absent in the structured data."
-        )}
-        ${renderMetric("Total Terpenes", data.total_terpenes, aroma.note)}
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="grid-2">
-        <div class="card">
-          <h2 class="section-title">What stands out</h2>
-          <ul class="standout-list">
-            ${standoutBullets.map((item) => `<li>${esc(item)}</li>`).join("")}
-          </ul>
-        </div>
-
-        <div class="card">
-          <h2 class="section-title">Batch details</h2>
-          <div class="detail-list">
-            <div class="detail-item">
-              <div class="detail-key">Batch number</div>
-              <div class="detail-value">${esc(data.batch_number || "Not reported")}</div>
-            </div>
-            <div class="detail-item">
-              <div class="detail-key">Report date</div>
-              <div class="detail-value">${esc(data.coa_report_date || "Not reported")}</div>
-            </div>
-            <div class="detail-item">
-              <div class="detail-key">Product type</div>
-              <div class="detail-value">${esc(data.product_type || "Not reported")}</div>
-            </div>
-            <div class="detail-item">
-              <div class="detail-key">Laboratory</div>
-              <div class="detail-value">${esc(data.laboratory_name || "Not reported")}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="grid-2">
-        <div class="card">
-          <h2 class="section-title">Cannabinoid profile</h2>
-          <div class="section-sub">
-            ${
-              hasMinorCannabinoids
-                ? esc("Minor cannabinoid presence suggests added chemistry depth beyond THC alone.")
-                : esc("The visible cannabinoid story is driven mainly by the major compounds captured in the report.")
-            }
-          </div>
-          ${renderCannabinoidCards(topCannabinoids)}
-          <div style="margin-top:14px;" class="muted">
-            <strong>Minor cannabinoids:</strong> ${esc(data.minor_cannabinoids || "Not reported")}
-          </div>
-        </div>
-
-        <div class="card">
-          <h2 class="section-title">Terpene fingerprint</h2>
-          <div class="section-sub">
-            ${
-              dominantTerpene
-                ? esc(`${dominantTerpene} leads the aromatic profile${secondTerpene ? `, supported by ${secondTerpene}` : ""}.`)
-                : esc("A dominant terpene could not be clearly identified.")
-            }
-          </div>
-          ${renderTerpeneBars(topTerpenes)}
-          <div style="margin-top:14px;" class="muted">
-            <strong>Aromatic profile:</strong> ${esc(aromaticProfile)}
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="grid-2">
-        <div class="card">
-          <h2 class="section-title">Best use cases</h2>
-          <div class="section-sub">This is an educational interpretation layer, not a prescription or medical claim.</div>
-          ${renderInsightList(useCases.useCases)}
-        </div>
-
-        <div class="card">
-          <h2 class="section-title">Less suited for</h2>
-          <div class="section-sub">Useful as a caution layer for patients, doctors, and product selectors.</div>
-          ${renderInsightList(useCases.avoidCases)}
-        </div>
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="grid-2">
-        <div class="card">
-          <h2 class="section-title">Post-harvest read</h2>
-          <div class="grid-3">
-            <div class="mini-card">
-              <div class="mini-label">Freshness</div>
-              <div class="mini-value">${esc(postHarvest.freshness.label)}</div>
-              <div class="mini-note">${esc(postHarvest.freshness.note)}</div>
-            </div>
-            <div class="mini-card">
-              <div class="mini-label">Curing</div>
-              <div class="mini-value">${esc(postHarvest.cure.label)}</div>
-              <div class="mini-note">${esc(postHarvest.cure.note)}</div>
-            </div>
-            <div class="mini-card">
-              <div class="mini-label">Stability</div>
-              <div class="mini-value">${esc(postHarvest.stability.label)}</div>
-              <div class="mini-note">${esc(postHarvest.stability.note)}</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <h2 class="section-title">Cultivation read</h2>
-          <div class="detail-list">
-            <div class="detail-item">
-              <div class="detail-key">Expression</div>
-              <div class="detail-value">${esc(cultivation.expression)}</div>
-            </div>
-            <div class="detail-item">
-              <div class="detail-key">Preservation</div>
-              <div class="detail-value">${esc(cultivation.preservation)}</div>
-            </div>
-            <div class="detail-item">
-              <div class="detail-key">Interpretation</div>
-              <div class="detail-value">${esc(cultivation.cultivationNote)}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="grid-2">
-        <div class="card">
-          <h2 class="section-title">Chemotype / lineage-style read</h2>
-          <div class="detail-list">
-            <div class="detail-item">
-              <div class="detail-key">Closest family pattern</div>
-              <div class="detail-value">${esc(lineage.family)}</div>
-            </div>
-            <div class="detail-item">
-              <div class="detail-key">Confidence</div>
-              <div class="detail-value">${esc(lineage.confidence)}</div>
-            </div>
-            <div class="detail-item">
-              <div class="detail-key">Why</div>
-              <div class="detail-value">${esc(lineage.note)}</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <h2 class="section-title">Regulatory / quality signals</h2>
-          <div style="margin-bottom:14px;">
-            ${renderFlagPills(positiveFlags, "good", "No positive flags reported.")}
-          </div>
-          ${renderFlagPills(warningFlags, "warn", "No warning flags reported.")}
-        </div>
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="grid-2">
-        <div class="card">
-          <h2 class="section-title">Audience: patients</h2>
-          ${renderInsightList(audience.patient)}
-        </div>
-
-        <div class="card">
-          <h2 class="section-title">Audience: clinicians</h2>
-          ${renderInsightList(audience.clinician)}
-        </div>
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="grid-2">
-        <div class="card">
-          <h2 class="section-title">Audience: industry / buyers</h2>
-          ${renderInsightList(audience.industry)}
-        </div>
-
-        <div class="card">
-          <h2 class="section-title">Audience: enthusiasts / growers</h2>
-          ${renderInsightList(audience.enthusiast)}
-        </div>
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="grid-2">
-        <div class="card">
-          <h2 class="section-title">Contaminant overview</h2>
-          <div class="muted">${esc(data.contaminant_overview || "Not reported")}</div>
-        </div>
-
-        <div class="card">
-          <h2 class="section-title">Lab quality summary</h2>
-          <div class="muted">${esc(data.lab_quality_summary || "Not reported")}</div>
-        </div>
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="card">
-        <h2 class="section-title">Scientific references</h2>
-        <div class="muted">${esc(data.scientific_references || "Not reported")}</div>
-
-        <div class="toggle-row">
-          <button class="btn" type="button" onclick="toggleRaw()">Toggle Raw JSON</button>
-        </div>
-
-        <div id="rawBox" class="raw-box">
-          <pre>${rawJson}</pre>
-        </div>
-      </div>
-    </section>
+  <!-- Top bar -->
+  <div class="topbar">
+    <a class="btn" href="/">Upload new COA</a>
+    ${options.documentId ? `<a class="btn btn-primary" href="/pdf/${options.documentId}" target="_blank" rel="noopener noreferrer">Export PDF</a>` : ""}
   </div>
 
-  <script>
-    function toggleRaw() {
-      const box = document.getElementById("rawBox");
-      box.classList.toggle("open");
-    }
-  </script>
+  <!-- Hero -->
+  <div class="hero">
+    <div class="hero-eyebrow">Alem Chemical Intelligence · Schema v5.0</div>
+    <div class="hero-layout">
+      <div>
+        <div class="product-name">${esc(productName)}</div>
+        <div class="hero-narrative">${esc(heroNarrative)}</div>
+        <div class="badge-row">
+          ${chemistry.batch_number ? `<span class="badge">Batch ${esc(chemistry.batch_number)}</span>` : ""}
+          ${chemistry.product_type ? `<span class="badge">${esc(chemistry.product_type)}</span>` : ""}
+          ${chemistry.laboratory_name ? `<span class="badge">${esc(chemistry.laboratory_name)}</span>` : ""}
+          ${chemistry.coa_report_date ? `<span class="badge">${esc(chemistry.coa_report_date)}</span>` : ""}
+          ${chemistry.laboratory_accreditation ? `<span class="badge">${esc(chemistry.laboratory_accreditation)}</span>` : ""}
+        </div>
+      </div>
+      <div class="score-card">
+        <div class="score-top">
+          <div class="score-number">${scoring.total}</div>
+          <div class="score-denom">/100</div>
+        </div>
+        <div class="score-grade">${esc(scoring.tier)} · ${esc(scoring.grade)}</div>
+        <div class="score-track">
+          <div class="score-fill" style="width:${scoring.total}%"></div>
+        </div>
+        <div class="score-dims">
+          ${scoreDims.map(d => `
+            <div class="dim-row">
+              <div class="dim-label">
+                <span class="dim-mini-track"><span class="dim-mini-fill" style="width:${Math.round(d.score/d.max*100)}%"></span></span>
+                ${esc(d.label)}
+              </div>
+              <div class="dim-val">${d.score}/${d.max}</div>
+            </div>`).join("")}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Key metrics -->
+  <div class="section g4">
+    <div class="card">
+      <div class="card-label">THC total</div>
+      <div class="card-value">${esc(chemistry.thc_total || "ND")} <span class="card-unit">${esc(chemistry.thc_total_unit || "wt%")}</span></div>
+      <div class="card-note">${thc >= 24 ? "High range — above market average for medical dried flower." : thc >= 18 ? "Moderate-to-high range." : thc > 0 ? "Moderate range." : "Not detected or not reported."}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">THCA</div>
+      <div class="card-value">${esc(chemistry.thca || "ND")} <span class="card-unit">${esc(chemistry.thca_unit || "wt%")}</span></div>
+      <div class="card-note">Precursor potency — converts to active THC on heating (× 0.877).</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Total terpenes</div>
+      <div class="card-value">${esc(chemistry.total_terpenes || "ND")} <span class="card-unit">${esc(chemistry.total_terpenes_unit || "wt%")}</span></div>
+      <div class="card-note">${terps >= 3 ? "Strong — upper range of dried flower terpene density." : terps >= 1.8 ? "Good — meaningful aromatic presence." : terps > 0 ? "Moderate aromatic expression." : "Not reported."}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">CBD total</div>
+      <div class="card-value">${esc(chemistry.cbd_total || "ND")} <span class="card-unit">${esc(chemistry.cbd_total_unit || "wt%")}</span></div>
+      <div class="card-note">${cbd > 0.5 ? "Visible CBD — may provide some modulation of THC intensity." : "Minimal or not detected — no intrinsic CBD modulation."}</div>
+    </div>
+  </div>
+
+  <!-- Chemistry columns -->
+  <div class="section g2">
+    <div class="card">
+      <div class="card-title">Terpene fingerprint</div>
+      <div class="bars">
+        ${terpenes.length ? terpenes.map((t, i) => renderTerpBar(t, i)).join("") : `<div class="empty">No terpene data reported.</div>`}
+      </div>
+      <div class="fp-row">
+        <span class="fp-label">Chemotype ID</span>
+        <span class="fp-id">${esc(fingerprintId)}</span>
+        <span class="fp-label">${leadTerpene ? esc(terpIntel.lineage) + " · " + esc(terpIntel.lineageConfidence) + " confidence" : "Lineage unclear"}</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Cannabinoid profile</div>
+      <div class="cann-grid">
+        ${cannabinoids.length ? cannabinoids.map(renderCannCard).join("") : `<div class="empty">No cannabinoid data reported.</div>`}
+      </div>
+      ${chemistry.total_cannabinoids ? `<div style="margin-top:12px;font-size:12px;color:var(--hint)">Total cannabinoid sum: ${esc(chemistry.total_cannabinoids)} wt%</div>` : ""}
+    </div>
+  </div>
+
+  <!-- Audience intelligence -->
+  <div class="section g2">
+    <div class="card">
+      <div class="card-title">Audience intelligence</div>
+      <div class="atabs">
+        <button class="atab active" onclick="switchAud('brand',this)">Brand</button>
+        <button class="atab" onclick="switchAud('clinical',this)">Clinical</button>
+        <button class="atab" onclick="switchAud('patient',this)">Patient</button>
+        <button class="atab" onclick="switchAud('buyer',this)">Buyer</button>
+      </div>
+      <div id="ap-brand" class="apanel active">${renderAudiencePanel(audiences.brand, "brand")}</div>
+      <div id="ap-clinical" class="apanel">${renderAudiencePanel(audiences.clinical, "clinical")}</div>
+      <div id="ap-patient" class="apanel">${renderAudiencePanel(audiences.patient, "patient")}</div>
+      <div id="ap-buyer" class="apanel">${renderAudiencePanel(audiences.buyer, "buyer")}</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Effect direction</div>
+      <div class="detail-list">
+        <div class="detail-row">
+          <div class="detail-key">Direction</div>
+          <div class="detail-val">${esc(terpIntel.direction)}</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-key">Lead terpene</div>
+          <div class="detail-val">${esc(leadTerpene || "Not identified")}</div>
+        </div>
+        ${secondTerpene ? `<div class="detail-row"><div class="detail-key">Secondary</div><div class="detail-val">${esc(secondTerpene)}${thirdTerpene ? " · " + esc(thirdTerpene) : ""}</div></div>` : ""}
+        <div class="detail-row">
+          <div class="detail-key">Terpene read</div>
+          <div class="detail-val">${esc(terpIntel.note)}</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-key">Lineage cluster</div>
+          <div class="detail-val">${esc(terpIntel.lineage)}</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-key">Confidence</div>
+          <div class="detail-val">${esc(terpIntel.lineageConfidence)}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Post-harvest -->
+  <div class="section g2">
+    <div class="card">
+      <div class="card-title">Post-harvest intelligence</div>
+      <div class="g3sig">
+        <div class="signal-card">
+          <div class="signal-label">Freshness</div>
+          <div class="signal-val">${esc(postHarvest.freshness.label)}</div>
+          <div class="signal-note">${esc(postHarvest.freshness.note)}</div>
+        </div>
+        <div class="signal-card">
+          <div class="signal-label">Curing</div>
+          <div class="signal-val">${esc(postHarvest.curing.label)}</div>
+          <div class="signal-note">${esc(postHarvest.curing.note)}</div>
+        </div>
+        <div class="signal-card">
+          <div class="signal-label">Degradation (CBN)</div>
+          <div class="signal-val">${esc(postHarvest.degradation.label)}</div>
+          <div class="signal-note">${esc(postHarvest.degradation.note)}</div>
+        </div>
+        <div class="signal-card">
+          <div class="signal-label">Stability</div>
+          <div class="signal-val">${esc(postHarvest.stability.label)}</div>
+          <div class="signal-note">${esc(postHarvest.stability.note)}</div>
+        </div>
+        <div class="signal-card">
+          <div class="signal-label">CBGA signal</div>
+          <div class="signal-val">${toNum(chemistry.cbga) >= 1 ? "Notable" : toNum(chemistry.cbga) > 0 ? "Present" : "Not detected"}</div>
+          <div class="signal-note">${toNum(chemistry.cbga) >= 1 ? `${chemistry.cbga} wt% — elevated CBGA may indicate specific genetics or harvest timing.` : "CBGA not elevated."}</div>
+        </div>
+        <div class="signal-card">
+          <div class="signal-label">THC expression</div>
+          <div class="signal-val">${chemistry.thca && chemistry.thc_total ? "Calculated" : "Partial"}</div>
+          <div class="signal-note">${chemistry.thca ? `THCA ${chemistry.thca} × 0.877 + D9-THC = Total THC` : "Calculation basis not fully captured."}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Quality &amp; compliance signals</div>
+      <div class="pill-row" style="margin-bottom:12px">
+        ${posFlags.length ? posFlags.map(f => renderPill(f, "good")).join("") : '<span class="empty">No positive flags extracted.</span>'}
+      </div>
+      <div class="pill-row" style="margin-bottom:18px">
+        ${warnFlags.length ? warnFlags.map(f => renderPill(f, "warn")).join("") : ""}
+      </div>
+      <div class="cont-row" style="font-size:11px;color:var(--hint);font-weight:600;letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid var(--border)">
+        <span>Panel</span><span>Result</span><span>Standard</span>
+      </div>
+      ${renderContRow("Pesticides", contaminants.pesticides_status, "TGO93 / TGO100")}
+      ${renderContRow("Heavy metals", contaminants.heavy_metals_status, "ICH Q3D")}
+      ${renderContRow("Microbials", contaminants.microbials_status, "USP 2021/2023")}
+      ${renderContRow("Mycotoxins", contaminants.mycotoxins_status, "EC 1881/2006")}
+      ${renderContRow("Residual solvents", contaminants.residual_solvents_status, "USP 467")}
+      ${renderContRow("Lab accreditation", chemistry.laboratory_accreditation, "ISO 17025")}
+    </div>
+  </div>
+
+  <!-- Lab quality -->
+  <div class="section g2">
+    <div class="card">
+      <div class="card-title">Contaminant narrative</div>
+      <div class="insight-line">${esc(contaminants.contaminant_narrative || "Structured contaminant narrative not captured. Review source COA directly for all safety panel results.")}</div>
+      ${contaminants.moisture_content ? `<div class="detail-row"><div class="detail-key">Moisture</div><div class="detail-val">${esc(contaminants.moisture_content)}</div></div>` : ""}
+      ${contaminants.water_activity ? `<div class="detail-row"><div class="detail-key">Water activity</div><div class="detail-val">${esc(contaminants.water_activity)}</div></div>` : ""}
+    </div>
+    <div class="card">
+      <div class="card-title">Lab quality summary</div>
+      <div class="insight-line">${esc(contaminants.lab_quality_summary || chemistry.laboratory_accreditation || "Lab quality summary not captured.")}</div>
+      ${chemistry.laboratory_method ? `<div style="margin-top:10px" class="detail-list"><div class="detail-row"><div class="detail-key">Method</div><div class="detail-val">${esc(chemistry.laboratory_method)}</div></div></div>` : ""}
+      <div class="fp-row">
+        <span class="fp-label">Chemotype fingerprint</span>
+        <span class="fp-id">${esc(fingerprintId)}</span>
+        <span class="fp-label">Top-3 terpene cluster · ${esc([leadTerpene, secondTerpene, thirdTerpene].filter(Boolean).join(" / ") || "not identified")}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Raw JSON -->
+  <div class="section">
+    <div class="card">
+      <div class="card-title">Raw intelligence data</div>
+      <button class="btn" type="button" onclick="toggleRaw()">Toggle JSON</button>
+      <div id="rawBox" class="raw-box">
+        <pre>${rawJson}</pre>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function switchAud(id, btn) {
+  document.querySelectorAll('.apanel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.atab').forEach(t => t.classList.remove('active'));
+  document.getElementById('ap-' + id).classList.add('active');
+  btn.classList.add('active');
+}
+function toggleRaw() {
+  document.getElementById('rawBox').classList.toggle('open');
+}
+</script>
 </body>
-</html>
-  `;
+</html>`;
 }
 
+// ─────────────────────────────────────────────
+// EXPRESS ROUTES
+// ─────────────────────────────────────────────
+
 app.get("/", (req, res) => {
-  const landing = path.join(__dirname, "public", "index.html");
-  res.sendFile(landing);
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 app.get("/health", async (req, res) => {
-  try {
-    return res.json({
-      success: true,
-      message: "Middleware is running",
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      error: error.message || "Health check failed",
-    });
-  }
+  return res.json({ success: true, message: "Alem v5 running", schema: "5.0" });
 });
 
 app.post("/upload-coa", upload.single("file"), async (req, res) => {
   try {
-    console.log("📥 Upload received");
+    console.log("📥 COA upload received");
+    if (!req.file) return res.status(400).json({ success: false, error: "No file uploaded" });
 
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        error: "No file uploaded",
-      });
-    }
-
-    const originalFilename =
-      req.file.originalname || `upload-${Date.now()}.pdf`;
+    const originalFilename = req.file.originalname || `upload-${Date.now()}.pdf`;
     const mimeType = req.file.mimetype || "application/octet-stream";
 
+    // Upload to Supabase storage
     const { publicUrl, storagePath } = await uploadBufferToSupabase({
       buffer: req.file.buffer,
       originalName: originalFilename,
       mimeType,
       folder: "raw_documents",
     });
+    console.log("☁️  Stored:", storagePath);
 
-    console.log("🔍 Sending to Azure OCR...");
+    // Layer 1: Azure OCR
+    console.log("🔍 Azure OCR...");
     const extracted = await extractDocumentFromUrl(publicUrl);
-    console.log("✅ OCR complete");
+    console.log(`✅ OCR: ${extracted.plain_text.length} chars, ${extracted.page_count} pages`);
 
-    console.log("🧠 Sending to OpenAI...");
-    const parsedJson = await safeParseCOA(extracted.plain_text);
-    console.log("✅ AI parsing complete");
+    // Layer 1: Dual-pass OpenAI extraction
+    const { chemistry, contaminants } = await runDualPassExtraction(extracted.plain_text);
+    console.log("✅ Dual-pass extraction complete");
 
+    // Layer 2: Composite scoring
+    const scoring = computeIntelligenceScore(chemistry, contaminants);
+    console.log(`✅ Score: ${scoring.total}/100 (${scoring.grade})`);
+
+    // Layer 3: Intelligence generation
+    const fingerprintId = generateFingerprintId(chemistry.top_terpenes);
+    const leadTerpene = chemistry.top_terpenes?.[0]?.name || "";
+    const terpIntel = getTerpeneIntel(leadTerpene);
+    const audiences = buildAudienceNarratives(chemistry, contaminants, scoring);
+    const postHarvest = buildPostHarvestIntel(chemistry, contaminants);
+
+    const intelligence = {
+      fingerprintId,
+      effectDirection: terpIntel.direction,
+      lineageCluster: terpIntel.lineage,
+      lineageConfidence: terpIntel.lineageConfidence,
+      audiences,
+      postHarvest,
+    };
+    console.log(`✅ Intelligence: fingerprint=${fingerprintId}, direction=${terpIntel.direction}`);
+
+    // Layer 4: Store to Supabase
     const insertedRow = await insertCOAReport({
-      parsedJson,
+      chemistry,
+      contaminants,
+      scoring,
+      intelligence,
       sourceUrl: publicUrl,
       storagePath,
       originalFilename,
       mimeType: extracted.mimeType || mimeType,
     });
+    console.log(`✅ Stored report ID: ${insertedRow.id}`);
 
-    const reportUrl = buildReportUrl(req, insertedRow.id);
+    const proto = req.headers["x-forwarded-proto"] || req.protocol || "https";
+    const base = `${proto}://${req.get("host")}`;
 
     return res.json({
       success: true,
       id: insertedRow.id,
-      report_url: reportUrl,
-      html_url: reportUrl,
-      pdf_url: buildPdfUrl(req, insertedRow.id),
+      score: scoring.total,
+      grade: scoring.grade,
+      tier: scoring.tier,
+      fingerprint_id: fingerprintId,
+      report_url: `${base}/report/${insertedRow.id}`,
+      pdf_url: `${base}/pdf/${insertedRow.id}`,
     });
   } catch (error) {
     console.error("❌ Upload pipeline error:", error.message);
-    return res.status(500).json({
-      success: false,
-      error: error.message || "Upload pipeline failed",
-    });
+    return res.status(500).json({ success: false, error: error.message || "Upload pipeline failed" });
   }
 });
 
 app.get("/report/:id", async (req, res) => {
   try {
     const row = await getReportById(req.params.id);
-    const data = row?.report_json || {};
-
-    return res.send(
-      renderReportHTML(data, {
-        documentId: row.id,
-      })
-    );
+    return res.send(renderReportHTML(row?.report_json || {}, { documentId: row.id }));
   } catch (error) {
-    console.error("ERROR IN /report/:id:", error.message);
+    console.error("ERROR /report/:id", error.message);
     return res.status(404).send("Report not found");
   }
 });
 
 app.get("/pdf/:id", async (req, res) => {
   let browser;
-
   try {
     const row = await getReportById(req.params.id);
-    const html = renderReportHTML(row?.report_json || {}, {
-      documentId: row.id,
-    });
+    const html = renderReportHTML(row?.report_json || {}, { documentId: row.id });
 
     browser = await puppeteer.launch({
       headless: true,
@@ -2201,38 +1561,21 @@ app.get("/pdf/:id", async (req, res) => {
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
-      margin: {
-        top: "16mm",
-        right: "12mm",
-        bottom: "16mm",
-        left: "12mm",
-      },
+      margin: { top: "14mm", right: "12mm", bottom: "14mm", left: "12mm" },
     });
 
+    const filename = sanitizeFileName(row?.report_json?.chemistry?.product_name || req.params.id);
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `inline; filename="${sanitizeFileName(
-        row?.report_json?.product_name || req.params.id
-      )}.pdf"`
-    );
-
+    res.setHeader("Content-Disposition", `inline; filename="${filename}.pdf"`);
     return res.send(pdfBuffer);
   } catch (error) {
-    console.error("ERROR IN /pdf/:id:", error.message);
-    return res.status(500).json({
-      success: false,
-      error: error.message || "PDF generation failed",
-    });
+    console.error("ERROR /pdf/:id", error.message);
+    return res.status(500).json({ success: false, error: error.message });
   } finally {
-    if (browser) {
-      try {
-        await browser.close();
-      } catch (_) {}
-    }
+    if (browser) { try { await browser.close(); } catch (_) {} }
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🌿 Alem Chemical Intelligence v5 running on port ${PORT}`);
 });
