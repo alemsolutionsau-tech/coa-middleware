@@ -1044,7 +1044,6 @@ body {
 .dim-mini-fill {
   height: 100%;
   border-radius: var(--radius-pill);
-  background: var(--green-mid);
 }
 
 .dim-val {
@@ -1292,14 +1291,19 @@ pre {
           <div class="score-fill" style="width:${scoring.total}%"></div>
         </div>
         <div class="score-dims">
-          ${scoreDims.map(d => `
+          ${scoreDims.map(d => {
+            const pct = Math.round(d.score / d.max * 100);
+            const barColor = pct >= 75 ? '#2d5c42' : pct >= 45 ? '#92650a' : '#8b2020';
+            const valColor = pct >= 75 ? 'var(--green-mid)' : pct >= 45 ? 'var(--amber)' : 'var(--red)';
+            return `
             <div class="dim-row">
               <div class="dim-label">
-                <span class="dim-mini-track"><span class="dim-mini-fill" style="width:${Math.round(d.score/d.max*100)}%"></span></span>
+                <span class="dim-mini-track"><span class="dim-mini-fill" style="width:${pct}%;background:${barColor}"></span></span>
                 ${esc(d.label)}
               </div>
-              <div class="dim-val">${d.score}/${d.max}</div>
-            </div>`).join("")}
+              <div class="dim-val" style="color:${valColor}">${d.score}/${d.max}</div>
+            </div>`;
+          }).join("")}
         </div>
       </div>
     </div>
