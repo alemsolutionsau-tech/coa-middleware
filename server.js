@@ -782,7 +782,225 @@ function renderReportHTML(data = {}, options = {}) {
     ? data.warning_flags
     : [];
 
-  const title = data.product_name || "COA Report";
+  const toNum = (value) => {
+    if (value === null || value === undefined) return 0;
+    const raw = String(value).trim().toLowerCase();
+    if (!raw || raw === "nd" || raw.includes("not detected") || raw.includes("<loq")) return 0;
+    const match = raw.match(/-?\d+(\.\d+)?/);
+    return match ? Number(match[0]) : 0;
+  };
+
+  const thc = toNum(data.thc_total);
+  const cbd = toNum(data.cbd_total);
+  const terps = toNum(data.total_terpenes);
+
+  const dominantTerpene = topTerpenes[0]?.name || "";
+  const secondTerpene = topTerpenes[1]?.name || "";
+  const aromaticProfile = topTerpenes.length
+    ? topTerpenes.slice(0, 5).map((t) => t?.name).filter(Boolean).join(" • ")
+    : "Not clearly reported";
+
+  const hasMinorCannabinoids = !!String(data.minor_cannabinoids || "").trim();
+  const hasContaminants = !!String(data.contaminant_overview || "").trim();
+
+  function classifyPotency(v) {
+    if (v >= 28) return { label: "Very high", note: "Upper-end flower potency." };
+    if (v >= 24) return { label: "High", note: "High-THC flower profile." };
+    if (v >= 18) return { label: "Moderate-high", note: "Meaningful THC strength." };
+    if (v > 0) return { label: "Moderate", note: "More moderate THC intensity." };
+    return { label: "Unknown", note: "Potency could not be classified." };
+  }
+
+  function classifyTerpenes(v) {
+    if (v >= 3) return { label: "High", note: "Strong aromatic density." };
+    if (v >= 1.5) return { label: "Moderate-high", note: "Meaningful terpene presence." };
+    if (v > 0) return { label: "Light", note: "Lighter aromatic expression." };
+    return { label: "Unknown", note: "Terpene density unclear." };
+  }
+
+  function inferDirection(lead = "") {
+    const t = String(lead || "").toLowerCase();
+
+    if (t.includes("terpinolene")) {
+      return {
+        label: "Uplifting / mentally active",
+        note: "Terpinolene-led profiles often feel brighter and less body-heavy."
+      };
+    }
+    if (t.includes("myrcene")) {
+      return {
+        label: "Calming / body-heavy",
+        note: "Myrcene-forward profiles often lean more calming and physical."
+      };
+    }
+    if (t.includes("limonene")) {
+      return {
+        label: "Bright / mood-forward",
+        note: "Limonene-heavy profiles often read brighter and more energetic."
+      };
+    }
+    if (t.includes("pinene")) {
+      return {
+        label: "Clear / alert",
+        note: "Pinene-heavy profiles are often associated with clarity and alertness."
+      };
+    }
+    if (t.includes("caryophyllene")) {
+      return {
+        label: "Balanced / structured",
+        note: "Caryophyllene-led profiles often feel balanced and grounded."
+      };
+    }
+
+    return {
+      label: "Chemistry-led",
+      note: "A stronger directional read would require clearer terpene dominance."
+    };
+  }
+
+  function classifyCompleteness() {
+    const score =
+      (topCannabinoids.length ? 1 : 0) +
+      (topTerpenes.length ? 1 : 0) +
+      (data.thc_total ? 1 : 0) +
+      (data.total_terpenes ? 1 : 0) +
+      (hasContaminants ? 1 : 0) +
+      (data.laboratory_name ? 1 : 0);
+
+    if (score >= 5) return { label: "Strong", note: "Good structured chemistry coverage." };
+    if (score >= 3) return { label: "Moderate", note: "Useful but not fully rich COA coverage." };
+    return { label: "Limited", note: "Interpretation constrained by missing data." };
+  }
+
+  function buildHeroSummary() {
+    const potency = classifyPotency(thc).label.toLowerCase();
+    const aroma = classifyTerpenes(terps).label.toLowerCase();
+    const lead = dominantTerpene ? `${dominantTerpene}-led` : "chemistry-led";
+
+    return `${
+      potency === "unknown" ? "Cannabis flower" : `${classifyPotency(thc).label} potency`
+    }, ${lead} profile with ${aroma} terpene intensity and ${
+      hasMinorCannabinoids ? "visible minor cannabinoid depth." : "a primary focus on major compounds."
+    }`;
+  }
+
+  function buildWhatStandsOut() {
+    const bullets = [];
+
+    if (thc >= 24) {
+      bullets.push("THC sits firmly in the high range, suggesting a stronger-than-average flower profile.");
+    } else if (thc >= 18) {
+      bullets.push("THC sits in the moderate-high range, indicating meaningful potency without being ultra-high.");
+    }
+
+    if (dominantTerpene) {
+      bullets.push(`${dominantTerpene} appears to be the leading terpene, shaping the profile direction and aromatic identity.`);
+    }
+
+    if (terps >= 1.5) {
+      bullets.push("Total terpene content suggests a meaningful aromatic presence rather than a flat chemistry profile.");
+    }
+
+    if (hasMinorCannabinoids) {
+      bullets.push("Minor cannabinoids add depth beyond THC alone, which may support a more differentiated chemotype.");
+    }
+
+    if (!bullets.length) {
+      bullets.push("This report is readable, but the chemistry data are not rich enough to support stronger interpretation.");
+    }
+
+    return bullets.slice(0, 4);
+  }
+
+  function renderFlagPills(items, tone = "good", emptyText = "None reported") {
+    if (!items.length) {
+      return `<div class="muted">${esc(emptyText)}</div>`;
+    }
+
+    return `
+      <div class="pill-wrap">
+        ${items
+          .map((item) => `<span class="pill ${tone}">${esc(item)}</span>`)
+          .join("")}
+      </div>
+    `;
+  }
+
+  function renderTerpeneBars(items = []) {
+    if (!items.length) {
+      return `<div class="muted">No terpene rows reported.</div>`;
+    }
+
+    const maxVal = Math.max(
+      ...items.map((item) => {
+        const num = toNum(item?.value);
+        return num > 0 ? num : 0;
+      }),
+      0.01
+    );
+
+    return `
+      <div class="bars">
+        ${items
+          .slice(0, 8)
+          .map((item) => {
+            const num = toNum(item?.value);
+            const width = Math.max(6, (num / maxVal) * 100);
+            return `
+              <div class="bar-row">
+                <div class="bar-head">
+                  <span>${esc(item?.name || "Unnamed")}</span>
+                  <strong>${esc(
+                    [item?.value, item?.unit].filter(Boolean).join(" ") || "—"
+                  )}</strong>
+                </div>
+                <div class="bar-shell">
+                  <span style="width:${width}%"></span>
+                </div>
+              </div>
+            `;
+          })
+          .join("")}
+      </div>
+    `;
+  }
+
+  function renderCannabinoidCards(items = []) {
+    if (!items.length) {
+      return `<div class="muted">No cannabinoid rows reported.</div>`;
+    }
+
+    return `
+      <div class="compound-grid">
+        ${items
+          .slice(0, 8)
+          .map(
+            (item) => `
+            <div class="compound-card">
+              <div class="compound-name">${esc(item?.name || "Unnamed")}</div>
+              <div class="compound-value">${esc(
+                [item?.value, item?.unit].filter(Boolean).join(" ") || "—"
+              )}</div>
+              ${
+                item?.notes
+                  ? `<div class="compound-note">${esc(item.notes)}</div>`
+                  : ""
+              }
+            </div>
+          `
+          )
+          .join("")}
+      </div>
+    `;
+  }
+
+  const potency = classifyPotency(thc);
+  const aroma = classifyTerpenes(terps);
+  const direction = inferDirection(dominantTerpene);
+  const completeness = classifyCompleteness();
+  const standoutBullets = buildWhatStandsOut();
+
+  const rawJson = esc(JSON.stringify(data, null, 2));
 
   return `
 <!DOCTYPE html>
@@ -790,128 +1008,429 @@ function renderReportHTML(data = {}, options = {}) {
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>${esc(title)}</title>
+<title>${esc(data.product_name || "COA Report")}</title>
 <style>
   :root {
-    --bg: #f5f3ef;
-    --panel: #ffffff;
-    --line: #e5dfd5;
+    --bg: #f5f1e8;
+    --bg2: #faf8f3;
+    --panel: rgba(255,255,255,0.88);
+    --line: rgba(25,24,22,0.09);
     --text: #191816;
-    --muted: #706c65;
+    --muted: #6e6961;
     --green: #1f3d2b;
-    --green-2: #2e5c42;
-    --shadow: 0 14px 38px rgba(32,31,28,.06);
+    --green2: #2f5a43;
+    --gold: #b99657;
+    --goodBg: rgba(31,61,43,0.08);
+    --warnBg: rgba(185,150,87,0.12);
+    --shadow: 0 16px 45px rgba(25,24,22,0.07);
+    --radius: 24px;
   }
+
   * { box-sizing: border-box; }
+
   body {
     margin: 0;
     font-family: Inter, Arial, sans-serif;
-    background: linear-gradient(180deg, #f7f5f1 0%, #f4f1eb 100%);
     color: var(--text);
+    background:
+      radial-gradient(circle at top left, rgba(185,150,87,0.10), transparent 25%),
+      radial-gradient(circle at 85% 10%, rgba(31,61,43,0.07), transparent 20%),
+      linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%);
   }
-  .shell { max-width: 1180px; margin: 0 auto; padding: 24px 18px 50px; }
+
+  .shell {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 24px 18px 60px;
+  }
+
   .topbar {
     display: flex;
     gap: 12px;
     flex-wrap: wrap;
-    margin-bottom: 16px;
+    margin-bottom: 18px;
   }
+
   .btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    text-decoration: none;
     border-radius: 999px;
     border: 1px solid var(--line);
     padding: 12px 18px;
-    text-decoration: none;
-    background: #fff;
+    background: rgba(255,255,255,0.9);
     color: var(--text);
     font-weight: 700;
     cursor: pointer;
   }
+
   .btn-primary {
-    background: linear-gradient(90deg, var(--green), var(--green-2));
+    background: linear-gradient(90deg, var(--green), var(--green2));
     color: #fff;
     border-color: var(--green);
   }
-  .hero, .card {
-    background: var(--panel);
+
+  .hero,
+  .card {
     border: 1px solid var(--line);
-    border-radius: 24px;
+    border-radius: 28px;
+    background: var(--panel);
+    backdrop-filter: blur(12px);
     box-shadow: var(--shadow);
   }
-  .hero { padding: 28px; margin-bottom: 18px; }
+
+  .hero {
+    padding: 30px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .hero::after {
+    content: "";
+    position: absolute;
+    right: -40px;
+    bottom: -50px;
+    width: 240px;
+    height: 240px;
+    background: radial-gradient(circle, rgba(185,150,87,0.16), transparent 65%);
+    pointer-events: none;
+  }
+
   .eyebrow {
     color: var(--green);
     text-transform: uppercase;
-    letter-spacing: .18em;
-    font-size: 12px;
-    font-weight: 700;
-    margin-bottom: 10px;
+    letter-spacing: 0.18em;
+    font-size: 11px;
+    font-weight: 800;
+    margin-bottom: 12px;
   }
+
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1.15fr 0.85fr;
+    gap: 20px;
+    align-items: start;
+  }
+
   h1 {
     margin: 0 0 12px;
-    font-size: 42px;
-    letter-spacing: -.03em;
+    font-size: clamp(2.1rem, 4vw, 3.6rem);
+    line-height: 0.95;
+    letter-spacing: -0.05em;
+    max-width: 10ch;
   }
-  .subtitle { color: #45403a; line-height: 1.75; }
+
+  .hero-summary {
+    font-size: 1.02rem;
+    color: #423d36;
+    line-height: 1.8;
+    max-width: 62ch;
+  }
+
+  .hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 18px;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 10px 12px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.88);
+    border: 1px solid var(--line);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .hero-score {
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    padding: 18px;
+    background: rgba(255,255,255,0.92);
+  }
+
+  .hero-score-label {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  .hero-score-value {
+    font-size: 1.6rem;
+    font-weight: 800;
+    color: var(--green);
+    line-height: 1.1;
+  }
+
+  .hero-score-note {
+    margin-top: 8px;
+    color: var(--muted);
+    line-height: 1.65;
+    font-size: 14px;
+  }
+
+  .section {
+    margin-top: 18px;
+  }
+
+  .grid-4 {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+
   .grid-3 {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 14px;
-    margin-top: 18px;
   }
+
   .grid-2 {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 18px;
-    margin-top: 18px;
   }
-  .card { padding: 20px; }
+
+  .card {
+    padding: 22px;
+  }
+
   .section-title {
     margin: 0 0 14px;
-    font-size: 26px;
-    letter-spacing: -.03em;
+    font-size: 1.55rem;
+    letter-spacing: -0.04em;
   }
+
+  .section-sub {
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.7;
+    margin-bottom: 14px;
+  }
+
+  .insight-card {
+    padding: 18px;
+    border-radius: 22px;
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.82);
+  }
+
+  .insight-label {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+    font-weight: 800;
+  }
+
+  .insight-value {
+    font-size: 1.35rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin-bottom: 8px;
+  }
+
+  .insight-note {
+    color: var(--muted);
+    line-height: 1.65;
+    font-size: 14px;
+  }
+
   .metric {
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 18px;
+    background: rgba(255,255,255,0.82);
+  }
+
+  .metric-label {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  .metric-value {
+    font-size: 2rem;
+    font-weight: 800;
+    line-height: 1.05;
+  }
+
+  .muted {
+    color: var(--muted);
+    line-height: 1.75;
+    font-size: 14px;
+  }
+
+  .detail-list {
+    display: grid;
+    gap: 12px;
+  }
+
+  .detail-item {
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .detail-key {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.11em;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  .detail-value {
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.6;
+  }
+
+  .standout-list {
+    margin: 0;
+    padding-left: 18px;
+  }
+
+  .standout-list li {
+    margin: 10px 0;
+    line-height: 1.75;
+  }
+
+  .bars {
+    display: grid;
+    gap: 14px;
+  }
+
+  .bar-row { display: grid; gap: 7px; }
+
+  .bar-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 14px;
+  }
+
+  .bar-head strong {
+    color: var(--text);
+    white-space: nowrap;
+  }
+
+  .bar-shell {
+    height: 14px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: #eee8dd;
+    border: 1px solid #e3dccc;
+  }
+
+  .bar-shell span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--green), var(--gold));
+  }
+
+  .compound-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  .compound-card {
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 14px;
+    background: rgba(255,255,255,0.82);
+  }
+
+  .compound-name {
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--green);
+    margin-bottom: 6px;
+  }
+
+  .compound-value {
+    font-size: 18px;
+    font-weight: 800;
+    margin-bottom: 4px;
+  }
+
+  .compound-note {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+
+  .pill-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 10px 12px;
+    border-radius: 999px;
+    font-size: 13px;
+    line-height: 1.35;
+    border: 1px solid var(--line);
+  }
+
+  .pill.good {
+    background: var(--goodBg);
+    color: var(--green);
+    border-color: rgba(31,61,43,0.16);
+  }
+
+  .pill.warn {
+    background: var(--warnBg);
+    color: #7b5a20;
+    border-color: rgba(185,150,87,0.2);
+  }
+
+  .toggle-row {
+    margin-top: 14px;
+  }
+
+  .raw-box {
+    display: none;
+    margin-top: 14px;
+  }
+
+  .raw-box.open {
+    display: block;
+  }
+
+  pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 12px;
+    line-height: 1.6;
+    background: rgba(255,255,255,0.82);
     border: 1px solid var(--line);
     border-radius: 18px;
     padding: 16px;
-    background: #fff;
   }
-  .metric-label {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: .12em;
-    color: var(--muted);
-    margin-bottom: 8px;
-  }
-  .metric-value {
-    font-size: 28px;
-    font-weight: 800;
-  }
-  .muted { color: var(--muted); line-height: 1.7; }
-  ul { margin: 0; padding-left: 18px; }
-  li { margin: 8px 0; line-height: 1.65; }
-  .table-wrap { overflow: auto; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td {
-    text-align: left;
-    padding: 12px;
-    border-bottom: 1px solid var(--line);
-    vertical-align: top;
-  }
-  th { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
-  pre {
-    white-space: pre-wrap;
-    word-break: break-word;
-    margin: 0;
-    font-size: 12px;
-    line-height: 1.6;
-  }
-  @media (max-width: 900px) {
-    .grid-2, .grid-3 { grid-template-columns: 1fr; }
-    h1 { font-size: 32px; }
+
+  @media (max-width: 980px) {
+    .hero-grid,
+    .grid-4,
+    .grid-3,
+    .grid-2,
+    .compound-grid {
+      grid-template-columns: 1fr;
+    }
   }
 </style>
 </head>
@@ -927,13 +1446,63 @@ function renderReportHTML(data = {}, options = {}) {
     </div>
 
     <section class="hero">
-      <div class="eyebrow">ALEM COA Intelligence</div>
-      <h1>${esc(title)}</h1>
-      <div class="subtitle">${esc(
-        data.opening_statement ||
-          "Chemistry translated into practical intelligence from the uploaded COA."
-      )}</div>
+      <div class="hero-grid">
+        <div>
+          <div class="eyebrow">ALEM Chemical Intelligence</div>
+          <h1>${esc(data.product_name || "COA Report")}</h1>
+          <div class="hero-summary">${esc(
+            data.opening_statement || buildHeroSummary()
+          )}</div>
 
+          <div class="hero-meta">
+            <span class="badge">Batch ${esc(data.batch_number || "Not reported")}</span>
+            <span class="badge">${esc(data.product_type || "Product type not reported")}</span>
+            <span class="badge">${esc(data.laboratory_name || "Lab not reported")}</span>
+            <span class="badge">${esc(data.coa_report_date || "Date not reported")}</span>
+          </div>
+        </div>
+
+        <div class="hero-score">
+          <div class="hero-score-label">Intelligence readout</div>
+          <div class="hero-score-value">${esc(
+            data.overall_score || buildHeroSummary()
+          )}</div>
+          <div class="hero-score-note">
+            ${esc(direction.note)}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="grid-4">
+        <div class="insight-card">
+          <div class="insight-label">Potency</div>
+          <div class="insight-value">${esc(potency.label)}</div>
+          <div class="insight-note">${esc(potency.note)}</div>
+        </div>
+
+        <div class="insight-card">
+          <div class="insight-label">Aroma density</div>
+          <div class="insight-value">${esc(aroma.label)}</div>
+          <div class="insight-note">${esc(aroma.note)}</div>
+        </div>
+
+        <div class="insight-card">
+          <div class="insight-label">Direction</div>
+          <div class="insight-value">${esc(direction.label)}</div>
+          <div class="insight-note">${esc(direction.note)}</div>
+        </div>
+
+        <div class="insight-card">
+          <div class="insight-label">COA completeness</div>
+          <div class="insight-value">${esc(completeness.label)}</div>
+          <div class="insight-note">${esc(completeness.note)}</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
       <div class="grid-3">
         ${renderMetric("THC Total", data.thc_total)}
         ${renderMetric("CBD Total", data.cbd_total)}
@@ -941,70 +1510,123 @@ function renderReportHTML(data = {}, options = {}) {
       </div>
     </section>
 
-    <div class="grid-2">
-      <section class="card">
-        <h2 class="section-title">Batch details</h2>
-        <div class="muted">
-          <strong>Batch:</strong> ${esc(data.batch_number || "Not reported")}<br />
-          <strong>Report date:</strong> ${esc(data.coa_report_date || "Not reported")}<br />
-          <strong>Product type:</strong> ${esc(data.product_type || "Not reported")}<br />
-          <strong>Lab:</strong> ${esc(data.laboratory_name || "Not reported")}
+    <section class="section">
+      <div class="grid-2">
+        <div class="card">
+          <h2 class="section-title">What stands out</h2>
+          <ul class="standout-list">
+            ${standoutBullets.map((item) => `<li>${esc(item)}</li>`).join("")}
+          </ul>
         </div>
-      </section>
 
-      <section class="card">
-        <h2 class="section-title">Summary</h2>
-        <div class="muted">
-          <strong>Overall score:</strong> ${esc(data.overall_score || "Not reported")}<br /><br />
-          <strong>Minor cannabinoids:</strong> ${esc(
-            data.minor_cannabinoids || "Not reported"
-          )}<br /><br />
-          <strong>Contaminants:</strong> ${esc(
-            data.contaminant_overview || "Not reported"
-          )}
+        <div class="card">
+          <h2 class="section-title">Batch details</h2>
+          <div class="detail-list">
+            <div class="detail-item">
+              <div class="detail-key">Batch number</div>
+              <div class="detail-value">${esc(data.batch_number || "Not reported")}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-key">Report date</div>
+              <div class="detail-value">${esc(data.coa_report_date || "Not reported")}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-key">Product type</div>
+              <div class="detail-value">${esc(data.product_type || "Not reported")}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-key">Laboratory</div>
+              <div class="detail-value">${esc(data.laboratory_name || "Not reported")}</div>
+            </div>
+          </div>
         </div>
-      </section>
-    </div>
-
-    <div class="grid-2">
-      <section class="card">
-        <h2 class="section-title">Top cannabinoids</h2>
-        ${renderCannabinoids(topCannabinoids)}
-      </section>
-
-      <section class="card">
-        <h2 class="section-title">Top terpenes</h2>
-        ${renderTerpenes(topTerpenes)}
-      </section>
-    </div>
-
-    <div class="grid-2">
-      <section class="card">
-        <h2 class="section-title">Positive flags</h2>
-        ${renderList(positiveFlags, "No positive flags reported.")}
-      </section>
-
-      <section class="card">
-        <h2 class="section-title">Warning flags</h2>
-        ${renderList(warningFlags, "No warning flags reported.")}
-      </section>
-    </div>
-
-    <section class="card" style="margin-top:18px;">
-      <h2 class="section-title">Lab quality summary</h2>
-      <div class="muted">${esc(data.lab_quality_summary || "Not reported")}</div>
+      </div>
     </section>
 
-    <section class="card" style="margin-top:18px;">
-      <h2 class="section-title">Scientific references</h2>
-      <div class="muted">${esc(data.scientific_references || "Not reported")}</div>
+    <section class="section">
+      <div class="grid-2">
+        <div class="card">
+          <h2 class="section-title">Cannabinoid profile</h2>
+          <div class="section-sub">
+            ${esc(
+              hasMinorCannabinoids
+                ? "Minor cannabinoid presence suggests added chemistry depth beyond THC alone."
+                : "The visible cannabinoid story is driven mainly by the major compounds captured in the report."
+            )}
+          </div>
+          ${renderCannabinoidCards(topCannabinoids)}
+          <div style="margin-top:14px;" class="muted">
+            <strong>Minor cannabinoids:</strong> ${esc(data.minor_cannabinoids || "Not reported")}
+          </div>
+        </div>
+
+        <div class="card">
+          <h2 class="section-title">Terpene fingerprint</h2>
+          <div class="section-sub">
+            ${esc(
+              dominantTerpene
+                ? `${dominantTerpene} leads the aromatic profile${secondTerpene ? `, supported by ${secondTerpene}` : ""}.`
+                : "A dominant terpene could not be clearly identified."
+            )}
+          </div>
+          ${renderTerpeneBars(topTerpenes)}
+          <div style="margin-top:14px;" class="muted">
+            <strong>Aromatic profile:</strong> ${esc(aromaticProfile)}
+          </div>
+        </div>
+      </div>
     </section>
 
-    <section class="card" style="margin-top:18px;">
-      <h2 class="section-title">Raw JSON</h2>
-      <pre>${esc(JSON.stringify(data, null, 2))}</pre>
+    <section class="section">
+      <div class="grid-2">
+        <div class="card">
+          <h2 class="section-title">Positive flags</h2>
+          ${renderFlagPills(positiveFlags, "good", "No positive flags reported.")}
+        </div>
+
+        <div class="card">
+          <h2 class="section-title">Warning flags</h2>
+          ${renderFlagPills(warningFlags, "warn", "No warning flags reported.")}
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="grid-2">
+        <div class="card">
+          <h2 class="section-title">Contaminant overview</h2>
+          <div class="muted">${esc(data.contaminant_overview || "Not reported")}</div>
+        </div>
+
+        <div class="card">
+          <h2 class="section-title">Lab quality summary</h2>
+          <div class="muted">${esc(data.lab_quality_summary || "Not reported")}</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="card">
+        <h2 class="section-title">Scientific references</h2>
+        <div class="muted">${esc(data.scientific_references || "Not reported")}</div>
+
+        <div class="toggle-row">
+          <button class="btn" type="button" onclick="toggleRaw()">Toggle Raw JSON</button>
+        </div>
+
+        <div id="rawBox" class="raw-box">
+          <pre>${rawJson}</pre>
+        </div>
+      </div>
     </section>
   </div>
+
+  <script>
+    function toggleRaw() {
+      const box = document.getElementById("rawBox");
+      box.classList.toggle("open");
+    }
+  </script>
 </body>
 </html>
   `;
