@@ -1,23 +1,6 @@
 require("dotenv").config();
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    const allowed = [
-      "application/pdf",
-      "image/png",
-      "image/jpeg",
-      "image/jpg",
-      "image/tiff"
-    ];
 
-    if (allowed.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only PDF or image files allowed"));
-    }
-  },
-});
+const multer = require("multer");
 const express = require("express");
 const cors = require("cors");
 const puppeteer = require("puppeteer");
@@ -29,6 +12,11 @@ const {
 } = require("@azure/ai-form-recognizer");
 
 const supabase = require("./supabase");
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+});
 
 const app = express();
 
