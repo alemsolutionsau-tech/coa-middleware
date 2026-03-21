@@ -785,7 +785,16 @@ function renderReportHTML(data = {}, options = {}) {
   const toNum = (value) => {
     if (value === null || value === undefined) return 0;
     const raw = String(value).trim().toLowerCase();
-    if (!raw || raw === "nd" || raw.includes("not detected") || raw.includes("<loq")) return 0;
+    if (
+      !raw ||
+      raw === "nd" ||
+      raw === "n/d" ||
+      raw.includes("not detected") ||
+      raw.includes("<loq") ||
+      raw.includes("< lod")
+    ) {
+      return 0;
+    }
     const match = raw.match(/-?\d+(\.\d+)?/);
     return match ? Number(match[0]) : 0;
   };
@@ -794,8 +803,10 @@ function renderReportHTML(data = {}, options = {}) {
   const cbd = toNum(data.cbd_total);
   const terps = toNum(data.total_terpenes);
 
+  const productName = data.product_name || "COA Report";
   const dominantTerpene = topTerpenes[0]?.name || "";
   const secondTerpene = topTerpenes[1]?.name || "";
+  const thirdTerpene = topTerpenes[2]?.name || "";
   const aromaticProfile = topTerpenes.length
     ? topTerpenes.slice(0, 5).map((t) => t?.name).filter(Boolean).join(" • ")
     : "Not clearly reported";
@@ -804,18 +815,59 @@ function renderReportHTML(data = {}, options = {}) {
   const hasContaminants = !!String(data.contaminant_overview || "").trim();
 
   function classifyPotency(v) {
-    if (v >= 28) return { label: "Very high", note: "Upper-end flower potency." };
-    if (v >= 24) return { label: "High", note: "High-THC flower profile." };
-    if (v >= 18) return { label: "Moderate-high", note: "Meaningful THC strength." };
-    if (v > 0) return { label: "Moderate", note: "More moderate THC intensity." };
-    return { label: "Unknown", note: "Potency could not be classified." };
+    if (v >= 28) {
+      return {
+        label: "Very high",
+        note: "This sits in the upper end of flower potency and is likely to feel strong for many users."
+      };
+    }
+    if (v >= 24) {
+      return {
+        label: "High",
+        note: "This is a high-THC flower profile and likely stronger than average."
+      };
+    }
+    if (v >= 18) {
+      return {
+        label: "Moderate-high",
+        note: "This sits in the moderate-to-high THC range and may suit users comfortable with THC."
+      };
+    }
+    if (v > 0) {
+      return {
+        label: "Moderate",
+        note: "This appears more moderate in THC intensity than high-potency flower products."
+      };
+    }
+    return {
+      label: "Unknown",
+      note: "Potency could not be confidently classified from the extracted data."
+    };
   }
 
   function classifyTerpenes(v) {
-    if (v >= 3) return { label: "High", note: "Strong aromatic density." };
-    if (v >= 1.5) return { label: "Moderate-high", note: "Meaningful terpene presence." };
-    if (v > 0) return { label: "Light", note: "Lighter aromatic expression." };
-    return { label: "Unknown", note: "Terpene density unclear." };
+    if (v >= 3) {
+      return {
+        label: "High",
+        note: "This suggests stronger aromatic expression than average."
+      };
+    }
+    if (v >= 1.5) {
+      return {
+        label: "Moderate-high",
+        note: "This suggests a meaningful terpene presence without being extremely terpene-dense."
+      };
+    }
+    if (v > 0) {
+      return {
+        label: "Light",
+        note: "This suggests lighter terpene expression."
+      };
+    }
+    return {
+      label: "Unknown",
+      note: "Terpene density could not be confidently classified."
+    };
   }
 
   function inferDirection(lead = "") {
@@ -824,37 +876,37 @@ function renderReportHTML(data = {}, options = {}) {
     if (t.includes("terpinolene")) {
       return {
         label: "Uplifting / mentally active",
-        note: "Terpinolene-led profiles often feel brighter and less body-heavy."
+        note: "Terpinolene-led profiles often feel brighter, more mentally active, and less body-heavy than sedating chemotypes."
       };
     }
     if (t.includes("myrcene")) {
       return {
         label: "Calming / body-heavy",
-        note: "Myrcene-forward profiles often lean more calming and physical."
+        note: "Myrcene-dominant profiles often lean more calming and body-centered."
       };
     }
     if (t.includes("limonene")) {
       return {
         label: "Bright / mood-forward",
-        note: "Limonene-heavy profiles often read brighter and more energetic."
-      };
-    }
-    if (t.includes("pinene")) {
-      return {
-        label: "Clear / alert",
-        note: "Pinene-heavy profiles are often associated with clarity and alertness."
+        note: "Limonene-forward profiles are often positioned as brighter and more mood-forward."
       };
     }
     if (t.includes("caryophyllene")) {
       return {
         label: "Balanced / structured",
-        note: "Caryophyllene-led profiles often feel balanced and grounded."
+        note: "Caryophyllene-led profiles often read as balanced, warm, and structured."
+      };
+    }
+    if (t.includes("pinene")) {
+      return {
+        label: "Clear / alert",
+        note: "Pinene-heavy profiles are often interpreted as clearer and more alertness-oriented."
       };
     }
 
     return {
       label: "Chemistry-led",
-      note: "A stronger directional read would require clearer terpene dominance."
+      note: "A stronger directional effect readout would require clearer terpene dominance."
     };
   }
 
@@ -865,23 +917,43 @@ function renderReportHTML(data = {}, options = {}) {
       (data.thc_total ? 1 : 0) +
       (data.total_terpenes ? 1 : 0) +
       (hasContaminants ? 1 : 0) +
-      (data.laboratory_name ? 1 : 0);
+      (data.laboratory_name ? 1 : 0) +
+      (data.coa_report_date ? 1 : 0);
 
-    if (score >= 5) return { label: "Strong", note: "Good structured chemistry coverage." };
-    if (score >= 3) return { label: "Moderate", note: "Useful but not fully rich COA coverage." };
-    return { label: "Limited", note: "Interpretation constrained by missing data." };
+    if (score >= 6) {
+      return { label: "Strong", note: "This COA gives a useful level of structured chemistry detail." };
+    }
+    if (score >= 4) {
+      return { label: "Moderate", note: "This COA is useful, but interpretation is still limited in some areas." };
+    }
+    return { label: "Limited", note: "Interpretation is constrained by missing or incomplete chemistry fields." };
   }
 
-  function buildHeroSummary() {
-    const potency = classifyPotency(thc).label.toLowerCase();
-    const aroma = classifyTerpenes(terps).label.toLowerCase();
-    const lead = dominantTerpene ? `${dominantTerpene}-led` : "chemistry-led";
+  function buildExecutiveBrief() {
+    const potency = classifyPotency(thc);
+    const terpeneDensity = classifyTerpenes(terps);
+    const effectDirection = inferDirection(dominantTerpene);
 
-    return `${
-      potency === "unknown" ? "Cannabis flower" : `${classifyPotency(thc).label} potency`
-    }, ${lead} profile with ${aroma} terpene intensity and ${
-      hasMinorCannabinoids ? "visible minor cannabinoid depth." : "a primary focus on major compounds."
-    }`;
+    const cbdText =
+      cbd > 0
+        ? "Visible CBD may provide some modulation of THC intensity."
+        : "CBD appears absent or negligible, so THC modulation from CBD is likely minimal.";
+
+    const minorText = hasMinorCannabinoids
+      ? "Visible minor cannabinoids add chemical depth beyond THC alone."
+      : "Minor cannabinoid depth was not clearly captured in the structured data.";
+
+    return {
+      headline: `${potency.label} potency, ${
+        dominantTerpene ? `${dominantTerpene}-led` : "chemistry-led"
+      } flower with ${terpeneDensity.label.toLowerCase()} terpene intensity.`,
+      bullets: [
+        potency.note,
+        effectDirection.note,
+        cbdText,
+        minorText
+      ]
+    };
   }
 
   function buildWhatStandsOut() {
@@ -890,7 +962,7 @@ function renderReportHTML(data = {}, options = {}) {
     if (thc >= 24) {
       bullets.push("THC sits firmly in the high range, suggesting a stronger-than-average flower profile.");
     } else if (thc >= 18) {
-      bullets.push("THC sits in the moderate-high range, indicating meaningful potency without being ultra-high.");
+      bullets.push("THC sits in the moderate-to-high range, indicating meaningful potency without being ultra-high.");
     }
 
     if (dominantTerpene) {
@@ -902,7 +974,7 @@ function renderReportHTML(data = {}, options = {}) {
     }
 
     if (hasMinorCannabinoids) {
-      bullets.push("Minor cannabinoids add depth beyond THC alone, which may support a more differentiated chemotype.");
+      bullets.push("Minor cannabinoids add chemistry depth beyond THC alone, which may support a more differentiated chemotype.");
     }
 
     if (!bullets.length) {
@@ -910,6 +982,237 @@ function renderReportHTML(data = {}, options = {}) {
     }
 
     return bullets.slice(0, 4);
+  }
+
+  function buildPostHarvestInsights() {
+    const freshness =
+      terps >= 2.5
+        ? {
+            label: "Strong freshness signal",
+            note: "Terpene retention appears strong, which is generally consistent with better post-harvest preservation."
+          }
+        : terps >= 1.5
+        ? {
+            label: "Moderate freshness signal",
+            note: "Terpene retention appears reasonably preserved, suggesting the flower maintained aromatic expression through handling."
+          }
+        : terps > 0
+        ? {
+            label: "Light freshness signal",
+            note: "Some aromatic expression remains, though terpene density is not strong enough to suggest standout preservation."
+          }
+        : {
+            label: "Freshness signal limited",
+            note: "Freshness cannot be meaningfully inferred because terpene density is unclear."
+          };
+
+    const cure =
+      topTerpenes.length >= 3 && terps >= 1.5
+        ? {
+            label: "Cure signal: positive",
+            note: "The profile does not look chemically flat; visible terpene layering suggests preserved aromatic complexity."
+          }
+        : topTerpenes.length >= 2
+        ? {
+            label: "Cure signal: moderate",
+            note: "Some terpene layering is visible, but confidence remains limited."
+          }
+        : {
+            label: "Cure signal: limited",
+            note: "A stronger curing inference would require clearer terpene spread and additional post-harvest variables."
+          };
+
+    const stability =
+      hasContaminants
+        ? {
+            label: "Stability signal: partial",
+            note: "Some quality-state interpretation is possible, but true stability confidence would require moisture, water activity, oxidation, or repeat-batch data."
+          }
+        : {
+            label: "Stability signal: limited",
+            note: "Stability confidence is limited because no moisture, water activity, oxidation, or longitudinal batch data are available."
+          };
+
+    return { freshness, cure, stability };
+  }
+
+  function buildCultivationInsights() {
+    const expression =
+      thc >= 24 && terps >= 1.8
+        ? "Strong chemotype expression"
+        : thc >= 18 && terps >= 1.5
+        ? "Good chemotype expression"
+        : "Moderate chemotype expression";
+
+    const preservation =
+      terps >= 2
+        ? "Aromatic preservation appears reasonably intact."
+        : "Aromatic preservation is present but not especially strong.";
+
+    const cultivationNote =
+      hasMinorCannabinoids && topTerpenes.length >= 3
+        ? "This reads more like a well-expressed profile than a flat potency-only flower."
+        : "The profile shows useful structure, though cultivation-quality inference remains moderate.";
+
+    return {
+      expression,
+      preservation,
+      cultivationNote
+    };
+  }
+
+  function buildLineageInsights() {
+    const t = String(dominantTerpene || "").toLowerCase();
+
+    if (t.includes("terpinolene")) {
+      return {
+        family: "Haze / Jack / Durban-type families",
+        confidence: "Moderate",
+        note: "Terpinolene-dominant profiles often cluster closer to uplifting Haze-leaning chemotypes than to sedating Kush patterns."
+      };
+    }
+
+    if (t.includes("myrcene")) {
+      return {
+        family: "Kush / OG / indica-leaning families",
+        confidence: "Moderate",
+        note: "Myrcene-led chemistry often maps more closely to body-heavier or Kush-leaning profile families."
+      };
+    }
+
+    if (t.includes("limonene")) {
+      return {
+        family: "Citrus / Gelato / Runtz-like hybrid families",
+        confidence: "Moderate",
+        note: "Limonene-heavy flowers often align more closely with brighter citrus-forward hybrid families."
+      };
+    }
+
+    if (t.includes("pinene")) {
+      return {
+        family: "Pine-forward or clearer sativa-leaning families",
+        confidence: "Low-moderate",
+        note: "Pinene prominence can suggest a clearer and more alertness-oriented chemotype cluster."
+      };
+    }
+
+    if (t.includes("caryophyllene")) {
+      return {
+        family: "Balanced hybrid / spice-forward families",
+        confidence: "Low-moderate",
+        note: "Caryophyllene-forward expressions can map toward structured, spicy hybrid families."
+      };
+    }
+
+    return {
+      family: "Unclear lineage cluster",
+      confidence: "Low",
+      note: "A stronger lineage read would require clearer terpene dominance and a richer comparison database."
+    };
+  }
+
+  function buildBestUseCases() {
+    const useCases = [];
+    const avoidCases = [];
+
+    if (thc >= 24) {
+      useCases.push("Experienced THC users");
+      avoidCases.push("THC-sensitive or low-tolerance users");
+    } else if (thc >= 18) {
+      useCases.push("Users comfortable with moderate-to-high THC");
+    }
+
+    const lead = String(dominantTerpene || "").toLowerCase();
+
+    if (lead.includes("terpinolene") || lead.includes("pinene") || lead.includes("limonene")) {
+      useCases.push("Daytime or early-evening use");
+      useCases.push("Creative, mentally active, or focus-oriented settings");
+      avoidCases.push("Primary sleep-focused use");
+    }
+
+    if (lead.includes("myrcene")) {
+      useCases.push("Calmer evening use");
+      useCases.push("Body-centered relaxation contexts");
+    }
+
+    if (!useCases.length) {
+      useCases.push("General adult-use or exploratory chemistry interest");
+    }
+
+    if (!avoidCases.length && thc >= 24) {
+      avoidCases.push("Situations requiring very low intoxication intensity");
+    }
+
+    return {
+      useCases: useCases.slice(0, 4),
+      avoidCases: avoidCases.slice(0, 4)
+    };
+  }
+
+  function buildAudienceInsights() {
+    const direction = inferDirection(dominantTerpene);
+
+    const patient = [
+      thc >= 24
+        ? "This appears to be a high-THC product and may feel intense for lower-tolerance patients."
+        : thc >= 18
+        ? "This appears to be a moderate-to-high THC product."
+        : "This product does not appear to sit in the highest THC bracket.",
+      dominantTerpene
+        ? `${dominantTerpene} is the leading terpene, which may shape the overall feel of the product.`
+        : "A dominant terpene could not be clearly identified.",
+      direction.note,
+    ];
+
+    const clinician = [
+      cbd <= 1
+        ? "Low CBD suggests limited direct modulation of THC intensity."
+        : "Visible CBD may contribute some modulation of the THC-dominant profile.",
+      thc >= 24
+        ? "High THC concentration warrants tolerance-aware selection and patient education."
+        : "THC concentration appears less extreme than ultra-high potency flower products.",
+      hasContaminants
+        ? "Contaminant summary was reported and should be reviewed alongside the source COA."
+        : "Contaminant interpretation is limited because no structured overview was extracted.",
+    ];
+
+    const industry = [
+      dominantTerpene
+        ? `${dominantTerpene}-led chemistry can support differentiated market positioning.`
+        : "Terpene dominance is not strong enough to support a clear positioning angle.",
+      terps >= 2.5
+        ? "Stronger terpene density supports premium aromatic positioning."
+        : "Moderate terpene density may require positioning around effect profile rather than aroma intensity alone.",
+      hasMinorCannabinoids
+        ? "Minor cannabinoids add product-story depth for brand and category differentiation."
+        : "Limited visible minor cannabinoid depth may reduce differentiation narrative.",
+    ];
+
+    const enthusiast = [
+      aromaticProfile !== "Not clearly reported"
+        ? `Top aromatic signals: ${aromaticProfile}.`
+        : "Aromatic structure could not be confidently extracted.",
+      direction.label,
+      thirdTerpene
+        ? `Layered terpene architecture includes ${dominantTerpene}, ${secondTerpene}, and ${thirdTerpene}.`
+        : secondTerpene
+        ? `Leading terpene pairing includes ${dominantTerpene} and ${secondTerpene}.`
+        : dominantTerpene
+        ? `Primary terpene signal centers on ${dominantTerpene}.`
+        : "No clear lead terpene was extracted.",
+    ];
+
+    return { patient, clinician, industry, enthusiast };
+  }
+
+  function renderMetric(label, value, note = "") {
+    return `
+      <div class="metric">
+        <div class="metric-label">${esc(label)}</div>
+        <div class="metric-value">${esc(value || "Not reported")}</div>
+        ${note ? `<div class="metric-note">${esc(note)}</div>` : ""}
+      </div>
+    `;
   }
 
   function renderFlagPills(items, tone = "good", emptyText = "None reported") {
@@ -994,11 +1297,22 @@ function renderReportHTML(data = {}, options = {}) {
     `;
   }
 
+  function renderInsightList(items = []) {
+    if (!items.length) return `<div class="muted">No insight available.</div>`;
+    return `<ul class="insight-list">${items.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>`;
+  }
+
   const potency = classifyPotency(thc);
   const aroma = classifyTerpenes(terps);
   const direction = inferDirection(dominantTerpene);
   const completeness = classifyCompleteness();
+  const executiveBrief = buildExecutiveBrief();
   const standoutBullets = buildWhatStandsOut();
+  const postHarvest = buildPostHarvestInsights();
+  const cultivation = buildCultivationInsights();
+  const lineage = buildLineageInsights();
+  const useCases = buildBestUseCases();
+  const audience = buildAudienceInsights();
 
   const rawJson = esc(JSON.stringify(data, null, 2));
 
@@ -1008,11 +1322,11 @@ function renderReportHTML(data = {}, options = {}) {
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>${esc(data.product_name || "COA Report")}</title>
+<title>${esc(productName)}</title>
 <style>
   :root {
-    --bg: #f5f1e8;
-    --bg2: #faf8f3;
+    --bg: #f4efe4;
+    --bg2: #fbf8f1;
     --panel: rgba(255,255,255,0.88);
     --line: rgba(25,24,22,0.09);
     --text: #191816;
@@ -1023,7 +1337,6 @@ function renderReportHTML(data = {}, options = {}) {
     --goodBg: rgba(31,61,43,0.08);
     --warnBg: rgba(185,150,87,0.12);
     --shadow: 0 16px 45px rgba(25,24,22,0.07);
-    --radius: 24px;
   }
 
   * { box-sizing: border-box; }
@@ -1033,13 +1346,13 @@ function renderReportHTML(data = {}, options = {}) {
     font-family: Inter, Arial, sans-serif;
     color: var(--text);
     background:
-      radial-gradient(circle at top left, rgba(185,150,87,0.10), transparent 25%),
-      radial-gradient(circle at 85% 10%, rgba(31,61,43,0.07), transparent 20%),
+      radial-gradient(circle at top left, rgba(185,150,87,0.10), transparent 26%),
+      radial-gradient(circle at 85% 10%, rgba(31,61,43,0.07), transparent 22%),
       linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%);
   }
 
   .shell {
-    max-width: 1240px;
+    max-width: 1280px;
     margin: 0 auto;
     padding: 24px 18px 60px;
   }
@@ -1059,7 +1372,7 @@ function renderReportHTML(data = {}, options = {}) {
     border-radius: 999px;
     border: 1px solid var(--line);
     padding: 12px 18px;
-    background: rgba(255,255,255,0.9);
+    background: rgba(255,255,255,0.92);
     color: var(--text);
     font-weight: 700;
     cursor: pointer;
@@ -1162,10 +1475,10 @@ function renderReportHTML(data = {}, options = {}) {
   }
 
   .hero-score-value {
-    font-size: 1.6rem;
+    font-size: 1.55rem;
     font-weight: 800;
     color: var(--green);
-    line-height: 1.1;
+    line-height: 1.2;
   }
 
   .hero-score-note {
@@ -1177,6 +1490,10 @@ function renderReportHTML(data = {}, options = {}) {
 
   .section {
     margin-top: 18px;
+  }
+
+  .card {
+    padding: 22px;
   }
 
   .grid-4 {
@@ -1195,10 +1512,6 @@ function renderReportHTML(data = {}, options = {}) {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 18px;
-  }
-
-  .card {
-    padding: 22px;
   }
 
   .section-title {
@@ -1264,6 +1577,13 @@ function renderReportHTML(data = {}, options = {}) {
     line-height: 1.05;
   }
 
+  .metric-note {
+    margin-top: 8px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--muted);
+  }
+
   .muted {
     color: var(--muted);
     line-height: 1.75;
@@ -1294,12 +1614,14 @@ function renderReportHTML(data = {}, options = {}) {
     line-height: 1.6;
   }
 
-  .standout-list {
+  .standout-list,
+  .insight-list {
     margin: 0;
     padding-left: 18px;
   }
 
-  .standout-list li {
+  .standout-list li,
+  .insight-list li {
     margin: 10px 0;
     line-height: 1.75;
   }
@@ -1398,6 +1720,33 @@ function renderReportHTML(data = {}, options = {}) {
     border-color: rgba(185,150,87,0.2);
   }
 
+  .mini-card {
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 16px;
+    background: rgba(255,255,255,0.82);
+  }
+
+  .mini-label {
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  .mini-value {
+    font-size: 1.05rem;
+    font-weight: 800;
+    margin-bottom: 6px;
+  }
+
+  .mini-note {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
   .toggle-row {
     margin-top: 14px;
   }
@@ -1448,10 +1797,10 @@ function renderReportHTML(data = {}, options = {}) {
     <section class="hero">
       <div class="hero-grid">
         <div>
-          <div class="eyebrow">ALEM Chemical Intelligence</div>
-          <h1>${esc(data.product_name || "COA Report")}</h1>
+          <div class="eyebrow">ALEM Chemical Intelligence V4</div>
+          <h1>${esc(productName)}</h1>
           <div class="hero-summary">${esc(
-            data.opening_statement || buildHeroSummary()
+            data.opening_statement || executiveBrief.headline
           )}</div>
 
           <div class="hero-meta">
@@ -1463,12 +1812,12 @@ function renderReportHTML(data = {}, options = {}) {
         </div>
 
         <div class="hero-score">
-          <div class="hero-score-label">Intelligence readout</div>
+          <div class="hero-score-label">Executive readout</div>
           <div class="hero-score-value">${esc(
-            data.overall_score || buildHeroSummary()
+            data.overall_score || executiveBrief.headline
           )}</div>
           <div class="hero-score-note">
-            ${esc(direction.note)}
+            ${executiveBrief.bullets.map((b) => `• ${esc(b)}`).join("<br />")}
           </div>
         </div>
       </div>
@@ -1504,9 +1853,15 @@ function renderReportHTML(data = {}, options = {}) {
 
     <section class="section">
       <div class="grid-3">
-        ${renderMetric("THC Total", data.thc_total)}
-        ${renderMetric("CBD Total", data.cbd_total)}
-        ${renderMetric("Total Terpenes", data.total_terpenes)}
+        ${renderMetric("THC Total", data.thc_total, potency.note)}
+        ${renderMetric(
+          "CBD Total",
+          data.cbd_total,
+          cbd > 0
+            ? "Visible CBD may slightly soften or modulate the THC-dominant profile."
+            : "CBD appears minimal or absent in the structured data."
+        )}
+        ${renderMetric("Total Terpenes", data.total_terpenes, aroma.note)}
       </div>
     </section>
 
@@ -1548,11 +1903,11 @@ function renderReportHTML(data = {}, options = {}) {
         <div class="card">
           <h2 class="section-title">Cannabinoid profile</h2>
           <div class="section-sub">
-            ${esc(
+            ${
               hasMinorCannabinoids
-                ? "Minor cannabinoid presence suggests added chemistry depth beyond THC alone."
-                : "The visible cannabinoid story is driven mainly by the major compounds captured in the report."
-            )}
+                ? esc("Minor cannabinoid presence suggests added chemistry depth beyond THC alone.")
+                : esc("The visible cannabinoid story is driven mainly by the major compounds captured in the report.")
+            }
           </div>
           ${renderCannabinoidCards(topCannabinoids)}
           <div style="margin-top:14px;" class="muted">
@@ -1563,11 +1918,11 @@ function renderReportHTML(data = {}, options = {}) {
         <div class="card">
           <h2 class="section-title">Terpene fingerprint</h2>
           <div class="section-sub">
-            ${esc(
+            ${
               dominantTerpene
-                ? `${dominantTerpene} leads the aromatic profile${secondTerpene ? `, supported by ${secondTerpene}` : ""}.`
-                : "A dominant terpene could not be clearly identified."
-            )}
+                ? esc(`${dominantTerpene} leads the aromatic profile${secondTerpene ? `, supported by ${secondTerpene}` : ""}.`)
+                : esc("A dominant terpene could not be clearly identified.")
+            }
           </div>
           ${renderTerpeneBars(topTerpenes)}
           <div style="margin-top:14px;" class="muted">
@@ -1580,13 +1935,116 @@ function renderReportHTML(data = {}, options = {}) {
     <section class="section">
       <div class="grid-2">
         <div class="card">
-          <h2 class="section-title">Positive flags</h2>
-          ${renderFlagPills(positiveFlags, "good", "No positive flags reported.")}
+          <h2 class="section-title">Best use cases</h2>
+          <div class="section-sub">This is an educational interpretation layer, not a prescription or medical claim.</div>
+          ${renderInsightList(useCases.useCases)}
         </div>
 
         <div class="card">
-          <h2 class="section-title">Warning flags</h2>
+          <h2 class="section-title">Less suited for</h2>
+          <div class="section-sub">Useful as a caution layer for patients, doctors, and product selectors.</div>
+          ${renderInsightList(useCases.avoidCases)}
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="grid-2">
+        <div class="card">
+          <h2 class="section-title">Post-harvest read</h2>
+          <div class="grid-3">
+            <div class="mini-card">
+              <div class="mini-label">Freshness</div>
+              <div class="mini-value">${esc(postHarvest.freshness.label)}</div>
+              <div class="mini-note">${esc(postHarvest.freshness.note)}</div>
+            </div>
+            <div class="mini-card">
+              <div class="mini-label">Curing</div>
+              <div class="mini-value">${esc(postHarvest.cure.label)}</div>
+              <div class="mini-note">${esc(postHarvest.cure.note)}</div>
+            </div>
+            <div class="mini-card">
+              <div class="mini-label">Stability</div>
+              <div class="mini-value">${esc(postHarvest.stability.label)}</div>
+              <div class="mini-note">${esc(postHarvest.stability.note)}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2 class="section-title">Cultivation read</h2>
+          <div class="detail-list">
+            <div class="detail-item">
+              <div class="detail-key">Expression</div>
+              <div class="detail-value">${esc(cultivation.expression)}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-key">Preservation</div>
+              <div class="detail-value">${esc(cultivation.preservation)}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-key">Interpretation</div>
+              <div class="detail-value">${esc(cultivation.cultivationNote)}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="grid-2">
+        <div class="card">
+          <h2 class="section-title">Chemotype / lineage-style read</h2>
+          <div class="detail-list">
+            <div class="detail-item">
+              <div class="detail-key">Closest family pattern</div>
+              <div class="detail-value">${esc(lineage.family)}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-key">Confidence</div>
+              <div class="detail-value">${esc(lineage.confidence)}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-key">Why</div>
+              <div class="detail-value">${esc(lineage.note)}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2 class="section-title">Regulatory / quality signals</h2>
+          <div style="margin-bottom:14px;">
+            ${renderFlagPills(positiveFlags, "good", "No positive flags reported.")}
+          </div>
           ${renderFlagPills(warningFlags, "warn", "No warning flags reported.")}
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="grid-2">
+        <div class="card">
+          <h2 class="section-title">Audience: patients</h2>
+          ${renderInsightList(audience.patient)}
+        </div>
+
+        <div class="card">
+          <h2 class="section-title">Audience: clinicians</h2>
+          ${renderInsightList(audience.clinician)}
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="grid-2">
+        <div class="card">
+          <h2 class="section-title">Audience: industry / buyers</h2>
+          ${renderInsightList(audience.industry)}
+        </div>
+
+        <div class="card">
+          <h2 class="section-title">Audience: enthusiasts / growers</h2>
+          ${renderInsightList(audience.enthusiast)}
         </div>
       </div>
     </section>
