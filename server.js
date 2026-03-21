@@ -4087,7 +4087,7 @@ app.post("/upload-coa", upload.single("file"), async (req, res) => {
     // 3. SAVE TO SUPABASE
     // -----------------------------
     const { data, error } = await supabase
-      .from("coa_reports")
+      .from("coa_ai_reports")
       .insert([
         {
           file_name: req.file.originalname,
