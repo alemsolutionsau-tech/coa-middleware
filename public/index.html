@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Alem Chemical Intelligence</title>
+
+<style>
+  body {
+    margin: 0;
+    font-family: Inter, Arial, sans-serif;
+    background: #f5f3ef;
+    color: #1a1a1a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+  }
+
+  .container {
+    text-align: center;
+    max-width: 600px;
+    padding: 40px;
+  }
+
+  .logo {
+    font-size: 12px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: #1f3d2b;
+    margin-bottom: 20px;
+  }
+
+  h1 {
+    font-size: 40px;
+    margin-bottom: 16px;
+  }
+
+  p {
+    font-size: 16px;
+    color: #555;
+    line-height: 1.6;
+    margin-bottom: 30px;
+  }
+
+  .upload-box {
+    border: 2px dashed #ccc;
+    padding: 30px;
+    border-radius: 20px;
+    cursor: pointer;
+    background: white;
+    transition: 0.2s;
+  }
+
+  .upload-box:hover {
+    border-color: #1f3d2b;
+  }
+
+  input {
+    display: none;
+  }
+
+  .btn {
+    margin-top: 20px;
+    padding: 14px 24px;
+    border-radius: 999px;
+    border: none;
+    background: #1f3d2b;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .loader {
+    display: none;
+    margin-top: 20px;
+    font-size: 14px;
+    color: #777;
+  }
+
+  .note {
+    margin-top: 40px;
+    font-size: 13px;
+    color: #777;
+  }
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <div class="logo">ALEM</div>
+
+  <h1>Understand your COA</h1>
+
+  <p>
+    Upload your cannabis certificate of analysis and transform raw chemistry
+    into clear, actionable insights.
+  </p>
+
+  <div class="upload-box" onclick="document.getElementById('fileInput').click()">
+    Click or drop your COA here
+  </div>
+
+  <input type="file" id="fileInput" />
+
+  <button class="btn" onclick="handleUpload()">Analyze COA</button>
+
+  <div class="loader" id="loader">
+    Analyzing chemistry... please wait
+  </div>
+
+  <div class="note">
+    No personal data is collected.  
+    We only process chemical reports to help accelerate research and improve product quality.
+  </div>
+
+</div>
+
+<script>
+let selectedFile = null;
+
+document.getElementById("fileInput").addEventListener("change", function(e) {
+  selectedFile = e.target.files[0];
+});
+
+async function handleUpload() {
+  if (!selectedFile) {
+    alert("Please select a file first");
+    return;
+  }
+
+  document.getElementById("loader").style.display = "block";
+
+  const formData = new FormData();
+  formData.append("file", selectedFile);
+
+  try {
+    const res = await fetch("/upload-coa", {
+      method: "POST",
+      body: formData
+    });
+
+    const data = await res.json();
+
+    if (data.success) {
+      window.location.href = data.report_url;
+    } else {
+      alert(data.error || "Something went wrong");
+    }
+
+  } catch (err) {
+    alert("Upload failed");
+  }
+}
+</script>
+
+</body>
+</html>
