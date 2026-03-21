@@ -69,9 +69,13 @@ CRITICAL RULES:
 - Return valid JSON only. No markdown. No comments. No prose.
 - If a field is missing return "" for strings, [] for arrays.
 - Never guess or hallucinate values. Leave empty if uncertain.
-- top_cannabinoids: max 10 items (include all named cannabinoids present)
-- top_terpenes: max 12 items (include all named terpenes present)
-- For values: always include the number AND unit as separate fields
+- top_cannabinoids: include ALL named cannabinoids with detected values (not ND). Max 10.
+- top_terpenes: include ALL named terpenes with detected values (not ND). Max 12. Sort by value descending.
+- For units: always use "wt%" not "%". If the COA says wt%, use "wt%".
+- CRITICAL: total_terpenes — look for "Total of all quantified terpenes" OR "Total Terpenes" anywhere in the document including the last page. This is a sum line, often at the end of the terpene table. Extract it precisely.
+- CRITICAL: total_cannabinoids — look for "Total of all quantified cannabinoids" or similar sum line.
+- CRITICAL: For thca, look for "THCA-A" or "THCA" — they are the same compound.
+- For cbn, cbg, cbga, cbda: extract the numeric value only (e.g. "0.1057"), or "ND" if not detected.
 
 Return this exact shape:
 {
@@ -83,24 +87,26 @@ Return this exact shape:
   "laboratory_accreditation": "",
   "laboratory_method": "",
   "thc_total": "",
-  "thc_total_unit": "",
+  "thc_total_unit": "wt%",
   "cbd_total": "",
-  "cbd_total_unit": "",
+  "cbd_total_unit": "wt%",
   "thca": "",
-  "thca_unit": "",
+  "thca_unit": "wt%",
   "cbda": "",
   "cbn": "",
   "cbg": "",
   "cbga": "",
+  "cbca": "",
+  "thcva": "",
   "total_terpenes": "",
-  "total_terpenes_unit": "",
+  "total_terpenes_unit": "wt%",
   "total_cannabinoids": "",
   "hero_narrative": "",
   "top_cannabinoids": [
-    { "name": "", "value": "", "unit": "", "notes": "" }
+    { "name": "", "value": "", "unit": "wt%", "notes": "" }
   ],
   "top_terpenes": [
-    { "name": "", "value": "", "unit": "" }
+    { "name": "", "value": "", "unit": "wt%" }
   ]
 }
 
@@ -184,8 +190,10 @@ function computeIntelligenceScore(extracted, contaminants) {
   const cbn = toNum(extracted.cbn);
   const cbg = toNum(extracted.cbg);
   const cbda = toNum(extracted.cbda);
-  const minorCount = [cbga, cbn, cbg, cbda].filter(v => v > 0).length;
-  const totalMinors = toNum(extracted.total_cannabinoids) - thc - cbd;
+  const cbca = toNum(extracted.cbca);
+  const thcva = toNum(extracted.thcva);
+  const minorCount = [cbga, cbn, cbg, cbda, cbca, thcva].filter(v => v > 0).length;
+  const totalMinors = toNum(extracted.total_cannabinoids) - toNum(extracted.thc_total) - toNum(extracted.cbd_total);
   let minorScore = 0;
   if (totalMinors >= 5) minorScore = 20;
   else if (totalMinors >= 3) minorScore = 16;
@@ -337,10 +345,30 @@ function getTerpeneIntel(terpName = "") {
 }
 
 function generateFingerprintId(terpenes = []) {
+  const ABBREV = {
+    terpinolene: "TPN", myrcene: "MYR", "beta-myrcene": "MYR",
+    limonene: "LIM", caryophyllene: "CAR", "trans-caryophyllene": "CAR",
+    "beta-caryophyllene": "CAR", pinene: "PIN", "alpha-pinene": "PIN",
+    "beta-pinene": "BPN", linalool: "LIN", ocimene: "OCI",
+    humulene: "HUM", "alpha-humulene": "HUM", bisabolol: "BIS",
+    "alpha-bisabolol": "BIS", farnesene: "FAR", guaiol: "GUA",
+    terpineol: "TPO", "alpha-terpineol": "TPO", nerolidol: "NER",
+    "trans-nerolidol": "NER", valencene: "VAL", geraniol: "GER",
+    borneol: "BOR", camphene: "CMP", eucalyptol: "EUC",
+  };
   const top3 = terpenes
-    .filter(t => toNum(t.value) > 0)
+    .filter(t => {
+      const v = parseFloat(t.value);
+      return !isNaN(v) && v > 0;
+    })
     .slice(0, 3)
-    .map(t => String(t.name || "").replace(/[^a-zA-Z]/g, "").slice(0, 3).toUpperCase());
+    .map(t => {
+      const key = String(t.name || "").toLowerCase().trim();
+      for (const [k, abbr] of Object.entries(ABBREV)) {
+        if (key.includes(k)) return abbr;
+      }
+      return String(t.name || "").replace(/[^a-zA-Z]/g, "").slice(0, 3).toUpperCase();
+    });
   if (!top3.length) return "UNK";
   return top3.join("-");
 }
@@ -356,6 +384,7 @@ function buildAudienceNarratives(extracted, contaminants, scoring) {
   const second = terpenes[1]?.name || "";
   const intel = getTerpeneIntel(lead);
   const score = scoring.total;
+  const terpsDisplay = terps > 0 ? terps.toFixed(2) : "not captured";
 
   const brand = [];
   if (lead) {
@@ -388,7 +417,7 @@ function buildAudienceNarratives(extracted, contaminants, scoring) {
   const buyer = [];
   buyer.push(`Intelligence score: ${score}/100 — ${scoring.tier}. ${scoring.breakdown.terpenes.score >= 18 ? "Leads on terpene richness." : ""} ${scoring.breakdown.safety.score < 10 ? "Safety data gap is the primary score limiter — request full compliance documentation." : "Clean safety profile."}`);
   if (lead) buyer.push(`${lead}-dominant COA in a predominantly myrcene-heavy market. Above-average shelf differentiation potential.`);
-  buyer.push(terps >= 2 ? `Total terpene content (${terps.toFixed(2)} wt%) supports premium pricing. Terpene richness and chemotype clarity justify category-leading positioning.` : `Terpene content (${terps.toFixed(2)} wt%) is serviceable. Pricing should align with mid-tier terpene density.`);
+  buyer.push(terps >= 2 ? `Total terpene content (${terpsDisplay} wt%) supports premium pricing. Terpene richness and chemotype clarity justify category-leading positioning.` : `Terpene content (${terpsDisplay} wt%) is serviceable. Pricing should align with mid-tier terpene density.`);
   const safetyBuyerNote = (!contaminants.pesticides_status || contaminants.pesticides_status.toLowerCase().includes("not tested"))
     ? "Structured contaminant overview not captured. Request full compliance panel from producer before listing."
     : `Contaminant overview: Pesticides — ${contaminants.pesticides_status}. Metals — ${contaminants.heavy_metals_status || "not reported"}.`;
@@ -515,6 +544,33 @@ function extractJSON(text = "") {
 function normalizeChemistry(data = {}) {
   const s = (v) => (v === null || v === undefined ? "" : String(v));
   const a = (v) => (Array.isArray(v) ? v : []);
+
+  const topTerpenes = a(data.top_terpenes).slice(0, 12).map(i => ({
+    name: s(i?.name),
+    value: s(i?.value),
+    unit: s(i?.unit) || "wt%",
+  }));
+
+  // Fallback: if total_terpenes is missing, compute from sum of individual terpene values
+  let totalTerpenes = s(data.total_terpenes);
+  if (!totalTerpenes || totalTerpenes === "ND" || totalTerpenes === "") {
+    const computed = topTerpenes.reduce((sum, t) => {
+      const n = parseFloat(t.value);
+      return sum + (isNaN(n) ? 0 : n);
+    }, 0);
+    if (computed > 0) {
+      totalTerpenes = computed.toFixed(4);
+      console.log(`⚠️  total_terpenes missing — computed from terpene sum: ${totalTerpenes}`);
+    }
+  }
+
+  // Normalise units: always "wt%"
+  const fixUnit = (u) => {
+    const clean = s(u).trim();
+    if (!clean || clean === "%") return "wt%";
+    return clean;
+  };
+
   return {
     product_name: s(data.product_name),
     batch_number: s(data.batch_number),
@@ -524,25 +580,28 @@ function normalizeChemistry(data = {}) {
     laboratory_accreditation: s(data.laboratory_accreditation),
     laboratory_method: s(data.laboratory_method),
     thc_total: s(data.thc_total),
-    thc_total_unit: s(data.thc_total_unit),
+    thc_total_unit: fixUnit(data.thc_total_unit),
     cbd_total: s(data.cbd_total),
-    cbd_total_unit: s(data.cbd_total_unit),
+    cbd_total_unit: fixUnit(data.cbd_total_unit),
     thca: s(data.thca),
-    thca_unit: s(data.thca_unit),
+    thca_unit: fixUnit(data.thca_unit),
     cbda: s(data.cbda),
     cbn: s(data.cbn),
     cbg: s(data.cbg),
     cbga: s(data.cbga),
-    total_terpenes: s(data.total_terpenes),
-    total_terpenes_unit: s(data.total_terpenes_unit),
+    cbca: s(data.cbca),
+    thcva: s(data.thcva),
+    total_terpenes: totalTerpenes,
+    total_terpenes_unit: fixUnit(data.total_terpenes_unit) || "wt%",
     total_cannabinoids: s(data.total_cannabinoids),
     hero_narrative: s(data.hero_narrative),
     top_cannabinoids: a(data.top_cannabinoids).slice(0, 10).map(i => ({
-      name: s(i?.name), value: s(i?.value), unit: s(i?.unit), notes: s(i?.notes),
+      name: s(i?.name),
+      value: s(i?.value),
+      unit: fixUnit(i?.unit),
+      notes: s(i?.notes),
     })),
-    top_terpenes: a(data.top_terpenes).slice(0, 12).map(i => ({
-      name: s(i?.name), value: s(i?.value), unit: s(i?.unit),
-    })),
+    top_terpenes: topTerpenes,
   };
 }
 
