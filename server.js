@@ -149,14 +149,12 @@ For lab_quality_summary: describe the laboratory's accreditation, method standar
 
 // ─────────────────────────────────────────────
 // LAYER 2 — COMPOSITE SCORING ENGINE
-// Deterministic — no AI, no hallucination risk
 // ─────────────────────────────────────────────
 
 function computeIntelligenceScore(extracted, contaminants) {
   let score = 0;
   const breakdown = {};
 
-  // ── Potency (25 pts) ──────────────────────
   const thc = toNum(extracted.thc_total);
   let potencyScore = 0;
   if (thc >= 28) potencyScore = 25;
@@ -164,13 +162,11 @@ function computeIntelligenceScore(extracted, contaminants) {
   else if (thc >= 20) potencyScore = 18;
   else if (thc >= 15) potencyScore = 13;
   else if (thc > 0) potencyScore = 8;
-  // CBD-dominant products score differently
   const cbd = toNum(extracted.cbd_total);
   if (cbd >= 15 && thc < 5) potencyScore = Math.max(potencyScore, 20);
   breakdown.potency = { score: potencyScore, max: 25 };
   score += potencyScore;
 
-  // ── Terpenes (25 pts) ─────────────────────
   const terps = toNum(extracted.total_terpenes);
   const terpCount = (extracted.top_terpenes || []).filter(t => toNum(t.value) > 0).length;
   let terpScore = 0;
@@ -179,13 +175,11 @@ function computeIntelligenceScore(extracted, contaminants) {
   else if (terps >= 1.8) terpScore = 16;
   else if (terps >= 1.0) terpScore = 11;
   else if (terps > 0) terpScore = 6;
-  // Bonus for breadth
   if (terpCount >= 8) terpScore = Math.min(25, terpScore + 5);
   else if (terpCount >= 5) terpScore = Math.min(25, terpScore + 3);
   breakdown.terpenes = { score: terpScore, max: 25 };
   score += terpScore;
 
-  // ── Minor cannabinoids (20 pts) ───────────
   const cbga = toNum(extracted.cbga);
   const cbn = toNum(extracted.cbn);
   const cbg = toNum(extracted.cbg);
@@ -200,12 +194,10 @@ function computeIntelligenceScore(extracted, contaminants) {
   else if (totalMinors >= 1.5) minorScore = 12;
   else if (minorCount >= 3) minorScore = 10;
   else if (minorCount >= 1) minorScore = 6;
-  // Penalise if CBN is high (degradation signal)
   if (cbn >= 1) minorScore = Math.max(0, minorScore - 4);
   breakdown.minors = { score: minorScore, max: 20 };
   score += minorScore;
 
-  // ── Safety / contaminants (20 pts) ────────
   let safetyScore = 0;
   const pest = String(contaminants.pesticides_status || "").toLowerCase();
   const metals = String(contaminants.heavy_metals_status || "").toLowerCase();
@@ -217,12 +209,10 @@ function computeIntelligenceScore(extracted, contaminants) {
   else if (metals.includes("not tested") || !metals) safetyScore += 2;
   if (micro.includes("pass") || micro.includes("nd")) safetyScore += 6;
   else if (micro.includes("not tested") || !micro) safetyScore += 1;
-  // Lab accreditation bonus
   if (accred.includes("17025") || accred.includes("iso")) safetyScore = Math.min(20, safetyScore + 3);
   breakdown.safety = { score: safetyScore, max: 20 };
   score += safetyScore;
 
-  // ── Data completeness (10 pts) ────────────
   let dataScore = 0;
   if (extracted.thc_total) dataScore += 2;
   if (extracted.total_terpenes) dataScore += 2;
@@ -251,84 +241,47 @@ function computeIntelligenceScore(extracted, contaminants) {
 // ─────────────────────────────────────────────
 
 const TERPENE_INTEL = {
-  terpinolene: {
-    direction: "Uplifting / mentally active",
-    note: "Terpinolene-dominant profiles often feel brighter, more mentally active, and less body-heavy. Associated with Haze and Jack-type chemotype families.",
-    lineage: "Haze / Jack / Durban-type families",
-    lineageConfidence: "Moderate",
-  },
-  myrcene: {
-    direction: "Calming / body-centred",
-    note: "Myrcene-dominant profiles tend toward more calming, body-heavy experiences. Common in Kush and OG-type chemotype families.",
-    lineage: "Kush / OG / indica-leaning families",
-    lineageConfidence: "Moderate",
-  },
-  "beta-myrcene": {
-    direction: "Calming / body-centred",
-    note: "Myrcene-dominant profiles tend toward more calming, body-heavy experiences. Common in Kush and OG-type chemotype families.",
-    lineage: "Kush / OG / indica-leaning families",
-    lineageConfidence: "Moderate",
-  },
-  limonene: {
-    direction: "Bright / mood-forward",
-    note: "Limonene-forward profiles are typically positioned as brighter, more mood-forward, and citrus-dominant in aroma.",
-    lineage: "Citrus hybrid / Gelato / Runtz-type families",
-    lineageConfidence: "Moderate",
-  },
-  caryophyllene: {
-    direction: "Balanced / structured",
-    note: "Caryophyllene-led profiles often read as warm, structured, and balanced — with spice-forward aromatic character.",
-    lineage: "Balanced hybrid / spice-forward families",
-    lineageConfidence: "Low-moderate",
-  },
-  "trans-caryophyllene": {
-    direction: "Balanced / structured",
-    note: "Caryophyllene-led profiles often read as warm, structured, and balanced — with spice-forward aromatic character.",
-    lineage: "Balanced hybrid / spice-forward families",
-    lineageConfidence: "Low-moderate",
-  },
-  pinene: {
-    direction: "Clear / alert",
-    note: "Pinene-prominent profiles are often interpreted as clearer and more alertness-oriented, with a fresh, pine-forward aroma.",
-    lineage: "Pine-forward / clear sativa-leaning families",
-    lineageConfidence: "Low-moderate",
-  },
-  "alpha-pinene": {
-    direction: "Clear / alert",
-    note: "Alpha-pinene contributes a fresh, sharp aromatic quality and is associated with clearer, more alert experiential profiles.",
-    lineage: "Pine-forward / clear sativa-leaning families",
-    lineageConfidence: "Low-moderate",
-  },
-  ocimene: {
-    direction: "Bright / floral / complex",
-    note: "Ocimene adds floral, herbal, and tropical aromatic complexity. As a secondary terpene it supports a distinctive multi-layered aromatic fingerprint.",
-    lineage: "Haze / tropical-adjacent families",
-    lineageConfidence: "Low",
-  },
-  linalool: {
-    direction: "Calming / floral",
-    note: "Linalool is associated with floral, lavender-like aromas and calmer, more relaxing experiential profiles.",
-    lineage: "Floral / indica-adjacent families",
-    lineageConfidence: "Low-moderate",
-  },
-  bisabolol: {
-    direction: "Gentle / smooth",
-    note: "Bisabolol contributes a smooth, gentle aromatic character and is associated with softer, more relaxed profiles.",
-    lineage: "Smooth hybrid families",
-    lineageConfidence: "Low",
-  },
-  humulene: {
-    direction: "Earthy / structured",
-    note: "Humulene adds earthy, woody aromatic depth and contributes to a grounded, structured profile character.",
-    lineage: "OG / earthy hybrid families",
-    lineageConfidence: "Low",
-  },
-  farnesene: {
-    direction: "Floral / fruity / complex",
-    note: "Farnesene contributes apple-adjacent, floral, and fruity aromatic notes. Relatively rare as a dominant terpene — adds differentiation value.",
-    lineage: "Complex hybrid families",
-    lineageConfidence: "Low",
-  },
+  terpinolene: { direction: "Uplifting / mentally active", note: "Terpinolene-dominant profiles often feel brighter, more mentally active, and less body-heavy. Associated with Haze and Jack-type chemotype families.", lineage: "Haze / Jack / Durban-type families", lineageConfidence: "Moderate" },
+  myrcene: { direction: "Calming / body-centred", note: "Myrcene-dominant profiles tend toward more calming, body-heavy experiences. Common in Kush and OG-type chemotype families.", lineage: "Kush / OG / indica-leaning families", lineageConfidence: "Moderate" },
+  "beta-myrcene": { direction: "Calming / body-centred", note: "Myrcene-dominant profiles tend toward more calming, body-heavy experiences. Common in Kush and OG-type chemotype families.", lineage: "Kush / OG / indica-leaning families", lineageConfidence: "Moderate" },
+  limonene: { direction: "Bright / mood-forward", note: "Limonene-forward profiles are typically positioned as brighter, more mood-forward, and citrus-dominant in aroma.", lineage: "Citrus hybrid / Gelato / Runtz-type families", lineageConfidence: "Moderate" },
+  caryophyllene: { direction: "Balanced / structured", note: "Caryophyllene-led profiles often read as warm, structured, and balanced — with spice-forward aromatic character.", lineage: "Balanced hybrid / spice-forward families", lineageConfidence: "Low-moderate" },
+  "trans-caryophyllene": { direction: "Balanced / structured", note: "Caryophyllene-led profiles often read as warm, structured, and balanced — with spice-forward aromatic character.", lineage: "Balanced hybrid / spice-forward families", lineageConfidence: "Low-moderate" },
+  pinene: { direction: "Clear / alert", note: "Pinene-prominent profiles are often interpreted as clearer and more alertness-oriented, with a fresh, pine-forward aroma.", lineage: "Pine-forward / clear sativa-leaning families", lineageConfidence: "Low-moderate" },
+  "alpha-pinene": { direction: "Clear / alert", note: "Alpha-pinene contributes a fresh, sharp aromatic quality and is associated with clearer, more alert experiential profiles.", lineage: "Pine-forward / clear sativa-leaning families", lineageConfidence: "Low-moderate" },
+  ocimene: { direction: "Bright / floral / complex", note: "Ocimene adds floral, herbal, and tropical aromatic complexity. As a secondary terpene it supports a distinctive multi-layered aromatic fingerprint.", lineage: "Haze / tropical-adjacent families", lineageConfidence: "Low" },
+  linalool: { direction: "Calming / floral", note: "Linalool is associated with floral, lavender-like aromas and calmer, more relaxing experiential profiles.", lineage: "Floral / indica-adjacent families", lineageConfidence: "Low-moderate" },
+  bisabolol: { direction: "Gentle / smooth", note: "Bisabolol contributes a smooth, gentle aromatic character and is associated with softer, more relaxed profiles.", lineage: "Smooth hybrid families", lineageConfidence: "Low" },
+  humulene: { direction: "Earthy / structured", note: "Humulene adds earthy, woody aromatic depth and contributes to a grounded, structured profile character.", lineage: "OG / earthy hybrid families", lineageConfidence: "Low" },
+  farnesene: { direction: "Floral / fruity / complex", note: "Farnesene contributes apple-adjacent, floral, and fruity aromatic notes. Relatively rare as a dominant terpene — adds differentiation value.", lineage: "Complex hybrid families", lineageConfidence: "Low" },
+};
+
+// Per-terpene educational data for info icons
+const TERPENE_EDUCATION = {
+  "Terpinolene": { aroma: "Fresh, piney, floral, slightly herbal — bright and clean.", therapeutic: "Antioxidant properties noted in preclinical studies. Mild anxiolytic signals. Found in Jack Herer, Durban Poison, Ghost Train Haze. Fewer than 15% of dried flower products are Terpinolene-dominant — a genuine market differentiator." },
+  "β-Myrcene": { aroma: "Earthy, musky, fruity — ripe mango or hops. The most common cannabis terpene.", therapeutic: "May contribute sedating, relaxing effects at higher concentrations. Anti-inflammatory and analgesic properties in preclinical data. Some research suggests Myrcene may enhance cannabinoid absorption through cell membranes." },
+  "Ocimene": { aroma: "Sweet, herbal, woody — fresh basil and tarragon. Marker of Haze-type genetics.", therapeutic: "Antifungal and antiviral properties noted in vitro. Contributes to the fresh, uplifting aromatic profile. Adds complexity to the entourage profile alongside Terpinolene." },
+  "α-Pinene": { aroma: "Crisp pine, fresh forest air — also found in rosemary and eucalyptus.", therapeutic: "Bronchodilator in preclinical models. May counteract short-term memory effects sometimes associated with THC. Studied for anti-inflammatory and antimicrobial properties." },
+  "Trans-Caryophyllene": { aroma: "Spicy, peppery, woody — the same compound that gives black pepper its heat.", therapeutic: "The only terpene confirmed to act as a CB2 cannabinoid receptor agonist. Studied for anti-inflammatory, analgesic, and anxiolytic effects. A unique pharmacological pathway distinct from classical terpene activity." },
+  "Farnesene": { aroma: "Green apple, woody, floral. Found in apple skin, green tea. Marker of well-preserved plant material.", therapeutic: "Anti-inflammatory properties in preclinical research. Its presence suggests minimal terpene degradation post-harvest — a freshness and quality signal." },
+  "β-Pinene": { aroma: "Piney, green, fresh — slightly more herbal than α-Pinene. Works synergistically with α-Pinene.", therapeutic: "Mild antiseptic properties. The Pinene family combination may contribute to bronchodilatory effects. Adds to the overall freshness of the aromatic profile." },
+  "α-Phellandrene": { aroma: "Citrusy, minty, slightly peppery — found in eucalyptus, dill, cinnamon.", therapeutic: "Antifungal and potential anticancer properties in early research. Contributes to the bright, fresh quality of Terpinolene-dominant chemotypes." },
+  "α-Bisabolol": { aroma: "Delicate floral, honey-like, slightly sweet. Widely used in cosmetics for skin-soothing.", therapeutic: "Well-documented anti-inflammatory and wound-healing properties. May enhance absorption of other compounds. Contributes to aromatic refinement and smooth experiential quality." },
+  "Limonene": { aroma: "Bright citrus — lemon, orange. One of the most recognisable cannabis terpenes.", therapeutic: "Mood-elevating properties noted in early clinical studies. Potent antifungal and antibacterial. May reduce anxiety. Here it contributes citrus top notes as a background character." },
+  "α-Humulene": { aroma: "Woody, earthy, spicy — like hops. An isomer of β-Caryophyllene.", therapeutic: "Anti-inflammatory, antibacterial, and appetite-suppressing properties in preclinical research. Often works synergistically with Caryophyllene. A trace contributor to the spicy background note." },
+  "Guaiol": { aroma: "Piney, floral, rose-like with a woody undertone. A sesquiterpenoid alcohol — less volatile than most terpenes.", therapeutic: "Antimicrobial and anti-inflammatory properties in preclinical models. Its presence at detectable levels in flower suggests careful post-harvest preservation — a quality signal." },
+};
+
+// Per-cannabinoid educational data for info icons
+const CANNABINOID_EDUCATION = {
+  "THCA": { title: "THCA — Tetrahydrocannabinolic Acid", body: "The raw, non-psychoactive precursor to THC. Converts to psychoactive THC through decarboxylation (heat). Multiply by 0.877 to estimate active THC yield.", therapeutic: "Emerging research suggests THCA itself may have anti-inflammatory and neuroprotective properties without psychoactivity. Some patients use raw (unheated) cannabis specifically to access THCA." },
+  "D9-THC": { title: "D9-THC — Delta-9-Tetrahydrocannabinol", body: "The primary psychoactive cannabinoid. This is already-converted active THC present before any heating. Combined with THCA conversion, delivers the total THC figure.", therapeutic: "Binds to CB1 receptors producing analgesic, antiemetic, and appetite-stimulating effects. Well-documented therapeutic and psychoactive properties." },
+  "CBGA": { title: "CBGA — Cannabigerolic Acid (The Mother Cannabinoid)", body: "The biosynthetic precursor to ALL other cannabinoids including THCA, CBDA, and CBCA. Elevated CBGA suggests early harvest or genetics with slower enzymatic conversion.", therapeutic: "CBGA is under active research for anti-inflammatory, antibacterial, and metabolic effects. Its elevated presence signals genetic richness and biosynthetic complexity. A premium marker." },
+  "CBCA": { title: "CBCA — Cannabichromenic Acid", body: "Precursor to CBC (Cannabichromene), a non-psychoactive minor cannabinoid. CBC is one of the 'big six' cannabinoids of research interest.", therapeutic: "Early research suggests CBC may contribute anti-inflammatory, antidepressant, and neurogenesis-promoting effects. Thought to synergise with THC to enhance analgesic outcomes." },
+  "THCVA": { title: "THCVA — Tetrahydrocannabivarinic Acid", body: "A varin-type cannabinoid — a shorter-chain analogue of THCA. Associated with specific regional genetics (African landraces). Its decarboxylated form THCV is studied for appetite suppression.", therapeutic: "THCV may act as a CB1 antagonist at low doses. Studied for blood sugar regulation and anticonvulsant properties. Adds genetic complexity and entourage breadth." },
+  "CBG": { title: "CBG — Cannabigerol", body: "The active (non-acid) form of CBG. Sometimes called the 'Rolls-Royce of cannabinoids' due to rarity. Non-psychoactive and binds to both CB1 and CB2 receptors.", therapeutic: "Studied for antibacterial, neuroprotective, and anti-inflammatory properties. Emerging research links CBG to potential benefits in inflammatory bowel conditions and glaucoma." },
+  "CBN": { title: "CBN — Cannabinol", body: "CBN is a degradation product of THC — it forms when THC oxidises over time or with exposure to heat/light. High CBN signals age or poor storage.", therapeutic: "Mildly psychoactive. Studied for sedative, antibacterial, and appetite-stimulating properties. Its presence (or absence) is a key freshness and storage quality indicator." },
+  "CBD": { title: "CBD — Cannabidiol", body: "The second most researched cannabinoid. Non-psychoactive. Often associated with modulating or balancing the intensity of THC effects when both are present.", therapeutic: "Extensive research into anxiolytic, anticonvulsant, anti-inflammatory, and neuroprotective properties. The FDA-approved drug Epidiolex is CBD-based. CBD absence means no inherent THC modulation." },
 };
 
 function getTerpeneIntel(terpName = "") {
@@ -336,12 +289,7 @@ function getTerpeneIntel(terpName = "") {
   for (const [k, v] of Object.entries(TERPENE_INTEL)) {
     if (key.includes(k)) return v;
   }
-  return {
-    direction: "Chemistry-led",
-    note: "A clearer directional read would require stronger terpene dominance or a broader comparison dataset.",
-    lineage: "Unclear cluster",
-    lineageConfidence: "Low",
-  };
+  return { direction: "Chemistry-led", note: "A clearer directional read would require stronger terpene dominance or a broader comparison dataset.", lineage: "Unclear cluster", lineageConfidence: "Low" };
 }
 
 function generateFingerprintId(terpenes = []) {
@@ -356,17 +304,10 @@ function generateFingerprintId(terpenes = []) {
     "trans-nerolidol": "NER", valencene: "VAL", geraniol: "GER",
     borneol: "BOR", camphene: "CMP", eucalyptol: "EUC",
   };
-  const top3 = terpenes
-    .filter(t => {
-      const v = parseFloat(t.value);
-      return !isNaN(v) && v > 0;
-    })
-    .slice(0, 3)
+  const top3 = terpenes.filter(t => { const v = parseFloat(t.value); return !isNaN(v) && v > 0; }).slice(0, 3)
     .map(t => {
       const key = String(t.name || "").toLowerCase().trim();
-      for (const [k, abbr] of Object.entries(ABBREV)) {
-        if (key.includes(k)) return abbr;
-      }
+      for (const [k, abbr] of Object.entries(ABBREV)) { if (key.includes(k)) return abbr; }
       return String(t.name || "").replace(/[^a-zA-Z]/g, "").slice(0, 3).toUpperCase();
     });
   if (!top3.length) return "UNK";
@@ -431,31 +372,22 @@ function buildPostHarvestIntel(extracted, contaminants) {
   const terpCount = (extracted.top_terpenes || []).filter(t => toNum(t.value) > 0).length;
   const cbn = toNum(extracted.cbn);
 
-  const freshness = terps >= 3
-    ? { label: "Strong", note: "Terpene retention is high — consistent with excellent post-harvest preservation." }
-    : terps >= 2
-    ? { label: "Good", note: "Terpene retention suggests well-preserved aromatic content through handling and storage." }
-    : terps >= 1.2
-    ? { label: "Moderate", note: "Some aromatic expression remains, though terpene density is not exceptional." }
-    : terps > 0
-    ? { label: "Light", note: "Lower terpene density may suggest some aromatic loss through processing or storage." }
+  const freshness = terps >= 3 ? { label: "Strong", note: "Terpene retention is high — consistent with excellent post-harvest preservation." }
+    : terps >= 2 ? { label: "Good", note: "Terpene retention suggests well-preserved aromatic content through handling and storage." }
+    : terps >= 1.2 ? { label: "Moderate", note: "Some aromatic expression remains, though terpene density is not exceptional." }
+    : terps > 0 ? { label: "Light", note: "Lower terpene density may suggest some aromatic loss through processing or storage." }
     : { label: "Unknown", note: "Freshness cannot be inferred — terpene density not captured." };
 
-  const curing = terpCount >= 6 && terps >= 1.5
-    ? { label: "Positive signal", note: "Broad terpene spectrum without flat profile suggests preserved aromatic complexity through curing." }
-    : terpCount >= 3
-    ? { label: "Moderate signal", note: "Some terpene layering visible. Confidence in curing quality is limited without additional data." }
+  const curing = terpCount >= 6 && terps >= 1.5 ? { label: "Positive signal", note: "Broad terpene spectrum without flat profile suggests preserved aromatic complexity through curing." }
+    : terpCount >= 3 ? { label: "Moderate signal", note: "Some terpene layering visible. Confidence in curing quality is limited without additional data." }
     : { label: "Limited signal", note: "Insufficient terpene breadth to draw a confident curing quality inference." };
 
-  const degradation = cbn >= 1.5
-    ? { label: "Notable", note: `CBN at ${cbn.toFixed(2)} wt% suggests meaningful THC oxidative degradation. Review storage conditions.` }
-    : cbn >= 0.5
-    ? { label: "Low signal", note: `CBN detected at ${cbn.toFixed(2)} wt% — minor degradation signal. Not clinically significant at this level.` }
+  const degradation = cbn >= 1.5 ? { label: "Notable", note: `CBN at ${cbn.toFixed(2)} wt% suggests meaningful THC oxidative degradation. Review storage conditions.` }
+    : cbn >= 0.5 ? { label: "Low signal", note: `CBN detected at ${cbn.toFixed(2)} wt% — minor degradation signal. Not clinically significant at this level.` }
     : { label: "Minimal", note: "CBN not detected — minimal evidence of THC oxidative degradation." };
 
   const moisture = extracted.moisture_content || contaminants.moisture_content;
-  const stability = moisture
-    ? { label: "Data present", note: `Moisture content: ${moisture}. ${parseFloat(moisture) <= 12 ? "Within acceptable range for storage stability." : "Review against target range for product category."}` }
+  const stability = moisture ? { label: "Data present", note: `Moisture content: ${moisture}. ${parseFloat(moisture) <= 12 ? "Within acceptable range for storage stability." : "Review against target range for product category."}` }
     : { label: "Limited", note: "Moisture and water activity data not captured — stability confidence is limited to terpene-based inference only." };
 
   return { freshness, curing, degradation, stability };
@@ -481,9 +413,13 @@ function sanitizeFileName(name = "") {
   return String(name || "").replace(/[^a-zA-Z0-9-_.]/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "");
 }
 
-function getBaseUrl(req) {
-  const proto = req.headers["x-forwarded-proto"] || req.protocol || "https";
-  return `${proto}://${req.get("host")}`;
+function prepareOCRText(cleanText = "") {
+  const text = String(cleanText || "").trim();
+  if (!text) return "";
+  if (text.length <= MAX_OCR_CHARS) return text;
+  const headLen = Math.floor(MAX_OCR_CHARS * 0.7);
+  const tailLen = MAX_OCR_CHARS - headLen;
+  return [text.slice(0, headLen), "\n\n[TRUNCATED]\n\n", text.slice(-tailLen)].join("");
 }
 
 function detectMimeType(url = "", headerContentType = "") {
@@ -494,19 +430,6 @@ function detectMimeType(url = "", headerContentType = "") {
   if (lowerHeader.includes("image/jpeg") || lowerUrl.endsWith(".jpg") || lowerUrl.endsWith(".jpeg")) return "image/jpeg";
   if (lowerHeader.includes("image/tiff") || lowerUrl.endsWith(".tif") || lowerUrl.endsWith(".tiff")) return "image/tiff";
   return "application/octet-stream";
-}
-
-function prepareOCRText(cleanText = "") {
-  const text = String(cleanText || "").trim();
-  if (!text) return "";
-  if (text.length <= MAX_OCR_CHARS) return text;
-  const headLen = Math.floor(MAX_OCR_CHARS * 0.7);
-  const tailLen = MAX_OCR_CHARS - headLen;
-  return [text.slice(0, headLen), "\n\n[TRUNCATED]\n\n", text.slice(-tailLen)].join("");
-}
-
-function safeSnippet(value, max = 1000) {
-  return String(value || "").slice(0, max);
 }
 
 // ─────────────────────────────────────────────
@@ -544,73 +467,23 @@ function extractJSON(text = "") {
 function normalizeChemistry(data = {}) {
   const s = (v) => (v === null || v === undefined ? "" : String(v));
   const a = (v) => (Array.isArray(v) ? v : []);
-
-  const topTerpenes = a(data.top_terpenes).slice(0, 12).map(i => ({
-    name: s(i?.name),
-    value: s(i?.value),
-    unit: s(i?.unit) || "wt%",
-  }));
-
-  // Fallback: if total_terpenes is missing, compute from sum of individual terpene values
+  const topTerpenes = a(data.top_terpenes).slice(0, 12).map(i => ({ name: s(i?.name), value: s(i?.value), unit: s(i?.unit) || "wt%" }));
   let totalTerpenes = s(data.total_terpenes);
   if (!totalTerpenes || totalTerpenes === "ND" || totalTerpenes === "") {
-    const computed = topTerpenes.reduce((sum, t) => {
-      const n = parseFloat(t.value);
-      return sum + (isNaN(n) ? 0 : n);
-    }, 0);
-    if (computed > 0) {
-      totalTerpenes = computed.toFixed(4);
-      console.log(`⚠️  total_terpenes missing — computed from terpene sum: ${totalTerpenes}`);
-    }
+    const computed = topTerpenes.reduce((sum, t) => { const n = parseFloat(t.value); return sum + (isNaN(n) ? 0 : n); }, 0);
+    if (computed > 0) { totalTerpenes = computed.toFixed(4); console.log(`⚠️  total_terpenes missing — computed from terpene sum: ${totalTerpenes}`); }
   }
-
-  // Normalise units: always "wt%"
-  const fixUnit = (u) => {
-    const clean = s(u).trim();
-    if (!clean || clean === "%") return "wt%";
-    return clean;
-  };
-
-  // Normalise common cannabinoid name variants
-  const normCannName = (name) => {
-    const n = s(name).trim();
-    if (/^thca-a$/i.test(n)) return "THCA";
-    if (/^cbda-a$/i.test(n)) return "CBDA";
-    if (/^d9-?thc$/i.test(n)) return "D9-THC";
-    if (/^d8-?thc$/i.test(n)) return "D8-THC";
-    return n;
-  };
-
+  const fixUnit = (u) => { const clean = s(u).trim(); if (!clean || clean === "%") return "wt%"; return clean; };
+  const normCannName = (name) => { const n = s(name).trim(); if (/^thca-a$/i.test(n)) return "THCA"; if (/^cbda-a$/i.test(n)) return "CBDA"; if (/^d9-?thc$/i.test(n)) return "D9-THC"; if (/^d8-?thc$/i.test(n)) return "D8-THC"; return n; };
   return {
-    product_name: s(data.product_name),
-    batch_number: s(data.batch_number),
-    coa_report_date: s(data.coa_report_date),
-    product_type: s(data.product_type),
-    laboratory_name: s(data.laboratory_name),
-    laboratory_accreditation: s(data.laboratory_accreditation),
-    laboratory_method: s(data.laboratory_method),
-    thc_total: s(data.thc_total),
-    thc_total_unit: fixUnit(data.thc_total_unit),
-    cbd_total: s(data.cbd_total),
-    cbd_total_unit: fixUnit(data.cbd_total_unit),
-    thca: s(data.thca),
-    thca_unit: fixUnit(data.thca_unit),
-    cbda: s(data.cbda),
-    cbn: s(data.cbn),
-    cbg: s(data.cbg),
-    cbga: s(data.cbga),
-    cbca: s(data.cbca),
-    thcva: s(data.thcva),
-    total_terpenes: totalTerpenes,
-    total_terpenes_unit: fixUnit(data.total_terpenes_unit) || "wt%",
-    total_cannabinoids: s(data.total_cannabinoids),
-    hero_narrative: s(data.hero_narrative),
-    top_cannabinoids: a(data.top_cannabinoids).slice(0, 10).map(i => ({
-      name: normCannName(i?.name),
-      value: s(i?.value),
-      unit: fixUnit(i?.unit),
-      notes: s(i?.notes),
-    })),
+    product_name: s(data.product_name), batch_number: s(data.batch_number), coa_report_date: s(data.coa_report_date),
+    product_type: s(data.product_type), laboratory_name: s(data.laboratory_name), laboratory_accreditation: s(data.laboratory_accreditation),
+    laboratory_method: s(data.laboratory_method), thc_total: s(data.thc_total), thc_total_unit: fixUnit(data.thc_total_unit),
+    cbd_total: s(data.cbd_total), cbd_total_unit: fixUnit(data.cbd_total_unit), thca: s(data.thca), thca_unit: fixUnit(data.thca_unit),
+    cbda: s(data.cbda), cbn: s(data.cbn), cbg: s(data.cbg), cbga: s(data.cbga), cbca: s(data.cbca), thcva: s(data.thcva),
+    total_terpenes: totalTerpenes, total_terpenes_unit: fixUnit(data.total_terpenes_unit) || "wt%",
+    total_cannabinoids: s(data.total_cannabinoids), hero_narrative: s(data.hero_narrative),
+    top_cannabinoids: a(data.top_cannabinoids).slice(0, 10).map(i => ({ name: normCannName(i?.name), value: s(i?.value), unit: fixUnit(i?.unit), notes: s(i?.notes) })),
     top_terpenes: topTerpenes,
   };
 }
@@ -619,18 +492,12 @@ function normalizeContaminants(data = {}) {
   const s = (v) => (v === null || v === undefined ? "" : String(v));
   const a = (v) => (Array.isArray(v) ? v : []);
   return {
-    pesticides_status: s(data.pesticides_status),
-    pesticides_detail: s(data.pesticides_detail),
-    heavy_metals_status: s(data.heavy_metals_status),
-    heavy_metals_detail: s(data.heavy_metals_detail),
-    microbials_status: s(data.microbials_status),
-    microbials_detail: s(data.microbials_detail),
-    mycotoxins_status: s(data.mycotoxins_status),
-    residual_solvents_status: s(data.residual_solvents_status),
-    moisture_content: s(data.moisture_content),
-    water_activity: s(data.water_activity),
-    foreign_matter_status: s(data.foreign_matter_status),
-    contaminant_narrative: s(data.contaminant_narrative),
+    pesticides_status: s(data.pesticides_status), pesticides_detail: s(data.pesticides_detail),
+    heavy_metals_status: s(data.heavy_metals_status), heavy_metals_detail: s(data.heavy_metals_detail),
+    microbials_status: s(data.microbials_status), microbials_detail: s(data.microbials_detail),
+    mycotoxins_status: s(data.mycotoxins_status), residual_solvents_status: s(data.residual_solvents_status),
+    moisture_content: s(data.moisture_content), water_activity: s(data.water_activity),
+    foreign_matter_status: s(data.foreign_matter_status), contaminant_narrative: s(data.contaminant_narrative),
     lab_quality_summary: s(data.lab_quality_summary),
     positive_flags: a(data.positive_flags).slice(0, 8).map(x => s(x)),
     warning_flags: a(data.warning_flags).slice(0, 6).map(x => s(x)),
@@ -668,10 +535,7 @@ async function extractContaminants(ocrText) {
 }
 
 async function runDualPassExtraction(ocrText) {
-  const [chemistry, contaminants] = await Promise.all([
-    extractChemistry(ocrText),
-    extractContaminants(ocrText),
-  ]);
+  const [chemistry, contaminants] = await Promise.all([extractChemistry(ocrText), extractContaminants(ocrText)]);
   return { chemistry, contaminants };
 }
 
@@ -681,23 +545,12 @@ async function runDualPassExtraction(ocrText) {
 
 async function extractDocumentFromUrl(fileUrl) {
   if (!fileUrl || typeof fileUrl !== "string") throw new Error("fileUrl must be a non-empty string");
-  const fileResponse = await axios.get(fileUrl, {
-    responseType: "arraybuffer", timeout: 60000, maxRedirects: 5,
-    validateStatus: (status) => status >= 200 && status < 300,
-  });
+  const fileResponse = await axios.get(fileUrl, { responseType: "arraybuffer", timeout: 60000, maxRedirects: 5, validateStatus: (status) => status >= 200 && status < 300 });
   const mimeType = detectMimeType(fileUrl, fileResponse.headers["content-type"]);
   const poller = await azureClient.beginAnalyzeDocument("prebuilt-layout", fileResponse.data, { contentType: mimeType });
   const result = await poller.pollUntilDone();
-  const pages = (result.pages || []).map(page => ({
-    page_number: page.pageNumber,
-    text: (page.lines || []).map(line => line.content).join("\n"),
-  }));
-  return {
-    mimeType,
-    plain_text: pages.map(p => p.text).join("\n\n").trim(),
-    page_count: pages.length,
-    table_count: (result.tables || []).length,
-  };
+  const pages = (result.pages || []).map(page => ({ page_number: page.pageNumber, text: (page.lines || []).map(line => line.content).join("\n") }));
+  return { mimeType, plain_text: pages.map(p => p.text).join("\n\n").trim(), page_count: pages.length, table_count: (result.tables || []).length };
 }
 
 // ─────────────────────────────────────────────
@@ -707,9 +560,7 @@ async function extractDocumentFromUrl(fileUrl) {
 async function uploadBufferToSupabase({ buffer, originalName, mimeType, folder = "raw_documents" }) {
   const safeName = sanitizeFileName(originalName || `upload-${Date.now()}`);
   const storagePath = `${folder}/${Date.now()}-${safeName}`;
-  const { error } = await supabase.storage.from(SUPABASE_BUCKET).upload(storagePath, buffer, {
-    contentType: mimeType || "application/octet-stream", upsert: false,
-  });
+  const { error } = await supabase.storage.from(SUPABASE_BUCKET).upload(storagePath, buffer, { contentType: mimeType || "application/octet-stream", upsert: false });
   if (error) throw new Error(`Supabase upload failed: ${error.message}`);
   const { data: publicData } = supabase.storage.from(SUPABASE_BUCKET).getPublicUrl(storagePath);
   if (!publicData?.publicUrl) throw new Error("Failed to generate public URL");
@@ -718,25 +569,9 @@ async function uploadBufferToSupabase({ buffer, originalName, mimeType, folder =
 
 async function insertCOAReport({ chemistry, contaminants, scoring, intelligence, sourceUrl, storagePath, originalFilename, mimeType }) {
   const payload = {
-    report_json: {
-      chemistry,
-      contaminants,
-      scoring,
-      intelligence,
-      _meta: {
-        source_url: sourceUrl || "",
-        storage_path: storagePath || "",
-        original_filename: originalFilename || "",
-        mime_type: mimeType || "",
-        saved_at: new Date().toISOString(),
-        schema_version: "5.0",
-      },
-    },
-    overall_score: scoring.total,
-    report_confidence_score: scoring.breakdown.dataCompleteness.score,
-    chemotype_identity: intelligence.fingerprintId,
-    chemotype_descriptor: intelligence.effectDirection,
-    fingerprint_id: intelligence.fingerprintId,
+    report_json: { chemistry, contaminants, scoring, intelligence, _meta: { source_url: sourceUrl || "", storage_path: storagePath || "", original_filename: originalFilename || "", mime_type: mimeType || "", saved_at: new Date().toISOString(), schema_version: "5.0" } },
+    overall_score: scoring.total, report_confidence_score: scoring.breakdown.dataCompleteness.score,
+    chemotype_identity: intelligence.fingerprintId, chemotype_descriptor: intelligence.effectDirection, fingerprint_id: intelligence.fingerprintId,
   };
   const { data, error } = await supabase.from("coa_ai_reports").insert([payload]).select().single();
   if (error) throw new Error(`Supabase insert failed: ${error.message}`);
@@ -750,7 +585,7 @@ async function getReportById(id) {
 }
 
 // ─────────────────────────────────────────────
-// LAYER 5 — REPORT HTML RENDERER
+// LAYER 5 — REPORT HTML RENDERER (v6 — Full Alem Design)
 // ─────────────────────────────────────────────
 
 function renderReportHTML(reportJson = {}, options = {}) {
@@ -764,6 +599,8 @@ function renderReportHTML(reportJson = {}, options = {}) {
   const thc = toNum(chemistry.thc_total);
   const cbd = toNum(chemistry.cbd_total);
   const terps = toNum(chemistry.total_terpenes);
+  const cbga = toNum(chemistry.cbga);
+  const cbn = toNum(chemistry.cbn);
   const leadTerpene = terpenes[0]?.name || "";
   const secondTerpene = terpenes[1]?.name || "";
   const thirdTerpene = terpenes[2]?.name || "";
@@ -773,743 +610,684 @@ function renderReportHTML(reportJson = {}, options = {}) {
   const postHarvest = intelligence.postHarvest || buildPostHarvestIntel(chemistry, contaminants);
 
   const maxTerpVal = Math.max(...terpenes.map(t => toNum(t.value)), 0.001);
-
   const productName = chemistry.product_name || "COA Report";
-  const heroNarrative = chemistry.hero_narrative || `${leadTerpene ? leadTerpene + "-dominant" : "Cannabis"} profile with ${terps > 2 ? "strong" : terps > 1 ? "moderate" : "light"} terpene expression and ${thc >= 24 ? "high" : thc >= 18 ? "moderate-high" : "moderate"} THC content.`;
+  const heroNarrative = chemistry.hero_narrative || `${leadTerpene ? leadTerpene + "-dominant" : "Cannabis"} profile with ${terps > 2 ? "strong" : terps > 1 ? "moderate" : "light"} terpene expression.`;
 
-  function renderAudiencePanel(items = [], id) {
-    if (!items.length) return `<div class="empty">No intelligence available for this audience.</div>`;
-    return items.map(line => `<div class="insight-line">${esc(line)}</div>`).join("");
+  // Score ring: circumference = 2π × 56 = 351.86, offset = (1 - score/100) × 351.86
+  const ringCirc = 351.86;
+  const ringOffset = ((100 - scoring.total) / 100 * ringCirc).toFixed(1);
+
+  // Helper: info icon with tooltip
+  function infoIcon(content, variant = "") {
+    return `<span class="info-icon${variant ? " " + variant : ""}" tabindex="0">ⓘ${content}</span>`;
   }
 
-  function renderTerpBar(t, i) {
+  function tooltip(title, body, extra = "") {
+    return `<span class="tooltip"><strong>${esc(title)}</strong><span class="tt-body">${esc(body)}</span>${extra}</span>`;
+  }
+
+  function ttExtra(label, text) {
+    return `<span class="tt-coa"><strong>${esc(label)}</strong> ${esc(text)}</span>`;
+  }
+
+  // Score breakdown rows with info icons
+  function sbRow(label, fillClass, widthPct, delay, scoreStr, tooltipTitle, ttBody, ttHow, ttCoa) {
+    return `
+    <div class="sb-row">
+      <div class="sb-lbl-wrap">
+        <span class="sb-lbl">${esc(label)}</span>
+        ${infoIcon(`<span class="tooltip"><strong>${esc(tooltipTitle)}</strong><span class="tt-body">${esc(ttBody)}</span><span class="tt-how"><strong>How we scored it:</strong> ${esc(ttHow)}</span><span class="tt-coa"><strong>Check on your COA:</strong> ${esc(ttCoa)}</span></span>`)}
+      </div>
+      <div class="sb-track"><div class="sb-fill ${fillClass}" style="width:${widthPct}%;animation-delay:${delay}s"></div></div>
+      <div class="sb-num">${esc(scoreStr)}</div>
+    </div>`;
+  }
+
+  // Terpene bar with info icon
+  function terpBar(t, i) {
     const val = toNum(t.value);
     const width = Math.max(4, (val / maxTerpVal) * 100);
-    const opacity = Math.max(0.4, 1 - i * 0.09);
+    const isLead = i === 0;
+    const edu = TERPENE_EDUCATION[t.name] || null;
+    const icon = edu
+      ? infoIcon(`<span class="tooltip"><strong>${esc(t.name)}</strong><span class="tt-body">${esc("Aroma: " + edu.aroma)}</span><span class="tt-coa">${esc(edu.therapeutic)}</span></span>`, "tt-right row-info")
+      : "";
     return `
-      <div class="bar-row">
-        <div class="bar-head">
-          <span class="bar-name">${esc(t.name)}</span>
-          <span class="bar-val">${esc([t.value, t.unit].filter(Boolean).join(" "))}</span>
-        </div>
-        <div class="bar-track">
-          <div class="bar-fill" style="width:${width.toFixed(1)}%;opacity:${opacity.toFixed(2)}"></div>
-        </div>
-      </div>`;
+    <div class="tb">
+      <div class="tb-row">
+        <span class="tb-name${isLead ? " lead" : ""}">${esc(t.name)}${icon}</span>
+        <span class="tb-pct">${esc(t.value)} ${esc(t.unit || "wt%")}</span>
+      </div>
+      <div class="tb-track"><div class="tb-fill${isLead ? " lead" : ""}" style="width:${width.toFixed(1)}%;animation-delay:${(i * 0.04 + 0.04).toFixed(2)}s"></div></div>
+    </div>`;
   }
 
-  function renderCannCard(c) {
-    const isMain = ["total thc", "thca", "total cbd", "cbd"].some(k => (c.name || "").toLowerCase().includes(k));
+  // Cannabinoid cell with info icon
+  function cannCell(name, value, unit, note, isHighlight = false) {
+    const edu = CANNABINOID_EDUCATION[name] || null;
+    const icon = edu
+      ? infoIcon(`<span class="tooltip"><strong>${esc(edu.title)}</strong><span class="tt-body">${esc(edu.body)}</span><span class="tt-coa">${esc(edu.therapeutic)}</span></span>`, "cann-info")
+      : "";
     return `
-      <div class="cann-card${isMain ? " cann-primary" : ""}">
-        <div class="cann-name">${esc(c.name)}</div>
-        <div class="cann-val">${esc(c.value)} <span class="cann-unit">${esc(c.unit)}</span></div>
-        ${c.notes ? `<div class="cann-note">${esc(c.notes)}</div>` : ""}
-      </div>`;
+    <div class="cann-cell${isHighlight ? " hl" : ""}">
+      ${icon}
+      <div class="cann-lbl">${esc(name)}</div>
+      <div class="cann-val">${esc(value)}<span class="cann-unit"> ${esc(unit || "wt%")}</span></div>
+      ${note ? `<div class="cann-note">${esc(note)}</div>` : ""}
+    </div>`;
   }
 
-  function renderContRow(label, status, standard) {
-    const isPass = /pass|nd|not detected/i.test(status);
-    const isFail = /fail/i.test(status);
-    const isMissing = !status || /not tested|not reported/i.test(status);
-    const cls = isFail ? "cont-fail" : isMissing ? "cont-missing" : isPass ? "cont-pass" : "cont-value";
-    const display = status || "Not reported";
+  // Post-harvest row with info icon
+  function phRow(dotClass, label, note, ttTitle, ttBody, ttCoa) {
+    const icon = infoIcon(`<span class="tooltip"><strong>${esc(ttTitle)}</strong><span class="tt-body">${esc(ttBody)}</span><span class="tt-coa"><strong>Signal source:</strong> ${esc(ttCoa)}</span></span>`, "ph-info tt-right");
     return `
-      <div class="cont-row">
-        <span class="cont-cat">${esc(label)}</span>
-        <span class="cont-status ${cls}">${esc(display)}</span>
-        <span class="cont-std">${esc(standard)}</span>
-      </div>`;
+    <div class="ph-row">
+      <div class="ph-dot ${dotClass}"></div>
+      <div>
+        <div class="ph-lbl" style="display:flex;align-items:center;gap:5px;">${esc(label)}${icon}</div>
+        <div class="ph-note">${esc(note)}</div>
+      </div>
+    </div>`;
   }
 
-  function renderPill(text, type = "good") {
-    return `<span class="pill ${type}">${esc(text)}</span>`;
+  // Safety dot row
+  function sfRow(label, statusClass, statusText, pass) {
+    return `
+    <div class="sf-row">
+      <div class="sf-dot ${pass ? "pass" : "nt"}"></div>
+      <div class="sf-name">${esc(label)}</div>
+      <div class="sf-val${pass ? " pass" : ""}">${esc(statusText || (pass ? "✓ Certified" : "not tested"))}</div>
+    </div>`;
   }
 
-  const scoreDims = [
-    { label: "Potency", ...scoring.breakdown.potency },
-    { label: "Terpenes", ...scoring.breakdown.terpenes },
-    { label: "Minor cannabinoids", ...scoring.breakdown.minors },
-    { label: "Safety data", ...scoring.breakdown.safety },
-    { label: "Data completeness", ...scoring.breakdown.dataCompleteness },
-  ];
+  // Audience panel
+  function audiencePanel(items = []) {
+    if (!items.length) return `<div class="ins-row"><div class="ins-arr"></div><span class="ins-text">No intelligence available.</span></div>`;
+    return items.map(line => `<div class="ins-row"><div class="ins-arr"></div><span class="ins-text">${esc(line)}</span></div>`).join("");
+  }
 
-  const posFlags = contaminants.positive_flags || [];
-  const warnFlags = contaminants.warning_flags || [];
-  const rawJson = esc(JSON.stringify(reportJson, null, 2));
+  const pestPass = /pass|nd|not detected/i.test(contaminants.pesticides_status || "");
+  const metalsPass = /pass|nd|not detected/i.test(contaminants.heavy_metals_status || "");
+  const microPass = /pass|nd|not detected/i.test(contaminants.microbials_status || "");
+  const isoPass = /17025|iso/i.test(contaminants.lab_quality_summary || chemistry.laboratory_accreditation || "");
+  const sccPass = /scc/i.test(contaminants.positive_flags?.join(" ") || "");
+
+  // Score breakdown thresholds
+  const potencyPct = Math.round(scoring.breakdown.potency.score / scoring.breakdown.potency.max * 100);
+  const terpPct = Math.round(scoring.breakdown.terpenes.score / scoring.breakdown.terpenes.max * 100);
+  const minorPct = Math.round(scoring.breakdown.minors.score / scoring.breakdown.minors.max * 100);
+  const safetyPct = Math.round(scoring.breakdown.safety.score / scoring.breakdown.safety.max * 100);
+  const dataPct = Math.round(scoring.breakdown.dataCompleteness.score / scoring.breakdown.dataCompleteness.max * 100);
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>${esc(productName)} — Alem Intelligence</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${esc(productName)} — Alem Chemical Intelligence</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,300;1,400;1,600&family=Space+Mono:wght@400;700&family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600&display=swap" rel="stylesheet">
 <style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
-  --bg: #f7f5f0;
-  --surface: #ffffff;
-  --surface2: #f2f0eb;
-  --border: rgba(30,28,24,0.10);
-  --border-strong: rgba(30,28,24,0.18);
-  --text: #1a1815;
-  --muted: #6b6760;
-  --hint: #9e9b96;
-  --green: #1c3d2b;
-  --green-mid: #2d5c42;
-  --green-light: #e8f2ec;
-  --green-border: rgba(28,61,43,0.18);
-  --amber: #92650a;
-  --amber-light: #fdf3e0;
-  --amber-border: rgba(146,101,10,0.18);
-  --red: #8b2020;
-  --red-light: #fdeaea;
-  --red-border: rgba(139,32,32,0.18);
-  --radius: 14px;
-  --radius-sm: 8px;
-  --radius-pill: 999px;
-  --shadow: 0 1px 3px rgba(30,28,24,0.06), 0 4px 16px rgba(30,28,24,0.04);
+  --alem-dark:   #0d2d3e;
+  --alem-mid:    #1a4a62;
+  --alem-accent: #8ecfb0;
+  --alem-tint:   #eef6fb;
+  --alem-wash:   #f4f8fb;
+  --white:       #ffffff;
+  --off:         #fafcfe;
+  --t-dark:      #0d2d3e;
+  --t-body:      #2a3d4a;
+  --t-mid:       #4a6070;
+  --t-light:     #8aa0b0;
+  --t-faint:     #b8c8d4;
+  --border:      #ccdde8;
+  --border-l:    #e2eef5;
+  --gold:        #9a7822;
+  --gold-l:      #c09a38;
+  --gold-tint:   #fef8ec;
+  --gold-bord:   #e8d8a8;
+  --warn-bg:     #fef6f0;
+  --warn-text:   #8a4818;
+  --warn-bord:   #f0cdb0;
+  --sh:          rgba(13,45,62,.09);
 }
+body { background:var(--alem-wash); font-family:'Nunito',sans-serif; font-size:13.5px; line-height:1.6; color:var(--t-body); min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:48px 16px 72px; }
+@keyframes rise { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
+@keyframes grow { from{transform:scaleX(0)} to{transform:scaleX(1)} }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+/* ── CARD ── */
+.rcard { width:100%; max-width:580px; background:var(--white); border:1px solid var(--border); box-shadow:0 2px 20px var(--sh),0 8px 40px var(--sh); animation:rise .55s cubic-bezier(.16,1,.3,1) both; }
 
-body {
-  font-family: 'DM Sans', sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  font-size: 14px;
-  line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
-}
+/* ── NAV ── */
+.nav { background:var(--alem-dark); padding:16px 28px; display:flex; justify-content:space-between; align-items:center; }
+.nav-right { text-align:right; }
+.nav-date { font-size:8px; font-weight:500; letter-spacing:2px; text-transform:uppercase; color:rgba(255,255,255,.38); }
+.nav-schema { font-family:'Space Mono',monospace; font-size:7.5px; color:rgba(255,255,255,.22); margin-top:3px; letter-spacing:1px; }
 
-.shell {
-  max-width: 1160px;
-  margin: 0 auto;
-  padding: 24px 20px 72px;
-}
+/* ── HERO ── */
+.hero { background:var(--white); padding:32px 28px 28px; border-bottom:1px solid var(--border-l); }
+.hero-top { display:flex; justify-content:space-between; align-items:flex-start; gap:20px; }
+.hero-left { flex:1; }
+.hero-eye { font-size:7.5px; font-weight:600; letter-spacing:2px; text-transform:uppercase; color:var(--t-light); margin-bottom:10px; }
+.hero-name { font-family:'EB Garamond',Georgia,serif; font-size:46px; font-weight:600; color:var(--alem-dark); line-height:.95; letter-spacing:-.5px; }
+.hero-name-sub { font-family:'EB Garamond',Georgia,serif; font-size:24px; font-weight:400; font-style:italic; color:var(--t-light); display:block; margin-top:4px; }
+.hero-meta { font-size:9.5px; font-weight:400; letter-spacing:1px; color:var(--t-light); margin-top:10px; }
+.hero-narrative { font-family:'Nunito',sans-serif; font-style:italic; font-size:14.5px; font-weight:300; line-height:1.65; color:var(--t-mid); margin-top:14px; max-width:310px; }
 
-/* ── Top bar ── */
-.topbar {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 20px;
-}
+/* ── SCORE RING ── */
+.score-block { flex-shrink:0; text-align:center; }
+.score-ring { width:130px; height:130px; position:relative; }
+.score-ring svg { transform:rotate(-90deg); }
+.score-inner { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.score-n { font-family:'Nunito',sans-serif; font-size:52px; font-weight:800; color:var(--alem-dark); line-height:1; }
+.score-d { font-family:'Space Mono',monospace; font-size:11px; color:var(--t-light); }
+.score-grade { font-size:11px; font-weight:700; letter-spacing:2px; color:var(--alem-dark); margin-top:10px; text-transform:uppercase; }
+.score-tier { font-size:9px; font-weight:300; letter-spacing:2px; color:var(--t-light); text-transform:uppercase; margin-top:3px; }
 
-.btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 9px 16px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--border-strong);
-  background: var(--surface);
-  color: var(--muted);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  text-decoration: none;
-  transition: background 0.15s, color 0.15s;
-}
-.btn:hover { background: var(--surface2); color: var(--text); }
-.btn-primary {
-  background: var(--green);
-  color: #fff;
-  border-color: var(--green);
-}
-.btn-primary:hover { background: var(--green-mid); color: #fff; }
+/* ── SCORE BREAKDOWN ── */
+.score-bd { background:var(--alem-tint); padding:20px 28px 24px; border-bottom:1px solid var(--border); }
+.sb-row { display:grid; grid-template-columns:1fr 1fr 56px; align-items:center; gap:14px; padding:8px 0; border-top:1px solid var(--border-l); }
+.sb-row:first-child { border-top:none; }
+.sb-lbl-wrap { display:flex; align-items:center; gap:6px; }
+.sb-lbl { font-size:9px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:var(--t-mid); }
+.sb-track { height:8px; background:var(--border); border-radius:4px; overflow:hidden; }
+.sb-fill { height:100%; border-radius:4px; transform-origin:left; animation:grow .8s cubic-bezier(.16,1,.3,1) both; }
+.f-g { background:var(--alem-mid); }
+.f-o { background:var(--gold); }
+.f-r { background:#c07858; }
+.sb-num { font-family:'Space Mono',monospace; font-size:10px; font-weight:700; color:var(--t-mid); text-align:right; }
 
-/* ── Hero ── */
-.hero {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 28px 28px 24px;
-  margin-bottom: 14px;
-  box-shadow: var(--shadow);
-}
+/* ── INFO ICON + TOOLTIP ── */
+.info-icon { position:relative; display:inline-flex; align-items:center; justify-content:center; width:15px; height:15px; background:var(--border); color:var(--t-mid); border-radius:50%; font-size:10px; font-style:normal; cursor:help; flex-shrink:0; transition:background .15s,color .15s; line-height:1; font-family:'Nunito',sans-serif; font-weight:800; user-select:none; vertical-align:middle; }
+.info-icon:hover,.info-icon:focus { background:var(--alem-dark); color:var(--white); outline:none; }
+.tooltip { display:none; position:absolute; left:22px; top:50%; transform:translateY(-50%); width:280px; background:var(--white); border:1px solid var(--border); border-radius:6px; padding:14px 16px; box-shadow:0 8px 32px rgba(13,45,62,.14),0 2px 8px rgba(13,45,62,.08); z-index:999; pointer-events:none; font-size:11px; font-weight:400; color:var(--t-body); line-height:1.6; font-family:'Nunito',sans-serif; text-transform:none; letter-spacing:0; }
+.tooltip strong { display:block; font-size:11.5px; font-weight:800; color:var(--alem-dark); margin-bottom:7px; letter-spacing:0; }
+.tooltip .tt-body { display:block; margin-bottom:9px; color:var(--t-body); }
+.tooltip .tt-how,.tooltip .tt-coa { display:block; font-size:10.5px; color:var(--t-mid); margin-top:7px; padding-top:7px; border-top:1px solid var(--border-l); line-height:1.55; }
+.tooltip .tt-how strong,.tooltip .tt-coa strong { display:inline; font-size:10.5px; font-weight:700; color:var(--alem-dark); margin-bottom:0; }
+.tooltip::before { content:''; position:absolute; left:-6px; top:50%; transform:translateY(-50%); width:0; height:0; border-top:6px solid transparent; border-bottom:6px solid transparent; border-right:6px solid var(--border); }
+.tooltip::after { content:''; position:absolute; left:-5px; top:50%; transform:translateY(-50%); width:0; height:0; border-top:5px solid transparent; border-bottom:5px solid transparent; border-right:5px solid var(--white); }
+.info-icon:hover .tooltip,.info-icon:focus .tooltip { display:block; }
+/* Tooltip position variants */
+.tt-right .tooltip { left:22px; right:auto; top:50%; transform:translateY(-50%); }
+.tt-right .tooltip::before { left:-6px; right:auto; border-left:none; border-right:6px solid var(--border); border-top:6px solid transparent; border-bottom:6px solid transparent; top:50%; transform:translateY(-50%); }
+.tt-right .tooltip::after { left:-5px; right:auto; border-left:none; border-right:5px solid var(--white); border-top:5px solid transparent; border-bottom:5px solid transparent; top:50%; transform:translateY(-50%); }
+.sec-info { vertical-align:middle; margin-left:6px; }
+.row-info { margin-left:4px; flex-shrink:0; }
+.cann-cell { position:relative; }
+.cann-info { position:absolute; top:8px; right:8px; }
+.cann-info .tooltip { width:260px; right:22px; left:auto; top:0; transform:none; }
+.cann-info .tooltip::before { right:-6px; left:auto; border-right:none; border-left:6px solid var(--border); border-top:6px solid transparent; border-bottom:6px solid transparent; top:12px; transform:none; }
+.cann-info .tooltip::after { right:-5px; left:auto; border-right:none; border-left:5px solid var(--white); border-top:5px solid transparent; border-bottom:5px solid transparent; top:13px; transform:none; }
+.ph-info .tooltip { width:260px; left:22px; top:50%; transform:translateY(-50%); right:auto; }
+.ph-info .tooltip::before { left:-6px; border-right:6px solid var(--border); border-left:none; border-top:6px solid transparent; border-bottom:6px solid transparent; top:50%; transform:translateY(-50%); right:auto; }
+.ph-info .tooltip::after { left:-5px; border-right:5px solid var(--white); border-left:none; border-top:5px solid transparent; border-bottom:5px solid transparent; top:50%; transform:translateY(-50%); right:auto; }
+/* m-info (metrics) — tooltip opens downward */
+.m-info { margin-top:5px; display:inline-flex; }
+.m-info .tooltip { width:240px; left:50%; transform:translateX(-50%); top:calc(100% + 10px); right:auto; }
+.m-info .tooltip::before { left:50%; transform:translateX(-50%); top:-6px; right:auto; border-top:none; border-bottom:6px solid var(--border); border-left:6px solid transparent; border-right:6px solid transparent; }
+.m-info .tooltip::after { left:50%; transform:translateX(-50%); top:-5px; right:auto; border-top:none; border-bottom:5px solid var(--white); border-left:5px solid transparent; border-right:5px solid transparent; }
 
-.hero-eyebrow {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: .14em;
-  text-transform: uppercase;
-  color: var(--hint);
-  margin-bottom: 14px;
-}
+/* ── CHEMOTYPE ── */
+.ct-band { background:var(--white); border-bottom:1px solid var(--border-l); border-top:1px solid var(--border-l); padding:12px 28px; display:flex; align-items:center; }
+.ct-code { font-family:'Space Mono',monospace; font-size:13px; font-weight:700; letter-spacing:3px; color:var(--alem-dark); display:flex; align-items:center; gap:6px; }
+.ct-sep { width:1px; height:28px; background:var(--border); margin:0 18px; }
+.ct-lbl { font-size:7px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:var(--t-light); }
+.ct-lin { font-family:'Nunito',sans-serif; font-style:italic; font-size:13px; font-weight:400; color:var(--t-body); margin-top:1px; }
+.ct-right { margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; gap:4px; }
+.ct-effect { font-size:8px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--alem-mid); background:var(--alem-tint); border:1px solid var(--border); padding:3px 10px; border-radius:20px; display:flex; align-items:center; gap:5px; }
+.ct-conf { font-size:7px; letter-spacing:1px; color:var(--t-faint); text-transform:uppercase; display:flex; align-items:center; gap:4px; }
 
-.hero-layout {
-  display: grid;
-  grid-template-columns: 1fr 300px;
-  gap: 24px;
-  align-items: start;
-}
+/* ── METRICS ── */
+.metrics { display:grid; grid-template-columns:repeat(4,1fr); border-bottom:1px solid var(--border-l); }
+.m-cell { padding:18px 12px; text-align:center; border-right:1px solid var(--border-l); position:relative; }
+.m-cell:last-child { border-right:none; }
+.m-val { font-family:'Nunito',sans-serif; font-size:28px; font-weight:800; color:var(--alem-dark); line-height:1; }
+.m-unit { font-family:'Nunito',sans-serif; font-size:10px; color:var(--t-light); }
+.m-lbl { font-size:7px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--t-light); margin-top:5px; }
+.m-ctx { font-size:8px; font-weight:500; color:var(--alem-mid); margin-top:4px; }
+.m-ctx.nd { color:var(--t-faint); font-style:italic; }
 
-.product-name {
-  font-size: 38px;
-  font-weight: 600;
-  line-height: 1.0;
-  letter-spacing: -.04em;
-  color: var(--text);
-  margin-bottom: 10px;
-}
+/* ── SUMMARY ── */
+.summary { padding:20px 28px; background:var(--alem-tint); border-bottom:1px solid var(--border-l); border-left:3px solid var(--alem-accent); }
+.summary-lbl { font-size:7.5px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:var(--alem-mid); margin-bottom:9px; }
+.summary-body { font-family:'EB Garamond',Georgia,serif; font-size:15px; font-weight:400; line-height:1.7; color:var(--t-dark); }
+.summary-body strong { font-weight:600; color:var(--alem-dark); }
 
-.hero-narrative {
-  font-size: 14px;
-  color: var(--muted);
-  line-height: 1.75;
-  max-width: 56ch;
-  margin-bottom: 16px;
-}
+/* ── SECTIONS ── */
+.sec { padding:24px 28px; border-bottom:1px solid var(--border-l); }
+.sec-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:18px; }
+.sec-title { font-size:8px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:var(--t-light); }
+.sec-badge { font-family:'Space Mono',monospace; font-size:8px; color:var(--alem-mid); background:var(--alem-tint); padding:2px 10px; border-radius:20px; }
 
-.badge-row { display: flex; flex-wrap: wrap; gap: 6px; }
+/* ── TERPENES ── */
+.terp-intro { font-size:12px; font-weight:400; color:var(--t-mid); background:var(--off); border:1px solid var(--border-l); padding:10px 14px; margin-bottom:16px; line-height:1.55; }
+.terp-intro strong { font-weight:700; color:var(--alem-dark); }
+.terp-wrap { display:flex; gap:20px; align-items:flex-start; }
+.t-bars { flex:1; display:flex; flex-direction:column; gap:9px; }
+.tb-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+.tb-name { font-size:9px; font-weight:400; color:var(--t-body); display:flex; align-items:center; gap:4px; }
+.tb-name.lead { font-weight:700; color:var(--alem-dark); }
+.tb-pct { font-family:'Space Mono',monospace; font-size:9px; color:var(--alem-mid); }
+.tb-track { height:3px; background:var(--border-l); border-radius:2px; overflow:hidden; }
+.tb-fill { height:100%; background:var(--alem-mid); border-radius:2px; transform-origin:left; animation:grow .8s cubic-bezier(.16,1,.3,1) both; opacity:.75; }
+.tb-fill.lead { background:var(--alem-dark); opacity:1; }
 
-.badge {
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--muted);
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  padding: 4px 11px;
-}
+/* ── CANNABINOIDS ── */
+.cann-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.cann-cell { padding:12px 13px; background:var(--off); border:1px solid var(--border-l); position:relative; }
+.cann-cell.hl { background:var(--gold-tint); border-color:var(--gold-bord); }
+.cann-lbl { font-family:'Space Mono',monospace; font-size:9px; letter-spacing:1px; color:var(--t-mid); margin-bottom:5px; }
+.cann-cell.hl .cann-lbl { color:var(--gold); }
+.cann-val { font-family:'Nunito',sans-serif; font-size:20px; font-weight:800; color:var(--alem-dark); line-height:1; }
+.cann-cell.hl .cann-val { color:var(--gold); }
+.cann-unit { font-family:'Nunito',sans-serif; font-size:9px; color:var(--t-light); }
+.cann-note { font-size:8px; font-weight:300; color:var(--t-light); margin-top:5px; line-height:1.4; }
+.cann-cell.hl .cann-note { color:rgba(154,120,34,.7); }
+.cann-total { margin-top:10px; padding:11px 16px; background:var(--alem-tint); border:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+.ct-lbl2 { font-size:8px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--t-mid); }
+.ct-val2 { font-family:'Nunito',sans-serif; font-size:20px; font-weight:800; color:var(--alem-dark); }
 
-/* ── Score card ── */
-.score-card {
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 18px 20px;
-}
+/* ── ENTOURAGE EFFECT BANNER ── */
+.entourage { margin-top:14px; padding:11px 14px; background:linear-gradient(135deg,var(--alem-tint),#f0f8ff); border:1px solid var(--border); border-left:3px solid var(--alem-accent); display:flex; align-items:flex-start; gap:10px; }
+.entourage-icon { font-size:16px; flex-shrink:0; margin-top:1px; }
+.entourage-body { font-size:10.5px; color:var(--t-body); line-height:1.55; }
+.entourage-body strong { font-weight:700; color:var(--alem-dark); }
 
-.score-top {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 4px;
-}
+/* ── TWO COL ── */
+.two-col { display:grid; grid-template-columns:1fr 1fr; }
+.two-col .sec:first-child { border-right:1px solid var(--border-l); }
+.eff-pill { display:inline-flex; align-items:center; gap:7px; background:var(--alem-tint); border:1px solid var(--border); padding:6px 14px; border-radius:30px; margin-bottom:14px; }
+.eff-icon { font-size:13px; }
+.eff-dir { font-family:'Nunito',sans-serif; font-style:italic; font-size:14px; font-weight:600; color:var(--alem-dark); }
+.eff-body { font-size:10px; font-weight:400; color:var(--t-mid); line-height:1.7; }
+.eff-body strong { font-weight:600; color:var(--t-body); }
+.ph-list { display:flex; flex-direction:column; gap:11px; }
+.ph-row { display:flex; gap:10px; align-items:flex-start; }
+.ph-dot { width:8px; height:8px; border-radius:50%; margin-top:4px; flex-shrink:0; }
+.ph-dot.good { background:var(--alem-accent); }
+.ph-dot.mild { background:var(--border); border:1px solid var(--alem-accent); }
+.ph-lbl { font-size:8px; font-weight:700; letter-spacing:.8px; text-transform:uppercase; color:var(--t-body); }
+.ph-note { font-size:10px; font-weight:300; color:var(--t-mid); line-height:1.45; }
 
-.score-number {
-  font-size: 52px;
-  font-weight: 600;
-  line-height: 1;
-  color: var(--text);
-  letter-spacing: -.04em;
-}
+/* ── AUDIENCE TABS ── */
+.audience { padding:24px 28px; border-bottom:1px solid var(--border-l); }
+.tab-row { display:flex; gap:6px; margin-bottom:16px; flex-wrap:wrap; }
+.tab-btn { font-family:'Nunito',sans-serif; font-size:8px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; padding:6px 14px; border:1px solid var(--border); background:transparent; color:var(--t-light); cursor:pointer; border-radius:30px; transition:all .15s; display:flex; align-items:center; gap:5px; }
+.tab-btn.active { background:var(--alem-dark); border-color:var(--alem-dark); color:var(--white); }
+.tab-btn:hover:not(.active) { border-color:var(--alem-accent); color:var(--alem-dark); }
+.tab-icon { font-size:10px; }
+.tab-panel { display:none; }
+.tab-panel.active { display:block; }
+.ins-list { display:flex; flex-direction:column; gap:10px; }
+.ins-row { display:flex; gap:11px; align-items:flex-start; }
+.ins-arr { width:6px; height:6px; border-right:2px solid var(--alem-accent); border-bottom:2px solid var(--alem-accent); transform:rotate(-45deg); margin-top:6px; flex-shrink:0; }
+.ins-text { font-size:12px; font-weight:400; color:var(--t-body); line-height:1.65; }
 
-.score-denom {
-  font-size: 18px;
-  color: var(--hint);
-  font-weight: 300;
-}
+/* ── SAFETY ── */
+.safety-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.sf-row { display:flex; align-items:center; gap:9px; padding:8px 11px; background:var(--off); border:1px solid var(--border-l); }
+.sf-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.sf-dot.pass { background:var(--alem-accent); }
+.sf-dot.nt { background:#ddc8b4; border:1px solid #c8a888; }
+.sf-name { font-size:9px; font-weight:500; color:var(--t-body); }
+.sf-val { margin-left:auto; font-family:'Space Mono',monospace; font-size:8px; color:var(--t-faint); font-style:italic; }
+.sf-val.pass { color:var(--alem-accent); font-style:normal; font-weight:700; }
+.safety-note { margin-top:12px; padding:12px 14px; background:var(--warn-bg); border-left:3px solid var(--warn-bord); font-size:11px; font-weight:400; color:var(--warn-text); line-height:1.6; }
+.safety-note strong { font-weight:700; }
 
-.score-grade {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--green-mid);
-  margin-bottom: 12px;
-}
+/* ── LAB STRIP ── */
+.lab-strip { display:flex; justify-content:space-between; align-items:center; padding:14px 28px; background:var(--alem-tint); border-bottom:1px solid var(--border-l); }
+.lab-cell { text-align:center; }
+.lab-val { font-size:10px; font-weight:600; color:var(--alem-dark); letter-spacing:.3px; }
+.lab-lbl { font-size:7px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--t-light); margin-top:2px; display:flex; align-items:center; justify-content:center; gap:4px; }
 
-.score-track {
-  height: 5px;
-  background: var(--border);
-  border-radius: var(--radius-pill);
-  overflow: hidden;
-  margin-bottom: 14px;
-}
+/* ── FOOTER ── */
+.footer { background:var(--alem-dark); padding:20px 28px; display:flex; justify-content:space-between; align-items:center; }
+.footer-url { font-size:8px; font-weight:300; letter-spacing:1.5px; color:rgba(255,255,255,.35); margin-top:6px; }
+.footer-tagline { font-family:'Nunito',sans-serif; font-style:italic; font-size:13px; font-weight:300; color:rgba(255,255,255,.5); text-align:right; line-height:1.6; }
 
-.score-fill {
-  height: 100%;
-  border-radius: var(--radius-pill);
-  background: var(--green);
-}
-
-.dim-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 6px;
-  align-items: center;
-  margin-bottom: 5px;
-}
-
-.dim-label {
-  font-size: 12px;
-  color: var(--muted);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.dim-mini-track {
-  width: 60px;
-  height: 3px;
-  background: var(--border);
-  border-radius: var(--radius-pill);
-  overflow: hidden;
-  display: inline-block;
-  vertical-align: middle;
-}
-
-.dim-mini-fill {
-  height: 100%;
-  border-radius: var(--radius-pill);
-}
-
-.dim-val {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text);
-  font-family: 'DM Mono', monospace;
-}
-
-/* ── Grid layouts ── */
-.section { margin-bottom: 14px; }
-.g4 { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; }
-.g3 { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
-.g2 { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; }
-.g3sig { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
-
-/* ── Cards ── */
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 20px 22px;
-  box-shadow: var(--shadow);
-}
-
-.card-label {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-  color: var(--hint);
-  margin-bottom: 6px;
-}
-
-.card-value {
-  font-size: 26px;
-  font-weight: 600;
-  color: var(--text);
-  line-height: 1.1;
-  margin-bottom: 3px;
-  letter-spacing: -.03em;
-}
-
-.card-unit {
-  font-size: 14px;
-  color: var(--hint);
-  font-weight: 300;
-}
-
-.card-note {
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.55;
-  margin-top: 6px;
-}
-
-.card-title {
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--text);
-  letter-spacing: -.02em;
-  margin-bottom: 14px;
-}
-
-/* ── Audience tabs ── */
-.atabs { display: flex; gap: 5px; margin-bottom: 14px; }
-.atab {
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 6px 14px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--border);
-  background: var(--surface2);
-  color: var(--muted);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.atab:hover { border-color: var(--border-strong); color: var(--text); }
-.atab.active {
-  background: var(--green);
-  border-color: var(--green);
-  color: #fff;
-}
-
-.apanel { display: none; }
-.apanel.active { display: block; }
-
-.insight-line {
-  font-size: 13px;
-  color: var(--muted);
-  line-height: 1.7;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border);
-}
-.insight-line:last-child { border-bottom: none; }
-
-/* ── Terpene bars ── */
-.bars { display: grid; gap: 10px; }
-.bar-row { display: grid; gap: 5px; }
-.bar-head { display: flex; justify-content: space-between; }
-.bar-name { font-size: 13px; color: var(--text); }
-.bar-val { font-size: 13px; color: var(--muted); font-family: 'DM Mono', monospace; }
-.bar-track {
-  height: 7px;
-  background: var(--surface2);
-  border-radius: var(--radius-pill);
-  overflow: hidden;
-  border: 1px solid var(--border);
-}
-.bar-fill {
-  height: 100%;
-  border-radius: var(--radius-pill);
-  background: var(--green);
-  transition: width 0.6s ease;
-}
-
-/* ── Fingerprint ── */
-.fp-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
-.fp-id {
-  font-family: 'DM Mono', monospace;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--green-mid);
-  background: var(--green-light);
-  border: 1px solid var(--green-border);
-  border-radius: var(--radius-sm);
-  padding: 4px 10px;
-}
-.fp-label { font-size: 12px; color: var(--muted); }
-
-/* ── Cannabinoid grid ── */
-.cann-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.cann-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 10px 12px;
-  background: var(--surface2);
-}
-.cann-primary { border-color: var(--green-border); background: var(--green-light); }
-.cann-name { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--green-mid); margin-bottom: 3px; }
-.cann-val { font-size: 18px; font-weight: 600; color: var(--text); line-height: 1.1; }
-.cann-unit { font-size: 12px; color: var(--hint); font-weight: 300; }
-.cann-note { font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.4; }
-
-/* ── Pills ── */
-.pill-row { display: flex; flex-wrap: wrap; gap: 6px; }
-.pill { font-size: 12px; padding: 5px 11px; border-radius: var(--radius-pill); border: 1px solid; font-weight: 500; }
-.pill.good { background: var(--green-light); color: var(--green-mid); border-color: var(--green-border); }
-.pill.warn { background: var(--amber-light); color: var(--amber); border-color: var(--amber-border); }
-.pill.danger { background: var(--red-light); color: var(--red); border-color: var(--red-border); }
-
-/* ── Contaminant rows ── */
-.cont-row {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 10px;
-  align-items: center;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 13px;
-}
-.cont-row:last-child { border-bottom: none; }
-.cont-cat { color: var(--muted); }
-.cont-status { font-weight: 500; }
-.cont-pass { color: var(--green-mid); }
-.cont-fail { color: var(--red); }
-.cont-missing { color: var(--hint); }
-.cont-value { color: var(--text); }
-.cont-std { font-size: 11px; color: var(--hint); font-family: 'DM Mono', monospace; }
-
-/* ── Signal grid ── */
-.signal-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 12px 14px;
-  background: var(--surface2);
-}
-.signal-label { font-size: 10px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--hint); margin-bottom: 4px; }
-.signal-val { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
-.signal-note { font-size: 11px; color: var(--muted); line-height: 1.5; }
-
-/* ── Lineage / detail rows ── */
-.detail-list { display: grid; gap: 0; }
-.detail-row { display: grid; grid-template-columns: 140px 1fr; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
-.detail-row:last-child { border-bottom: none; }
-.detail-key { color: var(--hint); font-size: 12px; }
-.detail-val { color: var(--text); line-height: 1.6; }
-
-/* ── Raw JSON ── */
-.raw-box { display: none; margin-top: 14px; }
-.raw-box.open { display: block; }
-pre {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 11px;
-  font-family: 'DM Mono', monospace;
-  line-height: 1.6;
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 16px;
-  color: var(--muted);
-}
-
-.empty { color: var(--hint); font-size: 13px; padding: 8px 0; }
-
-@media(max-width:900px) {
-  .hero-layout,.g4,.g3,.g2,.cann-grid,.g3sig { grid-template-columns: 1fr; }
-}
+/* ── ACTION BUTTONS ── */
+.ractions { width:100%; max-width:580px; margin-top:14px; display:flex; gap:10px; animation:rise .55s cubic-bezier(.16,1,.3,1) .2s both; }
+.rbtn { flex:1; padding:14px 20px; font-family:'Nunito',sans-serif; font-size:8.5px; font-weight:700; letter-spacing:2px; text-transform:uppercase; cursor:pointer; transition:all .15s; border-radius:30px; text-decoration:none; display:inline-block; text-align:center; }
+.rbtn-p { background:var(--alem-dark); border:1px solid var(--alem-dark); color:var(--white); }
+.rbtn-p:hover { background:var(--alem-mid); }
+.rbtn-s { background:var(--white); border:1px solid var(--border); color:var(--t-mid); }
+.rbtn-s:hover { border-color:var(--alem-accent); color:var(--alem-dark); }
+.page-foot { margin-top:20px; font-size:8px; font-weight:500; letter-spacing:2px; text-transform:uppercase; color:var(--t-faint); text-align:center; animation:rise .55s ease .35s both; }
+.page-foot a { color:var(--alem-mid); text-decoration:none; }
 </style>
 </head>
 <body>
-<div class="shell">
 
-  <!-- Top bar -->
-  <div class="topbar">
-    <a class="btn" href="/">Upload new COA</a>
-    ${options.documentId ? `<a class="btn btn-primary" href="/pdf/${options.documentId}" target="_blank" rel="noopener noreferrer">Export PDF</a>` : ""}
+<div class="rcard">
+
+  <!-- NAV with logo -->
+  <div class="nav">
+    <div>
+      <img src="https://www.alem.solutions/wp-content/uploads/2024/04/Alem-Brand-Green.png"
+           alt="Alem — Beyond Healthcare Solutions"
+           style="height:52px;display:block;"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+      <div style="display:none;color:#fff;font-family:'Nunito',sans-serif;font-weight:800;font-size:17px;letter-spacing:5px;">ALEM</div>
+    </div>
+    <div class="nav-right">
+      <div class="nav-date">${esc(chemistry.coa_report_date || "")}</div>
+      <div class="nav-schema">Schema v5.0 · ${esc(chemistry.laboratory_accreditation || "COA Report")}</div>
+    </div>
   </div>
 
-  <!-- Hero -->
+  <!-- HERO -->
   <div class="hero">
-    <div class="hero-eyebrow">Alem Chemical Intelligence · Schema v5.0</div>
-    <div class="hero-layout">
-      <div>
-        <div class="product-name">${esc(productName)}</div>
+    <div class="hero-top">
+      <div class="hero-left">
+        <div class="hero-eye">Certificate of Analysis · Intelligence Report</div>
+        <div class="hero-name">
+          ${esc(productName)}
+          ${chemistry.product_type ? `<span class="hero-name-sub">(${esc(chemistry.product_type)})</span>` : ""}
+        </div>
+        <div class="hero-meta">${[chemistry.product_type, chemistry.batch_number ? "Batch " + chemistry.batch_number : "", chemistry.laboratory_name].filter(Boolean).map(esc).join(" &nbsp;·&nbsp; ")}</div>
         <div class="hero-narrative">${esc(heroNarrative)}</div>
-        <div class="badge-row">
-          ${chemistry.batch_number ? `<span class="badge">Batch ${esc(chemistry.batch_number)}</span>` : ""}
-          ${chemistry.product_type ? `<span class="badge">${esc(chemistry.product_type)}</span>` : ""}
-          ${chemistry.laboratory_name ? `<span class="badge">${esc(chemistry.laboratory_name)}</span>` : ""}
-          ${chemistry.coa_report_date ? `<span class="badge">${esc(chemistry.coa_report_date)}</span>` : ""}
-          ${chemistry.laboratory_accreditation ? `<span class="badge">${esc(chemistry.laboratory_accreditation)}</span>` : ""}
-        </div>
       </div>
-      <div class="score-card">
-        <div class="score-top">
-          <div class="score-number">${scoring.total}</div>
-          <div class="score-denom">/100</div>
+      <div class="score-block">
+        <div class="score-ring">
+          <svg width="130" height="130" viewBox="0 0 130 130">
+            <circle cx="65" cy="65" r="56" fill="none" stroke="var(--border)" stroke-width="7"/>
+            <circle cx="65" cy="65" r="56" fill="none" stroke="#8ecfb0" stroke-width="7"
+              stroke-dasharray="${ringCirc}" stroke-dashoffset="${ringOffset}"
+              stroke-linecap="round"/>
+          </svg>
+          <div class="score-inner">
+            <div class="score-n">${scoring.total}</div>
+            <div class="score-d">/100</div>
+          </div>
         </div>
-        <div class="score-grade">${esc(scoring.tier)} · ${esc(scoring.grade)}</div>
-        <div class="score-track">
-          <div class="score-fill" style="width:${scoring.total}%"></div>
-        </div>
-        <div class="score-dims">
-          ${scoreDims.map(d => {
-            const pct = Math.round(d.score / d.max * 100);
-            const barColor = pct >= 75 ? '#2d5c42' : pct >= 45 ? '#92650a' : '#8b2020';
-            const valColor = pct >= 75 ? 'var(--green-mid)' : pct >= 45 ? 'var(--amber)' : 'var(--red)';
-            return `
-            <div class="dim-row">
-              <div class="dim-label">
-                <span class="dim-mini-track"><span class="dim-mini-fill" style="width:${pct}%;background:${barColor}"></span></span>
-                ${esc(d.label)}
-              </div>
-              <div class="dim-val" style="color:${valColor}">${d.score}/${d.max}</div>
-            </div>`;
-          }).join("")}
-        </div>
+        <div class="score-grade">${esc(scoring.grade)} &nbsp; Grade</div>
+        <div class="score-tier">${esc(scoring.tier)}</div>
       </div>
     </div>
   </div>
 
-  <!-- Key metrics -->
-  <div class="section g4">
-    <div class="card">
-      <div class="card-label">THC total</div>
-      <div class="card-value">${esc(chemistry.thc_total || "ND")} <span class="card-unit">${chemistry.thc_total && chemistry.thc_total !== "ND" ? esc(chemistry.thc_total_unit || "wt%") : ""}</span></div>
-      <div class="card-note">${thc >= 24 ? "High range — above market average for medical dried flower." : thc >= 18 ? "Moderate-to-high range." : thc > 0 ? "Moderate range." : "Not detected or not reported."}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">THCA</div>
-      <div class="card-value">${esc(chemistry.thca || "ND")} <span class="card-unit">${chemistry.thca && chemistry.thca !== "ND" ? esc(chemistry.thca_unit || "wt%") : ""}</span></div>
-      <div class="card-note">Precursor potency — converts to active THC on heating (× 0.877).</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Total terpenes</div>
-      <div class="card-value">${esc(chemistry.total_terpenes || "ND")} <span class="card-unit">${chemistry.total_terpenes && chemistry.total_terpenes !== "ND" ? esc(chemistry.total_terpenes_unit || "wt%") : ""}</span></div>
-      <div class="card-note">${terps >= 3 ? "Strong — upper range of dried flower terpene density." : terps >= 1.8 ? "Good — meaningful aromatic presence." : terps > 0 ? "Moderate aromatic expression." : "Not reported."}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">CBD total</div>
-      <div class="card-value">${esc(chemistry.cbd_total || "ND")} <span class="card-unit">${chemistry.cbd_total && chemistry.cbd_total !== "ND" ? esc(chemistry.cbd_total_unit || "wt%") : ""}</span></div>
-      <div class="card-note">${cbd > 0.5 ? "Visible CBD — may provide some modulation of THC intensity." : "Minimal or not detected — no intrinsic CBD modulation."}</div>
-    </div>
+  <!-- SCORE BREAKDOWN -->
+  <div class="score-bd">
+    ${sbRow("Potency", potencyPct >= 75 ? "f-g" : potencyPct >= 45 ? "f-o" : "f-r", potencyPct, 0.06, `${scoring.breakdown.potency.score} / ${scoring.breakdown.potency.max}`,
+      `Potency Score: ${scoring.breakdown.potency.score}/${scoring.breakdown.potency.max}`,
+      `THC Total of ${chemistry.thc_total || "N/A"} wt% places this product in the ${thc >= 24 ? "high" : thc >= 18 ? "moderate-to-high" : "moderate"} range. THCA at ${chemistry.thca || "N/A"} wt% is the primary precursor — multiply by 0.877 to estimate post-decarboxylation THC.`,
+      `Max potency score (25pts) requires THC total above 28 wt%. Score tiers: ≥28=25, ≥24=22, ≥20=18, ≥15=13, >0=8.`,
+      `Look for "THC Total" or calculate it as (THCA × 0.877) + D9-THC.`)}
+
+    ${sbRow("Terpenes", terpPct >= 75 ? "f-g" : terpPct >= 45 ? "f-o" : "f-r", terpPct, 0.12, `${scoring.breakdown.terpenes.score} / ${scoring.breakdown.terpenes.max}`,
+      `Terpene Score: ${scoring.breakdown.terpenes.score}/${scoring.breakdown.terpenes.max}`,
+      `Total terpene content of ${chemistry.total_terpenes || "N/A"} wt% with ${terpenes.filter(t => toNum(t.value) > 0).length} compounds detected. Scores improve with both density (wt%) and breadth (number of compounds).`,
+      `Tiers: ≥3.5 wt%=22, ≥2.5=20, ≥1.8=16, ≥1.0=11. Breadth bonus: +5 for ≥8 compounds, +3 for ≥5 compounds.`,
+      `Find the "Terpene Profile" section. Sum all individual values if no total is listed.`)}
+
+    ${sbRow("Minor Cannabinoids", minorPct >= 75 ? "f-g" : minorPct >= 45 ? "f-o" : "f-r", minorPct, 0.18, `${scoring.breakdown.minors.score} / ${scoring.breakdown.minors.max}`,
+      `Minor Cannabinoid Score: ${scoring.breakdown.minors.score}/${scoring.breakdown.minors.max}`,
+      `${[{k:"CBGA",v:cbga},{k:"CBN",v:cbn},{k:"CBG",v:toNum(chemistry.cbg)},{k:"CBCA",v:toNum(chemistry.cbca)},{k:"THCVA",v:toNum(chemistry.thcva)}].filter(x=>x.v>0).map(x=>`${x.k}: ${x.v.toFixed(2)} wt%`).join(", ") || "No minor cannabinoids detected"}. Minor cannabinoids contribute to the entourage effect — the synergistic interaction between all cannabis compounds.`,
+      `Score based on sum of minors (total - THC - CBD) and count of detected minors. CBN ≥1% applies a 4-point degradation penalty.`,
+      `Look for "Cannabinoid Profile" table. Count all non-ND values beyond THC and CBD.`)}
+
+    ${sbRow("Safety Data", safetyPct >= 75 ? "f-g" : safetyPct >= 45 ? "f-o" : "f-r", safetyPct, 0.24, `${scoring.breakdown.safety.score} / ${scoring.breakdown.safety.max}`,
+      `Safety Score: ${scoring.breakdown.safety.score}/${scoring.breakdown.safety.max}`,
+      `Pesticides: ${contaminants.pesticides_status || "Not tested"} · Heavy Metals: ${contaminants.heavy_metals_status || "Not tested"} · Microbials: ${contaminants.microbials_status || "Not tested"}. Missing panels reduce the maximum achievable safety score — this is not a failed test.`,
+      `7pts for pesticide pass/ND, 7pts for heavy metals pass/ND, 6pts for microbials pass/ND. +3 bonus for ISO 17025 accreditation.`,
+      `Look for "Pesticide Analysis", "Heavy Metals", and "Microbiological" sections. If absent, request the full compliance package from the producer.`)}
+
+    ${sbRow("Data Completeness", dataPct >= 75 ? "f-g" : dataPct >= 45 ? "f-o" : "f-r", dataPct, 0.30, `${scoring.breakdown.dataCompleteness.score} / ${scoring.breakdown.dataCompleteness.max}`,
+      `Data Completeness: ${scoring.breakdown.dataCompleteness.score}/${scoring.breakdown.dataCompleteness.max}`,
+      `We check for 10 mandatory fields: THC total (2pts), total terpenes (2pts), ≥3 terpenes reported (2pts), ≥3 cannabinoids (1pt), report date (1pt), laboratory name (1pt), batch number (1pt).`,
+      `A complete submission scores all 10 points. Missing fields reduce completeness and signal a less thorough lab submission.`,
+      `A complete COA should include: lab name, accreditation, batch ID, report date, product type, cannabinoid table, terpene table, and method references.`)}
   </div>
 
-  <!-- Chemistry columns -->
-  <div class="section g2">
-    <div class="card">
-      <div class="card-title">Terpene fingerprint</div>
-      <div class="bars">
-        ${terpenes.length ? terpenes.map((t, i) => renderTerpBar(t, i)).join("") : `<div class="empty">No terpene data reported.</div>`}
-      </div>
-      <div class="fp-row">
-        <span class="fp-label">Chemotype ID</span>
-        <span class="fp-id">${esc(fingerprintId)}</span>
-        <span class="fp-label">${leadTerpene ? esc(terpIntel.lineage) + " · " + esc(terpIntel.lineageConfidence) + " confidence" : "Lineage unclear"}</span>
-      </div>
+  <!-- CHEMOTYPE BAND -->
+  <div class="ct-band">
+    <div class="ct-code">
+      ${esc(fingerprintId)}
+      ${infoIcon(`<span class="tooltip"><strong>Chemotype Fingerprint: ${esc(fingerprintId)}</strong><span class="tt-body">The top-3 dominant terpenes in order of concentration. This fingerprint clusters products by chemical identity across our database, enabling market comparisons.</span><span class="tt-coa"><strong>Derived from:</strong> We rank all reported terpenes by wt% and take the top 3. Each terpene is abbreviated (TPN = Terpinolene, MYR = β-Myrcene, OCI = Ocimene, etc.).</span></span>`, "tt-right")}
     </div>
-
-    <div class="card">
-      <div class="card-title">Cannabinoid profile</div>
-      <div class="cann-grid">
-        ${cannabinoids.length ? cannabinoids.map(renderCannCard).join("") : `<div class="empty">No cannabinoid data reported.</div>`}
-      </div>
-      ${chemistry.total_cannabinoids ? `<div style="margin-top:12px;font-size:12px;color:var(--hint)">Total cannabinoid sum: ${esc(chemistry.total_cannabinoids)} wt%</div>` : ""}
+    <div class="ct-sep"></div>
+    <div>
+      <div class="ct-lbl">Chemotype fingerprint</div>
+      <div class="ct-lin">${esc(terpIntel.lineage)}</div>
     </div>
-  </div>
-
-  <!-- Audience intelligence -->
-  <div class="section g2">
-    <div class="card">
-      <div class="card-title">Audience intelligence</div>
-      <div class="atabs">
-        <button class="atab active" onclick="switchAud('brand',this)">Brand</button>
-        <button class="atab" onclick="switchAud('clinical',this)">Clinical</button>
-        <button class="atab" onclick="switchAud('patient',this)">Patient</button>
-        <button class="atab" onclick="switchAud('buyer',this)">Buyer</button>
+    <div class="ct-right">
+      <div class="ct-effect">
+        ☀ &nbsp;${esc(terpIntel.direction)}
+        ${infoIcon(`<span class="tooltip"><strong>Effect Direction: ${esc(terpIntel.direction)}</strong><span class="tt-body">Effect direction is inferred from the terpene chemotype using observational data — not from clinical trials on this specific batch. Individual responses vary significantly based on tolerance, dose, method of consumption, and personal physiology.</span><span class="tt-coa"><strong>Important:</strong> This is a population-level directional signal. Always consult a healthcare professional for personalised guidance.</span></span>`, "tt-right")}
       </div>
-      <div id="ap-brand" class="apanel active">${renderAudiencePanel(audiences.brand, "brand")}</div>
-      <div id="ap-clinical" class="apanel">${renderAudiencePanel(audiences.clinical, "clinical")}</div>
-      <div id="ap-patient" class="apanel">${renderAudiencePanel(audiences.patient, "patient")}</div>
-      <div id="ap-buyer" class="apanel">${renderAudiencePanel(audiences.buyer, "buyer")}</div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">Effect direction</div>
-      <div class="detail-list">
-        <div class="detail-row">
-          <div class="detail-key">Direction</div>
-          <div class="detail-val">${esc(terpIntel.direction)}</div>
-        </div>
-        <div class="detail-row">
-          <div class="detail-key">Lead terpene</div>
-          <div class="detail-val">${esc(leadTerpene || "Not identified")}</div>
-        </div>
-        ${secondTerpene ? `<div class="detail-row"><div class="detail-key">Secondary</div><div class="detail-val">${esc(secondTerpene)}${thirdTerpene ? " · " + esc(thirdTerpene) : ""}</div></div>` : ""}
-        <div class="detail-row">
-          <div class="detail-key">Terpene read</div>
-          <div class="detail-val">${esc(terpIntel.note)}</div>
-        </div>
-        <div class="detail-row">
-          <div class="detail-key">Lineage cluster</div>
-          <div class="detail-val">${esc(terpIntel.lineage)}</div>
-        </div>
-        <div class="detail-row">
-          <div class="detail-key">Confidence</div>
-          <div class="detail-val">${esc(terpIntel.lineageConfidence)}</div>
-        </div>
+      <div class="ct-conf">
+        ${esc(terpIntel.lineageConfidence)} confidence
+        ${infoIcon(`<span class="tooltip"><strong>Lineage Confidence: ${esc(terpIntel.lineageConfidence)}</strong><span class="tt-body">Confidence reflects how closely this chemotype cluster matches known genetic lineages in our reference database. It improves with multiple batches from the same cultivar and broader database coverage.</span><span class="tt-coa"><strong>How to improve it:</strong> Submit multiple COA batches from the same cultivar. Consistent chemotypes across batches increase lineage confidence.</span></span>`, "tt-right")}
       </div>
     </div>
   </div>
 
-  <!-- Post-harvest -->
-  <div class="section g2">
-    <div class="card">
-      <div class="card-title">Post-harvest intelligence</div>
-      <div class="g3sig">
-        <div class="signal-card">
-          <div class="signal-label">Freshness</div>
-          <div class="signal-val">${esc(postHarvest.freshness.label)}</div>
-          <div class="signal-note">${esc(postHarvest.freshness.note)}</div>
-        </div>
-        <div class="signal-card">
-          <div class="signal-label">Curing</div>
-          <div class="signal-val">${esc(postHarvest.curing.label)}</div>
-          <div class="signal-note">${esc(postHarvest.curing.note)}</div>
-        </div>
-        <div class="signal-card">
-          <div class="signal-label">Degradation (CBN)</div>
-          <div class="signal-val">${esc(postHarvest.degradation.label)}</div>
-          <div class="signal-note">${esc(postHarvest.degradation.note)}</div>
-        </div>
-        <div class="signal-card">
-          <div class="signal-label">Stability</div>
-          <div class="signal-val">${esc(postHarvest.stability.label)}</div>
-          <div class="signal-note">${esc(postHarvest.stability.note)}</div>
-        </div>
-        <div class="signal-card">
-          <div class="signal-label">CBGA signal</div>
-          <div class="signal-val">${toNum(chemistry.cbga) >= 1 ? "Notable" : toNum(chemistry.cbga) > 0 ? "Present" : "Not detected"}</div>
-          <div class="signal-note">${toNum(chemistry.cbga) >= 1 ? `${chemistry.cbga} wt% — elevated CBGA may indicate specific genetics or harvest timing.` : "CBGA not elevated."}</div>
-        </div>
-        <div class="signal-card">
-          <div class="signal-label">THC expression</div>
-          <div class="signal-val">${chemistry.thca && chemistry.thc_total ? "Calculated" : "Partial"}</div>
-          <div class="signal-note">${chemistry.thca ? `THCA ${chemistry.thca} × 0.877 + D9-THC = Total THC` : "Calculation basis not fully captured."}</div>
-        </div>
-      </div>
+  <!-- KEY METRICS -->
+  <div class="metrics">
+    <div class="m-cell">
+      <div class="m-val">${esc(chemistry.thc_total || "ND")}<span class="m-unit">${chemistry.thc_total && chemistry.thc_total !== "ND" ? "%" : ""}</span></div>
+      <div class="m-lbl">THC Total</div>
+      <div class="m-ctx">${thc >= 24 ? "↑ above avg." : thc >= 18 ? "moderate-high" : thc > 0 ? "moderate" : "not detected"}</div>
+      ${infoIcon(`<span class="tooltip"><strong>THC Total: ${esc(chemistry.thc_total || "ND")} wt%</strong><span class="tt-body">Market average for premium dried flower is 18–22 wt%. At ${esc(chemistry.thc_total || "ND")}%, this product ${thc >= 24 ? "sits above average — suitable for experienced consumers." : "is in a typical therapeutic range."}</span><span class="tt-coa"><strong>Check on your COA:</strong> THC Total = (THCA × 0.877) + D9-THC. Some labs report it directly; others require manual calculation.</span></span>`, "m-info")}
     </div>
-
-    <div class="card">
-      <div class="card-title">Quality &amp; compliance signals</div>
-      <div class="pill-row" style="margin-bottom:12px">
-        ${posFlags.length ? posFlags.map(f => renderPill(f, "good")).join("") : '<span class="empty">No positive flags extracted.</span>'}
-      </div>
-      <div class="pill-row" style="margin-bottom:18px">
-        ${warnFlags.length ? warnFlags.map(f => renderPill(f, "warn")).join("") : ""}
-      </div>
-      <div class="cont-row" style="font-size:11px;color:var(--hint);font-weight:600;letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid var(--border)">
-        <span>Panel</span><span>Result</span><span>Standard</span>
-      </div>
-      ${renderContRow("Pesticides", contaminants.pesticides_status, "TGO93 / TGO100")}
-      ${renderContRow("Heavy metals", contaminants.heavy_metals_status, "ICH Q3D")}
-      ${renderContRow("Microbials", contaminants.microbials_status, "USP 2021/2023")}
-      ${renderContRow("Mycotoxins", contaminants.mycotoxins_status, "EC 1881/2006")}
-      ${renderContRow("Residual solvents", contaminants.residual_solvents_status, "USP 467")}
-      ${renderContRow("Lab accreditation", chemistry.laboratory_accreditation, "ISO 17025")}
+    <div class="m-cell">
+      <div class="m-val">${esc(chemistry.thca || "ND")}<span class="m-unit">${chemistry.thca && chemistry.thca !== "ND" ? "%" : ""}</span></div>
+      <div class="m-lbl">THCA</div>
+      <div class="m-ctx">×0.877 on heat</div>
+      ${infoIcon(`<span class="tooltip"><strong>THCA: ${esc(chemistry.thca || "ND")} wt%</strong><span class="tt-body">THCA is the raw, non-psychoactive acid form of THC found in fresh cannabis. When heated (smoked, vaporised, or cooked), it decarboxylates into active THC. Multiply THCA × 0.877 to estimate active THC produced.</span><span class="tt-coa"><strong>Check on your COA:</strong> Listed as "THCA" or "THCA-A". Typically the largest value in the cannabinoid profile for potent flower.</span></span>`, "m-info")}
+    </div>
+    <div class="m-cell">
+      <div class="m-val">${esc(chemistry.total_terpenes || "ND")}<span class="m-unit">${chemistry.total_terpenes && chemistry.total_terpenes !== "ND" ? "%" : ""}</span></div>
+      <div class="m-lbl">Terpenes</div>
+      <div class="m-ctx">${terps >= 3 ? "strong" : terps >= 2 ? "top 20%" : terps > 0 ? "moderate" : "not reported"}</div>
+      ${infoIcon(`<span class="tooltip"><strong>Total Terpenes: ${esc(chemistry.total_terpenes || "ND")} wt%</strong><span class="tt-body">Terpenes drive aroma, flavour, and may influence therapeutic outcomes via the entourage effect. A total above 2.0 wt% is considered aromatic and complex. Above 3.0 wt% is exceptional.</span><span class="tt-coa"><strong>Check on your COA:</strong> Look for "Total Terpenes" or sum all individual terpene values. Not all labs report a total — you may need to calculate manually.</span></span>`, "m-info")}
+    </div>
+    <div class="m-cell">
+      <div class="m-val">${esc(chemistry.cbd_total || "ND")}<span class="m-unit">${chemistry.cbd_total && chemistry.cbd_total !== "ND" ? "%" : ""}</span></div>
+      <div class="m-lbl">CBD Total</div>
+      <div class="m-ctx ${cbd < 0.5 ? "nd" : ""}">${cbd >= 0.5 ? "modulating" : "not detected"}</div>
+      ${infoIcon(`<span class="tooltip"><strong>CBD Total: ${esc(chemistry.cbd_total || "ND")} wt%</strong><span class="tt-body">CBD may modulate the intensity of THC effects when both are present. In this product, CBD is ${cbd >= 0.5 ? `present at ${chemistry.cbd_total} wt% — providing some inherent THC modulation.` : "absent — meaning no built-in CBD buffer. The full THC effect is unmodified."}</span><span class="tt-coa"><strong>Check on your COA:</strong> CBD Total = (CBDA × 0.877) + CBD. If both read ND, CBD is absent from this product.</span></span>`, "m-info")}
     </div>
   </div>
 
-  <!-- Lab quality -->
-  <div class="section g2">
-    <div class="card">
-      <div class="card-title">Contaminant narrative</div>
-      <div class="insight-line">${esc(contaminants.contaminant_narrative || "Structured contaminant narrative not captured. Review source COA directly for all safety panel results.")}</div>
-      ${contaminants.moisture_content ? `<div class="detail-row"><div class="detail-key">Moisture</div><div class="detail-val">${esc(contaminants.moisture_content)}</div></div>` : ""}
-      ${contaminants.water_activity ? `<div class="detail-row"><div class="detail-key">Water activity</div><div class="detail-val">${esc(contaminants.water_activity)}</div></div>` : ""}
+  <!-- SUMMARY -->
+  <div class="summary">
+    <div class="summary-lbl">what this means</div>
+    <div class="summary-body">
+      ${esc(heroNarrative)}
     </div>
-    <div class="card">
-      <div class="card-title">Lab quality summary</div>
-      <div class="insight-line">${esc(contaminants.lab_quality_summary || chemistry.laboratory_accreditation || "Lab quality summary not captured.")}</div>
-      ${chemistry.laboratory_method ? `<div style="margin-top:10px" class="detail-list"><div class="detail-row"><div class="detail-key">Method</div><div class="detail-val">${esc(chemistry.laboratory_method)}</div></div></div>` : ""}
-      <div class="fp-row">
-        <span class="fp-label">Chemotype fingerprint</span>
-        <span class="fp-id">${esc(fingerprintId)}</span>
-        <span class="fp-label">Top-3 terpene cluster · ${esc([leadTerpene, secondTerpene, thirdTerpene].filter(Boolean).join(" / ") || "not identified")}</span>
+  </div>
+
+  <!-- TERPENE FINGERPRINT -->
+  <div class="sec">
+    <div class="sec-head">
+      <div class="sec-title">terpene fingerprint ${infoIcon(`<span class="tooltip"><strong>What are Terpenes?</strong><span class="tt-body">Terpenes are aromatic compounds produced by the cannabis plant. They shape scent, flavour, and may modulate the therapeutic effects of cannabinoids via the Entourage Effect. Over 200 terpenes have been identified in cannabis.</span><span class="tt-coa"><strong>Entourage Effect:</strong> Research suggests terpenes and cannabinoids may work synergistically — the combination produces different outcomes than either compound alone. A rich terpene profile is a marker of full-spectrum complexity.</span></span>`, "sec-info")}</div>
+      <div class="sec-badge">${esc(chemistry.total_terpenes || "—")} wt% · ${terpenes.filter(t => toNum(t.value) > 0).length} compounds</div>
+    </div>
+    ${leadTerpene ? `<div class="terp-intro"><strong>${esc(leadTerpene)}-dominant.</strong> ${esc(TERPENE_EDUCATION[leadTerpene]?.aroma || terpIntel.note)} ${leadTerpene === "Terpinolene" ? "Fewer than 15% of dried flower products lead with this compound — a genuine shelf differentiator in a Myrcene-heavy market." : ""}</div>` : ""}
+    <div class="terp-wrap">
+      <!-- Radar SVG -->
+      <svg width="150" height="150" viewBox="0 0 150 150" style="flex-shrink:0">
+        <defs>
+          <radialGradient id="rg${esc(options.documentId || "x")}" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#0d2d3e" stop-opacity=".18"/>
+            <stop offset="100%" stop-color="#1a4a62" stop-opacity=".02"/>
+          </radialGradient>
+        </defs>
+        <polygon points="75,10 132,44 132,106 75,140 18,106 18,44" fill="none" stroke="var(--border-l)" stroke-width="1"/>
+        <polygon points="75,30 112,56 112,94 75,120 38,94 38,56" fill="none" stroke="var(--border-l)" stroke-width="1"/>
+        <polygon points="75,50 92,68 92,82 75,100 58,82 58,68" fill="none" stroke="var(--border-l)" stroke-width="1"/>
+        <line x1="75" y1="10" x2="75" y2="140" stroke="var(--border-l)" stroke-width=".8"/>
+        <line x1="18" y1="44" x2="132" y2="106" stroke="var(--border-l)" stroke-width=".8"/>
+        <line x1="132" y1="44" x2="18" y2="106" stroke="var(--border-l)" stroke-width=".8"/>
+        ${terpenes.slice(0, 6).length >= 3 ? (() => {
+          const pts = terpenes.slice(0, 6).map((t, i) => {
+            const v = toNum(t.value);
+            const frac = Math.max(0.1, Math.min(1, v / maxTerpVal));
+            const angles = [270, 30, 90, 150, 210, 330].map(a => a * Math.PI / 180);
+            const angle = angles[i] || (i * 60 * Math.PI / 180);
+            const r = 10 + frac * 55;
+            return `${(75 + r * Math.cos(angle)).toFixed(1)},${(75 + r * Math.sin(angle)).toFixed(1)}`;
+          });
+          return `<polygon points="${pts.join(" ")}" fill="url(#rg${esc(options.documentId || "x")})" stroke="var(--alem-dark)" stroke-width="1.5" stroke-linejoin="round"/>
+        ${pts.map((p, i) => `<circle cx="${p.split(",")[0]}" cy="${p.split(",")[1]}" r="${i === 0 ? 4 : 2.5}" fill="var(--alem-dark)" opacity="${(1 - i * 0.12).toFixed(2)}"/>`).join("\n        ")}`;
+        })() : ""}
+        <text x="75"  y="7"   text-anchor="middle" fill="var(--t-light)" font-size="8" font-family="Space Mono,monospace">${esc(terpenes[0]?.name?.slice(0,3).toUpperCase() || "T1")}</text>
+        <text x="138" y="47"  text-anchor="start"  fill="var(--t-light)" font-size="8" font-family="Space Mono,monospace">${esc(terpenes[1]?.name?.slice(0,3).toUpperCase() || "T2")}</text>
+        <text x="138" y="110" text-anchor="start"  fill="var(--t-light)" font-size="8" font-family="Space Mono,monospace">${esc(terpenes[2]?.name?.slice(0,3).toUpperCase() || "T3")}</text>
+        <text x="75"  y="148" text-anchor="middle" fill="var(--t-light)" font-size="8" font-family="Space Mono,monospace">${esc(terpenes[3]?.name?.slice(0,3).toUpperCase() || "T4")}</text>
+        <text x="12"  y="110" text-anchor="end"    fill="var(--t-light)" font-size="8" font-family="Space Mono,monospace">${esc(terpenes[4]?.name?.slice(0,3).toUpperCase() || "T5")}</text>
+        <text x="12"  y="47"  text-anchor="end"    fill="var(--t-light)" font-size="8" font-family="Space Mono,monospace">${esc(terpenes[5]?.name?.slice(0,3).toUpperCase() || "T6")}</text>
+      </svg>
+      <div class="t-bars">
+        ${terpenes.length ? terpenes.map((t, i) => terpBar(t, i)).join("") : "<div style='color:var(--t-faint);font-size:11px;'>No terpene data reported.</div>"}
       </div>
     </div>
   </div>
 
-  <!-- Raw JSON -->
-  <div class="section">
-    <div class="card">
-      <div class="card-title">Raw intelligence data</div>
-      <button class="btn" type="button" onclick="toggleRaw()">Toggle JSON</button>
-      <div id="rawBox" class="raw-box">
-        <pre>${rawJson}</pre>
+  <!-- CANNABINOID PROFILE -->
+  <div class="sec">
+    <div class="sec-head">
+      <div class="sec-title">cannabinoid profile ${infoIcon(`<span class="tooltip"><strong>The Entourage Effect</strong><span class="tt-body">The "entourage effect" is the hypothesis that cannabinoids and terpenes work synergistically — producing different therapeutic outcomes together than in isolation. THC alone differs from THC alongside CBC, CBGA, CBG, and a rich terpene profile.</span><span class="tt-coa"><strong>Clinical implication:</strong> A product with multiple detected minor cannabinoids is thought to produce more nuanced effects. The breadth of minors here (${cannabinoids.filter(c => !["THCA","D9-THC","CBD","CBDA"].includes(c.name)).length} detected) is a positive signal for entourage complexity.</span></span>`, "sec-info")}</div>
+      <div class="sec-badge">${esc(chemistry.total_cannabinoids || "—")} wt% total</div>
+    </div>
+    <div class="cann-grid">
+      ${cannabinoids.length ? cannabinoids.map(c => {
+        const isHL = c.name === "CBGA" || (toNum(c.value) > 0 && ["CBGA"].includes(c.name));
+        const noteMap = { "THCA": "Precursor · ×0.877 on heat", "D9-THC": "Active form", "CBGA": "Notable · biosynthetic depth", "CBN": "Degradation marker" };
+        return cannCell(c.name, c.value, c.unit, c.notes || noteMap[c.name] || "", isHL);
+      }).join("") : "<div style='color:var(--t-faint);'>No cannabinoid data reported.</div>"}
+    </div>
+    ${chemistry.total_cannabinoids ? `<div class="cann-total"><span class="ct-lbl2">Total Cannabinoid Sum</span><span class="ct-val2">${esc(chemistry.total_cannabinoids)} wt%</span></div>` : ""}
+    <!-- Entourage Effect Banner -->
+    <div class="entourage">
+      <span class="entourage-icon">⬡</span>
+      <div class="entourage-body">
+        <strong>Entourage Effect signal: ${cannabinoids.filter(c => toNum(c.value) > 0).length >= 5 ? "Strong" : cannabinoids.filter(c => toNum(c.value) > 0).length >= 3 ? "Moderate" : "Limited"}.</strong>
+        With ${cannabinoids.filter(c => toNum(c.value) > 0).length} quantified cannabinoids and ${terpenes.filter(t => toNum(t.value) > 0).length} terpenes, this profile has the biochemical complexity associated with full-spectrum, synergistic activity. THC does not act alone here.
+        ${infoIcon(`<span class="tooltip"><strong>Why Entourage Matters</strong><span class="tt-body">The entourage effect (Russo, 2011) describes how whole-plant cannabis extracts produce effects greater than the sum of their individual parts. THC embedded in a complex cannabinoid-terpene matrix behaves differently to THC in isolation.</span><span class="tt-coa"><strong>Clinical implication:</strong> Patients and clinicians should consider the full profile, not just THC%. A product with rich minor cannabinoids and terpenes will likely behave differently to a THC-dominant, terpene-poor product of the same potency.</span></span>`, "tt-right")}
       </div>
     </div>
+  </div>
+
+  <!-- EFFECT + POST HARVEST -->
+  <div class="two-col">
+    <div class="sec" style="border-bottom:1px solid var(--border-l)">
+      <div class="sec-title" style="margin-bottom:14px">effect direction ${infoIcon(`<span class="tooltip"><strong>How Effect Direction is Inferred</strong><span class="tt-body">Direction is derived from the chemotype fingerprint using observational data correlating terpene dominance to user-reported experiences across thousands of products. Not based on clinical trials.</span><span class="tt-coa"><strong>Limitations:</strong> Individual responses vary widely. Tolerance, consumption method, dose, physiology, and set & setting all influence the experience. This is directional, not predictive.</span></span>`, "sec-info")}</div>
+      <div class="eff-pill"><span class="eff-icon">☀</span><span class="eff-dir">${esc(terpIntel.direction)}</span></div>
+      <div class="eff-body">
+        <strong>Lead:</strong> ${esc(leadTerpene || "Not identified")}<br>
+        ${secondTerpene ? `<strong>Secondary:</strong> ${esc(secondTerpene)}${thirdTerpene ? " · " + esc(thirdTerpene) : ""}<br>` : ""}
+        <br>${esc(terpIntel.note)}
+      </div>
+    </div>
+    <div class="sec" style="border-bottom:1px solid var(--border-l)">
+      <div class="sec-title" style="margin-bottom:14px">post-harvest</div>
+      <div class="ph-list">
+        ${phRow(terps >= 2 ? "good" : "mild", `Freshness — ${postHarvest.freshness.label}`, postHarvest.freshness.note,
+          "Freshness Signal",
+          "Inferred from total terpene content. Terpenes degrade with heat, light, and time. High terpene retention relative to batch type suggests good post-harvest handling.",
+          "Compare terpene content against producer's historical batches. A significant drop batch-to-batch may indicate storage or handling issues.")}
+        ${phRow(terpenes.length >= 6 ? "good" : "mild", `Curing — ${postHarvest.curing.label}`, postHarvest.curing.note,
+          "Curing Quality Signal",
+          "Curing is controlled post-harvest drying. A broad, intact terpene spectrum with volatile terpenes (Terpinolene, Ocimene) present suggests gentle, appropriate curing conditions.",
+          "If only low-volatility terpenes survive (Caryophyllene, Bisabolol), it suggests aggressive drying. Volatile terpenes present = positive curing signal.")}
+        ${phRow(cbn < 0.3 ? "good" : "mild", `Degradation — ${postHarvest.degradation.label}`, postHarvest.degradation.note,
+          "THC Oxidative Degradation (CBN)",
+          "CBN (Cannabinol) forms when THC oxidises over time or with exposure to heat/light. It is the primary chemical marker of cannabis age and storage quality.",
+          "Find 'CBN' in the cannabinoid table. Values above 0.3 wt% may indicate significant age or improper storage. ND (not detected) is the ideal result.")}
+        ${phRow(cbga >= 1 ? "good" : "mild", `CBGA Signal — ${cbga >= 1 ? "Notable" : cbga > 0 ? "Present" : "Not detected"}`, `${cbga >= 1 ? cbga.toFixed(2) + " wt% — elevated CBGA may indicate specific genetics or early harvest timing." : "CBGA not elevated in this profile."}`,
+          "CBGA Signal (Biosynthetic Marker)",
+          "CBGA is the precursor to all other cannabinoids. Residual CBGA after full maturation suggests either specific genetics that leave more unconverted CBGA, or harvest timing optimised for CBGA retention.",
+          "Find 'CBGA' in the cannabinoid table. Values above 1.0 wt% are considered notable and signal genetic depth.")}
+      </div>
+    </div>
+  </div>
+
+  <!-- AUDIENCE INTELLIGENCE -->
+  <div class="audience">
+    <div class="sec-head" style="margin-bottom:14px">
+      <div class="sec-title">audience intelligence</div>
+    </div>
+    <div class="tab-row">
+      <button class="tab-btn active" onclick="showTab('brand',this)"><span class="tab-icon">◈</span>Brand</button>
+      <button class="tab-btn" onclick="showTab('clinical',this)"><span class="tab-icon">✚</span>Clinical</button>
+      <button class="tab-btn" onclick="showTab('patient',this)"><span class="tab-icon">◯</span>Patient</button>
+      <button class="tab-btn" onclick="showTab('buyer',this)"><span class="tab-icon">◇</span>Buyer</button>
+    </div>
+    <div id="ap-brand" class="tab-panel active"><div class="ins-list">${audiencePanel(audiences.brand)}</div></div>
+    <div id="ap-clinical" class="tab-panel"><div class="ins-list">${audiencePanel(audiences.clinical)}</div></div>
+    <div id="ap-patient" class="tab-panel"><div class="ins-list">${audiencePanel(audiences.patient)}</div></div>
+    <div id="ap-buyer" class="tab-panel"><div class="ins-list">${audiencePanel(audiences.buyer)}</div></div>
+  </div>
+
+  <!-- QUALITY & SAFETY -->
+  <div class="sec">
+    <div class="sec-head">
+      <div class="sec-title">quality &amp; safety signals ${infoIcon(`<span class="tooltip"><strong>What Safety Panels Mean</strong><span class="tt-body">A complete cannabis COA includes chemical profiling AND safety screening. The chemical profile tells you what IS in the product. Safety panels tell you what should NOT be there.</span><span class="tt-coa"><strong>Key panels to request:</strong> Pesticides (TGO93/TGO100), Heavy Metals (ICH Q3D), Microbials (USP 2021/2023), Mycotoxins (EC 1881/2006), Residual Solvents (USP 467). If absent from a COA, request them before prescribing or listing.</span></span>`, "sec-info")}</div>
+    </div>
+    <div class="safety-grid">
+      ${sfRow("ISO 17025:2017", "pass", isoPass ? "✓ Certified" : "Not confirmed", isoPass)}
+      ${sfRow("SCC Accredited", "pass", sccPass ? "✓ Pass" : "Not confirmed", sccPass)}
+      ${sfRow("Pesticides", pestPass ? "pass" : "nt", pestPass ? "✓ " + (contaminants.pesticides_status || "Pass") : "not tested", pestPass)}
+      ${sfRow("Heavy Metals", metalsPass ? "pass" : "nt", metalsPass ? "✓ " + (contaminants.heavy_metals_status || "Pass") : "not tested", metalsPass)}
+      ${sfRow("Microbials", microPass ? "pass" : "nt", microPass ? "✓ " + (contaminants.microbials_status || "Pass") : "not tested", microPass)}
+      ${sfRow("Mycotoxins", /pass|nd/i.test(contaminants.mycotoxins_status || "") ? "pass" : "nt", /pass|nd/i.test(contaminants.mycotoxins_status || "") ? "✓ Pass" : "not tested", /pass|nd/i.test(contaminants.mycotoxins_status || ""))}
+      ${sfRow("Residual Solvents", /pass|nd/i.test(contaminants.residual_solvents_status || "") ? "pass" : "nt", /pass|nd/i.test(contaminants.residual_solvents_status || "") ? "✓ Pass" : "not tested", /pass|nd/i.test(contaminants.residual_solvents_status || ""))}
+      ${sfRow("Moisture / Water Activity", !!(contaminants.moisture_content || contaminants.water_activity) ? "pass" : "nt", contaminants.moisture_content || contaminants.water_activity || "not tested", !!(contaminants.moisture_content || contaminants.water_activity))}
+    </div>
+    ${contaminants.contaminant_narrative || (!pestPass && !metalsPass) ? `<div class="safety-note"><strong>${pestPass && metalsPass ? "Safety Profile:" : "Incomplete safety profile."}</strong> ${esc(contaminants.contaminant_narrative || "Contaminant panels were not included in this COA submission. This is not a failed test — the panels were simply not submitted. Request the full compliance panel before clinical prescription or commercial listing.")}</div>` : ""}
+  </div>
+
+  <!-- LAB STRIP -->
+  <div class="lab-strip">
+    <div class="lab-cell">
+      <div class="lab-val">${esc(chemistry.laboratory_name || "—")}</div>
+      <div class="lab-lbl">Laboratory ${infoIcon(`<span class="tooltip"><strong>${esc(chemistry.laboratory_name || "Laboratory")}</strong><span class="tt-body">${esc(contaminants.lab_quality_summary || (chemistry.laboratory_accreditation ? `Accredited under ${chemistry.laboratory_accreditation}.` : "Laboratory accreditation details not captured."))} ISO 17025 is the international gold standard for testing laboratories — it verifies competence, impartiality, and consistent operation.</span><span class="tt-coa"><strong>Why it matters:</strong> Not all cannabis labs hold ISO 17025. Accreditation means results are traceable to international measurement standards. Always verify lab accreditation before relying on a COA.</span></span>`, "tt-right")}</div>
+    </div>
+    <div class="lab-cell">
+      <div class="lab-val">${esc(chemistry.laboratory_method || "—")}</div>
+      <div class="lab-lbl">Method</div>
+    </div>
+    <div class="lab-cell">
+      <div class="lab-val">${esc(chemistry.coa_report_date || "—")}</div>
+      <div class="lab-lbl">Report Date</div>
+    </div>
+    <div class="lab-cell">
+      <div class="lab-val">${esc(chemistry.laboratory_accreditation || "—")}</div>
+      <div class="lab-lbl">Accreditation</div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <div>
+      <img src="https://www.alem.solutions/wp-content/uploads/2024/04/Alem-Brand-Green.png"
+           alt="Alem" style="height:48px;display:block;"
+           onerror="this.style.display='none'">
+      <div class="footer-url">alem.solutions &nbsp;·&nbsp; Free. No account. No catch.</div>
+    </div>
+    <div class="footer-tagline">Upload your COA.<br>Understand your chemistry.</div>
   </div>
 
 </div>
 
+<!-- ACTION BUTTONS -->
+<div class="ractions">
+  <a class="rbtn rbtn-p" href="/" onclick="return false;" style="cursor:pointer;" onclick="window.location='/'">↗ &nbsp; Analyse New COA</a>
+  ${options.documentId ? `<a class="rbtn rbtn-s" href="/pdf/${esc(options.documentId)}" target="_blank">⬇ &nbsp; Export PDF</a>` : ""}
+</div>
+<p class="page-foot">Powered by <a href="https://alem.solutions">alem.solutions</a> &nbsp;·&nbsp; Chemical Intelligence</p>
+
 <script>
-function switchAud(id, btn) {
-  document.querySelectorAll('.apanel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.atab').forEach(t => t.classList.remove('active'));
+function showTab(id, btn) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('ap-' + id).classList.add('active');
   btn.classList.add('active');
-}
-function toggleRaw() {
-  document.getElementById('rawBox').classList.toggle('open');
 }
 </script>
 </body>
@@ -1536,71 +1314,35 @@ app.post("/upload-coa", upload.single("file"), async (req, res) => {
     const originalFilename = req.file.originalname || `upload-${Date.now()}.pdf`;
     const mimeType = req.file.mimetype || "application/octet-stream";
 
-    // Upload to Supabase storage
-    const { publicUrl, storagePath } = await uploadBufferToSupabase({
-      buffer: req.file.buffer,
-      originalName: originalFilename,
-      mimeType,
-      folder: "raw_documents",
-    });
+    const { publicUrl, storagePath } = await uploadBufferToSupabase({ buffer: req.file.buffer, originalName: originalFilename, mimeType, folder: "raw_documents" });
     console.log("☁️  Stored:", storagePath);
 
-    // Layer 1: Azure OCR
     console.log("🔍 Azure OCR...");
     const extracted = await extractDocumentFromUrl(publicUrl);
     console.log(`✅ OCR: ${extracted.plain_text.length} chars, ${extracted.page_count} pages`);
 
-    // Layer 1: Dual-pass OpenAI extraction
     const { chemistry, contaminants } = await runDualPassExtraction(extracted.plain_text);
     console.log("✅ Dual-pass extraction complete");
 
-    // Layer 2: Composite scoring
     const scoring = computeIntelligenceScore(chemistry, contaminants);
     console.log(`✅ Score: ${scoring.total}/100 (${scoring.grade})`);
 
-    // Layer 3: Intelligence generation
     const fingerprintId = generateFingerprintId(chemistry.top_terpenes);
     const leadTerpene = chemistry.top_terpenes?.[0]?.name || "";
     const terpIntel = getTerpeneIntel(leadTerpene);
     const audiences = buildAudienceNarratives(chemistry, contaminants, scoring);
     const postHarvest = buildPostHarvestIntel(chemistry, contaminants);
 
-    const intelligence = {
-      fingerprintId,
-      effectDirection: terpIntel.direction,
-      lineageCluster: terpIntel.lineage,
-      lineageConfidence: terpIntel.lineageConfidence,
-      audiences,
-      postHarvest,
-    };
+    const intelligence = { fingerprintId, effectDirection: terpIntel.direction, lineageCluster: terpIntel.lineage, lineageConfidence: terpIntel.lineageConfidence, audiences, postHarvest };
     console.log(`✅ Intelligence: fingerprint=${fingerprintId}, direction=${terpIntel.direction}`);
 
-    // Layer 4: Store to Supabase
-    const insertedRow = await insertCOAReport({
-      chemistry,
-      contaminants,
-      scoring,
-      intelligence,
-      sourceUrl: publicUrl,
-      storagePath,
-      originalFilename,
-      mimeType: extracted.mimeType || mimeType,
-    });
+    const insertedRow = await insertCOAReport({ chemistry, contaminants, scoring, intelligence, sourceUrl: publicUrl, storagePath, originalFilename, mimeType: extracted.mimeType || mimeType });
     console.log(`✅ Stored report ID: ${insertedRow.id}`);
 
     const proto = req.headers["x-forwarded-proto"] || req.protocol || "https";
     const base = `${proto}://${req.get("host")}`;
 
-    return res.json({
-      success: true,
-      id: insertedRow.id,
-      score: scoring.total,
-      grade: scoring.grade,
-      tier: scoring.tier,
-      fingerprint_id: fingerprintId,
-      report_url: `${base}/report/${insertedRow.id}`,
-      pdf_url: `${base}/pdf/${insertedRow.id}`,
-    });
+    return res.json({ success: true, id: insertedRow.id, score: scoring.total, grade: scoring.grade, tier: scoring.tier, fingerprint_id: fingerprintId, report_url: `${base}/report/${insertedRow.id}`, pdf_url: `${base}/pdf/${insertedRow.id}` });
   } catch (error) {
     console.error("❌ Upload pipeline error:", error.message);
     return res.status(500).json({ success: false, error: error.message || "Upload pipeline failed" });
@@ -1623,19 +1365,10 @@ app.get("/pdf/:id", async (req, res) => {
     const row = await getReportById(req.params.id);
     const html = renderReportHTML(row?.report_json || {}, { documentId: row.id });
 
-    browser = await puppeteer.launch({
-      headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    });
-
+    browser = await puppeteer.launch({ headless: true, args: ["--no-sandbox", "--disable-setuid-sandbox"] });
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: "networkidle0" });
-
-    const pdfBuffer = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      margin: { top: "14mm", right: "12mm", bottom: "14mm", left: "12mm" },
-    });
+    const pdfBuffer = await page.pdf({ format: "A4", printBackground: true, margin: { top: "14mm", right: "12mm", bottom: "14mm", left: "12mm" } });
 
     const filename = sanitizeFileName(row?.report_json?.chemistry?.product_name || req.params.id);
     res.setHeader("Content-Type", "application/pdf");
