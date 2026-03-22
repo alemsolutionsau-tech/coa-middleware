@@ -1,160 +1,1406 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Alem Chemical Intelligence</title>
-
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alem Chemical Intelligence — Understand Your COA</title>
+<meta name="description" content="Upload your cannabis Certificate of Analysis and receive a complete chemical intelligence report. Free, instant, educational. No account required.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=Nunito:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,300;1,400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
-  body {
-    margin: 0;
-    font-family: Inter, Arial, sans-serif;
-    background: #f5f3ef;
-    color: #1a1a1a;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100vh;
-  }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  .container {
-    text-align: center;
-    max-width: 600px;
-    padding: 40px;
-  }
+:root {
+  --navy:       #0d2d3e;
+  --navy-mid:   #1a4a62;
+  --navy-deep:  #071e2a;
+  --mint:       #8ecfb0;
+  --mint-dim:   #5aab88;
+  --mint-pale:  #c8ead8;
+  --teal-wash:  #f4f8fb;
+  --teal-tint:  #e8f4f0;
+  --white:      #ffffff;
+  --off:        #f8fbfd;
+  --t-dark:     #0d2d3e;
+  --t-body:     #2a3d4a;
+  --t-mid:      #4a6070;
+  --t-light:    #8aa0b0;
+  --t-faint:    #b8c8d4;
+  --border:     #ccdde8;
+  --border-l:   #e2eef5;
+  --gold:       #c09838;
+  --gold-pale:  #fef8ec;
+  --sh:         rgba(13,45,62,.08);
+}
 
-  .logo {
-    font-size: 12px;
-    letter-spacing: 0.3em;
-    text-transform: uppercase;
-    color: #1f3d2b;
-    margin-bottom: 20px;
-  }
+html { scroll-behavior: smooth; }
 
-  h1 {
-    font-size: 40px;
-    margin-bottom: 16px;
-  }
+body {
+  font-family: 'Nunito', sans-serif;
+  background: var(--white);
+  color: var(--t-body);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
 
-  p {
-    font-size: 16px;
-    color: #555;
-    line-height: 1.6;
-    margin-bottom: 30px;
-  }
+@keyframes fadeUp {
+  from { opacity:0; transform:translateY(22px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+@keyframes gridDrift {
+  from { transform:translateY(0); }
+  to   { transform:translateY(60px); }
+}
+@keyframes scrollPulse {
+  0%,100% { opacity:.25; transform:scaleY(1); }
+  50%     { opacity:.8;  transform:scaleY(1.15); }
+}
+@keyframes grow { from{transform:scaleX(0)} to{transform:scaleX(1)} }
+@keyframes pulseRing {
+  0%   { transform:scale(1);   opacity:.6; }
+  100% { transform:scale(2.2); opacity:0; }
+}
 
-  .upload-box {
-    border: 2px dashed #ccc;
-    padding: 30px;
-    border-radius: 20px;
-    cursor: pointer;
-    background: white;
-    transition: 0.2s;
-  }
+/* ═══════════════════════════════
+   NAV
+═══════════════════════════════ */
+.nav {
+  position: fixed; top:0; left:0; right:0; z-index:200;
+  background: rgba(7,30,42,.97);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(142,207,176,.1);
+  padding: 0 48px; height: 68px;
+  display: flex; align-items: center; justify-content: space-between;
+  transition: background .3s;
+}
+.nav-logo { display:flex; align-items:center; }
+.nav-logo img { height:42px; display:block; }
+.nav-logo-fallback { font-family:'Nunito',sans-serif; font-weight:900; font-size:18px; letter-spacing:5px; color:var(--white); text-transform:uppercase; display:none; }
+.nav-links { display:flex; align-items:center; gap:28px; }
+.nav-links a { font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:rgba(255,255,255,.5); text-decoration:none; transition:color .2s; }
+.nav-links a:hover { color:var(--mint); }
+.nav-cta { background:var(--mint); color:var(--navy-deep); font-size:10.5px; font-weight:800; letter-spacing:2px; text-transform:uppercase; padding:9px 22px; border-radius:30px; text-decoration:none; transition:all .2s; }
+.nav-cta:hover { background:var(--mint-pale); transform:translateY(-1px); box-shadow:0 6px 24px rgba(142,207,176,.3); }
 
-  .upload-box:hover {
-    border-color: #1f3d2b;
-  }
+/* ═══════════════════════════════
+   HERO — SPLIT
+═══════════════════════════════ */
+.hero {
+  min-height: 100vh;
+  background: var(--navy-deep);
+  display: flex; flex-direction:column; justify-content:center;
+  padding: 104px 64px 88px;
+  position: relative; overflow: hidden;
+}
 
-  input {
-    display: none;
-  }
+.hero-grid {
+  position:absolute; inset:0;
+  background-image:
+    linear-gradient(rgba(142,207,176,.042) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(142,207,176,.042) 1px, transparent 1px);
+  background-size: 60px 60px;
+  animation: gridDrift 32s linear infinite;
+}
+.hero-glow-l {
+  position:absolute; top:40%; left:18%;
+  transform:translate(-50%,-50%);
+  width:720px; height:720px;
+  background:radial-gradient(ellipse, rgba(142,207,176,.09) 0%, transparent 65%);
+  pointer-events:none;
+}
+.hero-glow-r {
+  position:absolute; top:50%; right:-8%;
+  transform:translateY(-50%);
+  width:480px; height:480px;
+  background:radial-gradient(ellipse, rgba(142,207,176,.06) 0%, transparent 70%);
+  pointer-events:none;
+}
 
-  .btn {
-    margin-top: 20px;
-    padding: 14px 24px;
-    border-radius: 999px;
-    border: none;
-    background: #1f3d2b;
-    color: white;
-    font-weight: 600;
-    cursor: pointer;
-  }
+.hero-split {
+  position:relative; z-index:2;
+  display:grid; grid-template-columns:1fr 440px; gap:72px;
+  align-items:center;
+  max-width:1220px; width:100%; margin:0 auto;
+}
 
-  .loader {
-    display: none;
-    margin-top: 20px;
-    font-size: 14px;
-    color: #777;
-  }
+/* ── Left column ── */
+.hero-left { }
 
-  .note {
-    margin-top: 40px;
-    font-size: 13px;
-    color: #777;
-  }
+.hero-eyebrow {
+  font-family: 'Space Mono', monospace;
+  font-size: 13px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--mint);
+  margin-bottom: 32px;
+  opacity: 0;
+  animation: fadeUp .7s ease .15s both;
+  display: flex; align-items: center; gap: 14px;
+  line-height: 1.5;
+}
+.hero-eyebrow-line {
+  display: inline-block;
+  width: 36px; height: 1.5px;
+  background: var(--mint);
+  opacity: .65;
+  flex-shrink: 0;
+}
+
+.hero-title {
+  font-family: 'EB Garamond', Georgia, serif;
+  font-size: clamp(54px, 5.5vw, 92px);
+  font-weight: 600;
+  line-height: .96;
+  color: var(--white);
+  letter-spacing: -2px;
+  margin-bottom: 30px;
+  opacity: 0;
+  animation: fadeUp .8s ease .3s both;
+}
+.hero-title em { font-style:italic; color:var(--mint); }
+
+.hero-subtitle {
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 1.78;
+  color: var(--white);
+  max-width: 530px;
+  margin-bottom: 48px;
+  opacity: 0;
+  animation: fadeUp .8s ease .5s both;
+}
+.hero-subtitle strong { color:var(--mint); font-weight:700; }
+
+/* See live report + hover preview */
+.hero-preview-wrap {
+  position:relative;
+  display:inline-block;
+  opacity:0;
+  animation:fadeUp .7s ease .7s both;
+}
+.btn-ghost-hero {
+  background:transparent;
+  color:rgba(255,255,255,.82);
+  font-family:'Nunito',sans-serif;
+  font-size:12px; font-weight:700;
+  letter-spacing:2px; text-transform:uppercase;
+  padding:14px 30px; border-radius:40px;
+  text-decoration:none;
+  border:1px solid rgba(255,255,255,.22);
+  transition:all .25s;
+  display:inline-flex; align-items:center; gap:9px;
+}
+.btn-ghost-hero:hover { border-color:var(--mint); color:var(--mint); background:rgba(142,207,176,.06); }
+
+/* Preview panel */
+.preview-panel {
+  position:absolute;
+  bottom:calc(100% + 18px); left:0;
+  width:500px;
+  background:rgba(5,22,33,.98);
+  border:1px solid rgba(142,207,176,.22);
+  border-radius:8px; overflow:hidden;
+  box-shadow:0 28px 80px rgba(0,0,0,.55), 0 4px 20px rgba(0,0,0,.3);
+  opacity:0; transform:translateY(10px) scale(.97);
+  pointer-events:none;
+  transition:opacity .28s ease, transform .28s ease;
+  z-index:300;
+}
+.hero-preview-wrap:hover .preview-panel,
+.hero-preview-wrap:focus-within .preview-panel {
+  opacity:1; transform:translateY(0) scale(1); pointer-events:auto;
+}
+.preview-panel::after {
+  content:'';
+  position:absolute; bottom:-7px; left:44px;
+  width:0; height:0;
+  border-left:7px solid transparent;
+  border-right:7px solid transparent;
+  border-top:7px solid rgba(142,207,176,.22);
+}
+.pp-nav { background:var(--navy); padding:10px 18px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(142,207,176,.1); }
+.pp-logo { font-family:'Nunito',sans-serif; font-weight:900; font-size:12px; letter-spacing:4px; color:var(--white); text-transform:uppercase; }
+.pp-badge { font-family:'Space Mono',monospace; font-size:7px; color:var(--mint); letter-spacing:1.5px; background:rgba(142,207,176,.1); padding:3px 9px; border-radius:10px; text-transform:uppercase; }
+.pp-hero { padding:14px 18px 12px; border-bottom:1px solid rgba(255,255,255,.05); }
+.pp-name { font-family:'EB Garamond',serif; font-size:22px; font-weight:600; color:var(--white); }
+.pp-name-sub { font-family:'EB Garamond',serif; font-style:italic; font-size:13px; color:rgba(255,255,255,.38); }
+.pp-meta { font-size:8px; color:rgba(255,255,255,.28); margin-top:4px; }
+.pp-nar { font-family:'EB Garamond',serif; font-style:italic; font-size:11px; color:rgba(255,255,255,.48); margin-top:6px; line-height:1.5; }
+.pp-score-row { padding:12px 18px; display:flex; gap:18px; align-items:center; border-bottom:1px solid rgba(255,255,255,.05); background:rgba(142,207,176,.04); }
+.pp-score-n { font-family:'Nunito',sans-serif; font-size:38px; font-weight:900; color:var(--white); line-height:1; }
+.pp-score-d { font-family:'Space Mono',monospace; font-size:8px; color:rgba(255,255,255,.28); }
+.pp-score-g { font-size:9px; font-weight:700; letter-spacing:2px; color:var(--mint); margin-top:3px; text-transform:uppercase; }
+.pp-bars { flex:1; display:flex; flex-direction:column; gap:4px; }
+.pp-brow { display:grid; grid-template-columns:78px 1fr 28px; align-items:center; gap:5px; }
+.pp-blbl { font-size:7px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:rgba(255,255,255,.32); }
+.pp-btrack { height:4px; background:rgba(255,255,255,.07); border-radius:2px; overflow:hidden; }
+.pp-bfill { height:100%; border-radius:2px; }
+.pp-bnum { font-family:'Space Mono',monospace; font-size:7px; color:rgba(255,255,255,.28); text-align:right; }
+.pp-metrics { display:grid; grid-template-columns:repeat(4,1fr); border-bottom:1px solid rgba(255,255,255,.05); }
+.pp-m { padding:9px 10px; text-align:center; border-right:1px solid rgba(255,255,255,.05); }
+.pp-m:last-child { border-right:none; }
+.pp-mv { font-family:'Nunito',sans-serif; font-size:15px; font-weight:800; color:var(--white); }
+.pp-ml { font-size:6.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:rgba(255,255,255,.28); margin-top:2px; }
+.pp-mc { font-size:7px; color:var(--mint); margin-top:2px; }
+.pp-ct { padding:9px 18px; display:flex; align-items:center; gap:10px; border-bottom:1px solid rgba(255,255,255,.05); background:rgba(255,255,255,.02); }
+.pp-ct-code { font-family:'Space Mono',monospace; font-size:11px; font-weight:700; letter-spacing:3px; color:var(--white); }
+.pp-ct-tag { font-size:7px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:var(--mint); background:rgba(142,207,176,.1); padding:2px 8px; border-radius:10px; }
+.pp-terps { padding:11px 18px; }
+.pp-t-title { font-size:7px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:rgba(255,255,255,.28); margin-bottom:7px; }
+.pp-trow { display:flex; justify-content:space-between; align-items:center; margin-bottom:3px; }
+.pp-tn { font-size:8px; color:rgba(255,255,255,.45); }
+.pp-tn.lead { font-weight:700; color:var(--white); }
+.pp-tp { font-family:'Space Mono',monospace; font-size:8px; color:var(--mint); }
+.pp-ttrack { height:2px; background:rgba(255,255,255,.07); margin-bottom:5px; border-radius:1px; overflow:hidden; }
+.pp-tfill { height:100%; background:rgba(142,207,176,.5); border-radius:1px; }
+.pp-tfill.lead { background:var(--mint); }
+.pp-footer { padding:11px 18px; background:rgba(142,207,176,.07); border-top:1px solid rgba(142,207,176,.14); display:flex; justify-content:space-between; align-items:center; }
+.pp-footer-txt { font-size:9.5px; color:rgba(255,255,255,.45); }
+.pp-footer-link { font-size:10px; font-weight:700; color:var(--mint); text-decoration:none; }
+.pp-footer-link:hover { color:var(--mint-pale); }
+
+.hero-free {
+  margin-top:28px;
+  display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+  font-family:'Space Mono',monospace;
+  font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase;
+  color:rgba(255,255,255,.55);
+  opacity:0; animation:fadeUp .6s ease .9s both;
+}
+.hero-free span { color:var(--mint); }
+.hero-free-dot { width:4px; height:4px; border-radius:50%; background:rgba(255,255,255,.3); flex-shrink:0; }
+
+/* ── Right column — Upload box ── */
+.hero-right {
+  opacity:0; animation:fadeUp .8s ease .45s both;
+}
+.hub {
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(142,207,176,.2);
+  border-radius:8px; overflow:hidden;
+  box-shadow:0 32px 80px rgba(0,0,0,.32), 0 4px 16px rgba(0,0,0,.2), inset 0 1px 0 rgba(255,255,255,.07);
+}
+.hub-head {
+  background:rgba(142,207,176,.1);
+  border-bottom:1px solid rgba(142,207,176,.18);
+  padding:18px 26px;
+  display:flex; align-items:center; justify-content:space-between;
+}
+.hub-title { font-size:13px; font-weight:800; letter-spacing:2.5px; text-transform:uppercase; color:var(--white); }
+.hub-badge { font-family:'Space Mono',monospace; font-size:9px; letter-spacing:1px; text-transform:uppercase; color:var(--mint); background:rgba(142,207,176,.15); border:1px solid rgba(142,207,176,.3); padding:4px 12px; border-radius:20px; }
+.hub-body { padding:28px 26px; }
+.hub-drop {
+  border:2px dashed rgba(142,207,176,.3);
+  border-radius:6px; padding:36px 20px;
+  text-align:center; cursor:pointer;
+  transition:all .3s; background:rgba(142,207,176,.03);
+  text-decoration:none; display:block;
+}
+.hub-drop:hover { border-color:var(--mint); background:rgba(142,207,176,.08); transform:translateY(-2px); }
+.hub-drop-icon { font-size:38px; display:block; margin-bottom:13px; }
+.hub-drop-title { font-size:16px; font-weight:700; color:var(--white); margin-bottom:6px; }
+.hub-drop-sub { font-size:12px; color:rgba(255,255,255,.5); margin-bottom:22px; }
+.hub-btn {
+  display:inline-flex; align-items:center; justify-content:center; gap:8px; width:100%;
+  background:var(--mint); color:var(--navy-deep);
+  font-family:'Nunito',sans-serif; font-size:13px; font-weight:800; letter-spacing:2px; text-transform:uppercase;
+  padding:15px 24px; border-radius:30px; border:none; cursor:pointer; transition:all .25s;
+}
+.hub-btn:hover { background:var(--mint-pale); transform:translateY(-1px); box-shadow:0 8px 32px rgba(142,207,176,.35); }
+.hub-formats { font-size:10px; color:rgba(255,255,255,.35); margin-top:11px; letter-spacing:1px; text-transform:uppercase; }
+.hub-div {
+  display:flex; align-items:center; gap:12px; margin:24px 0;
+  color:rgba(255,255,255,.45); font-size:10px; font-weight:700; letter-spacing:2.5px; text-transform:uppercase;
+}
+.hub-div::before,.hub-div::after { content:''; flex:1; height:1px; background:rgba(255,255,255,.1); }
+.hub-checks { display:flex; flex-direction:column; gap:14px; }
+.hub-check { display:flex; align-items:flex-start; gap:12px; }
+.hub-check-dot {
+  width:26px; height:26px;
+  background:rgba(142,207,176,.15);
+  border:1px solid rgba(142,207,176,.25);
+  border-radius:50%; display:flex; align-items:center; justify-content:center;
+  font-size:13px; flex-shrink:0; margin-top:1px;
+}
+.hub-check-text { font-size:13px; color:rgba(255,255,255,.72); line-height:1.5; }
+.hub-check-text strong { color:var(--mint); font-weight:700; }
+.hub-foot {
+  border-top:1px solid rgba(255,255,255,.08);
+  padding:14px 26px; text-align:center;
+  font-size:10px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase;
+  color:rgba(255,255,255,.35);
+}
+.hub-foot span { color:var(--mint); }
+
+/* Scroll hint */
+.scroll-hint {
+  position:absolute; bottom:32px; left:50%; transform:translateX(-50%);
+  display:flex; flex-direction:column; align-items:center; gap:6px;
+  opacity:0; animation:fadeUp .6s ease 1.3s both;
+}
+.scroll-hint-lbl { font-family:'Space Mono',monospace; font-size:8.5px; letter-spacing:3px; text-transform:uppercase; color:rgba(255,255,255,.2); }
+.scroll-line { width:1px; height:44px; background:linear-gradient(to bottom, rgba(142,207,176,.5),transparent); animation:scrollPulse 2.2s ease-in-out infinite; }
+
+/* ═══════════════════════════════
+   STATS BAR
+═══════════════════════════════ */
+.stats-bar {
+  background:var(--navy);
+  border-top:1px solid rgba(142,207,176,.12);
+  border-bottom:1px solid rgba(142,207,176,.12);
+  padding:30px 48px;
+  display:grid; grid-template-columns:repeat(4,1fr);
+}
+.stat-cell { text-align:center; border-right:1px solid rgba(142,207,176,.1); padding:0 20px; }
+.stat-cell:last-child { border-right:none; }
+.stat-num { font-family:'EB Garamond',serif; font-size:46px; font-weight:600; color:var(--mint); line-height:1; display:block; }
+.stat-label { font-size:10px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:rgba(255,255,255,.38); margin-top:7px; }
+
+/* ═══════════════════════════════
+   SHARED SECTION STYLES
+═══════════════════════════════ */
+.section { padding:108px 64px; }
+.section-inner { max-width:1140px; margin:0 auto; }
+.section-label { font-family:'Space Mono',monospace; font-size:10px; letter-spacing:3px; text-transform:uppercase; color:var(--mint-dim); margin-bottom:16px; display:flex; align-items:center; gap:12px; }
+.section-label::before { content:''; display:inline-block; width:28px; height:1px; background:var(--mint-dim); opacity:.6; }
+.section-title { font-family:'EB Garamond',serif; font-size:clamp(38px,4.5vw,60px); font-weight:600; line-height:1.07; color:var(--navy); letter-spacing:-.5px; margin-bottom:20px; }
+.section-title em { font-style:italic; color:var(--mint-dim); }
+.section-body { font-size:17px; font-weight:400; line-height:1.78; color:var(--t-mid); max-width:640px; }
+
+/* Reveal on scroll */
+.reveal { opacity:0; transform:translateY(28px); transition:opacity .65s ease, transform .65s ease; }
+.reveal.visible { opacity:1; transform:translateY(0); }
+.rd1 { transition-delay:.08s; }
+.rd2 { transition-delay:.16s; }
+.rd3 { transition-delay:.24s; }
+.rd4 { transition-delay:.32s; }
+
+/* ═══════════════════════════════
+   PROBLEM
+═══════════════════════════════ */
+.problem { background:var(--teal-wash); }
+
+.problem-layout { display:grid; grid-template-columns:1fr 1fr; gap:80px; align-items:center; margin-top:64px; }
+
+.coa-raw {
+  background:var(--white); border:1px solid var(--border); border-radius:4px;
+  box-shadow:0 4px 32px var(--sh);
+  font-family:'Space Mono',monospace; font-size:10px; line-height:1.95; overflow:hidden;
+}
+.coa-raw-header { background:var(--navy); padding:12px 20px; display:flex; justify-content:space-between; align-items:center; }
+.coa-raw-title { font-size:8px; letter-spacing:2px; text-transform:uppercase; color:rgba(255,255,255,.45); }
+.coa-raw-badge { font-size:7px; color:rgba(255,255,255,.25); letter-spacing:1px; }
+.coa-raw-body { padding:20px; }
+.coa-row { display:flex; justify-content:space-between; padding:3px 0; border-bottom:1px solid var(--border-l); }
+.coa-row:last-child { border-bottom:none; }
+.coa-k { color:var(--t-light); font-size:9.5px; }
+.coa-v { color:var(--t-body); font-weight:700; font-size:9.5px; }
+.coa-v.unclear { background:rgba(200,100,80,.08); border-radius:2px; padding:0 5px; color:var(--t-mid); }
+.coa-v.warn { color:#c07858; }
+.coa-raw-footer { background:var(--teal-wash); border-top:1px solid var(--border-l); padding:10px 20px; text-align:center; font-size:9px; color:var(--t-light); letter-spacing:.5px; }
+
+.problem-points { display:flex; flex-direction:column; gap:32px; }
+.pp { display:flex; gap:18px; align-items:flex-start; }
+.pp-icon { width:42px; height:42px; background:rgba(13,45,62,.07); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:19px; flex-shrink:0; margin-top:2px; }
+.pp-title { font-size:16px; font-weight:700; color:var(--navy); margin-bottom:6px; }
+.pp-body { font-size:13px; color:var(--t-mid); line-height:1.65; }
+
+/* ═══════════════════════════════
+   HOW IT WORKS
+═══════════════════════════════ */
+.how { background:var(--white); }
+
+.how-steps { display:grid; grid-template-columns:repeat(3,1fr); gap:2px; margin-top:64px; }
+.how-step {
+  padding:40px 36px; background:var(--teal-wash); border:1px solid var(--border-l);
+  position:relative; overflow:hidden; transition:transform .3s, box-shadow .3s;
+}
+.how-step:hover { transform:translateY(-5px); box-shadow:0 16px 48px var(--sh); }
+.how-step-num {
+  font-family:'EB Garamond',serif; font-size:88px; font-weight:600;
+  color:rgba(142,207,176,.18); line-height:1;
+  position:absolute; top:10px; right:20px;
+}
+.how-step-icon { font-size:30px; margin-bottom:22px; display:block; }
+.how-step-title { font-size:18px; font-weight:700; color:var(--navy); margin-bottom:12px; }
+.how-step-body { font-size:13.5px; color:var(--t-mid); line-height:1.68; }
+
+.how-connector { display:grid; grid-template-columns:1fr 40px 1fr 40px 1fr; align-items:center; margin-top:32px; }
+.how-connector-line { height:1px; background:linear-gradient(to right, var(--border), var(--border-l)); }
+.how-connector-arrow { text-align:center; color:var(--mint-dim); font-size:18px; }
+
+/* ═══════════════════════════════
+   FEATURES
+═══════════════════════════════ */
+.features { background:var(--navy-deep); }
+.features .section-title { color:var(--white); }
+.features .section-body { color:rgba(255,255,255,.5); }
+.features .section-label { color:var(--mint); }
+.features .section-label::before { background:var(--mint); }
+
+.features-grid {
+  display:grid; grid-template-columns:repeat(3,1fr);
+  gap:1px; margin-top:60px;
+  border:1px solid rgba(142,207,176,.08);
+}
+.feat {
+  padding:38px 32px; border:1px solid rgba(142,207,176,.06);
+  background:rgba(255,255,255,.02); transition:background .25s;
+}
+.feat:hover { background:rgba(142,207,176,.05); }
+.feat-icon { width:46px; height:46px; background:rgba(142,207,176,.1); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:21px; margin-bottom:20px; }
+.feat-title { font-size:15px; font-weight:700; color:var(--white); margin-bottom:10px; }
+.feat-body { font-size:12.5px; color:rgba(255,255,255,.42); line-height:1.68; }
+.feat-tag { display:inline-block; font-family:'Space Mono',monospace; font-size:8px; letter-spacing:1.5px; text-transform:uppercase; color:var(--mint); background:rgba(142,207,176,.1); padding:3px 9px; border-radius:3px; margin-top:13px; }
+
+/* ═══════════════════════════════
+   REPORT PREVIEW
+═══════════════════════════════ */
+.rpreview { background:var(--teal-wash); }
+.rpreview-layout { display:grid; grid-template-columns:1fr 420px; gap:72px; align-items:center; margin-top:60px; }
+
+/* Mini report mockup */
+.report-mock {
+  background:var(--white); border:1px solid var(--border);
+  box-shadow:0 20px 80px var(--sh), 0 4px 16px var(--sh);
+  overflow:hidden;
+}
+.rm-nav { background:var(--navy); padding:12px 20px; display:flex; justify-content:space-between; align-items:center; }
+.rm-logo { font-family:'Nunito',sans-serif; font-weight:900; font-size:12px; letter-spacing:4px; color:var(--white); text-transform:uppercase; }
+.rm-schema { font-family:'Space Mono',monospace; font-size:7px; color:rgba(255,255,255,.28); }
+.rm-hero { padding:18px 20px 14px; border-bottom:1px solid var(--border-l); }
+.rm-name { font-family:'EB Garamond',serif; font-size:24px; font-weight:600; color:var(--navy); }
+.rm-name-sub { font-family:'EB Garamond',serif; font-style:italic; font-size:13px; color:var(--t-light); }
+.rm-meta { font-size:8px; color:var(--t-light); margin-top:4px; }
+.rm-nar { font-family:'EB Garamond',serif; font-style:italic; font-size:11px; color:var(--t-mid); margin-top:7px; line-height:1.5; }
+.rm-score { padding:14px 20px; background:var(--teal-tint); border-bottom:1px solid var(--border-l); display:flex; gap:18px; align-items:center; }
+.rm-ring { text-align:center; }
+.rm-ring-n { font-family:'Nunito',sans-serif; font-size:30px; font-weight:900; color:var(--navy); line-height:1; }
+.rm-ring-d { font-family:'Space Mono',monospace; font-size:8px; color:var(--t-light); }
+.rm-ring-g { font-size:9px; font-weight:700; letter-spacing:1.5px; color:var(--navy); margin-top:3px; text-transform:uppercase; }
+.rm-bars { flex:1; display:flex; flex-direction:column; gap:5px; }
+.rm-brow { display:grid; grid-template-columns:88px 1fr 30px; align-items:center; gap:6px; }
+.rm-blbl { font-size:7px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:var(--t-mid); }
+.rm-btrack { height:5px; background:var(--border-l); border-radius:3px; overflow:hidden; }
+.rm-bfill { height:100%; border-radius:3px; }
+.rm-bnum { font-family:'Space Mono',monospace; font-size:7px; color:var(--t-light); text-align:right; }
+.rm-ct { padding:9px 20px; background:rgba(13,45,62,.03); border-bottom:1px solid var(--border-l); display:flex; align-items:center; gap:10px; }
+.rm-ct-code { font-family:'Space Mono',monospace; font-size:10.5px; font-weight:700; letter-spacing:3px; color:var(--navy); }
+.rm-ct-tag { font-size:7px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:var(--mint-dim); background:var(--teal-tint); padding:2px 8px; border-radius:12px; }
+.rm-metrics { display:grid; grid-template-columns:repeat(4,1fr); border-bottom:1px solid var(--border-l); }
+.rm-m { padding:10px 8px; text-align:center; border-right:1px solid var(--border-l); }
+.rm-m:last-child { border-right:none; }
+.rm-mv { font-family:'Nunito',sans-serif; font-size:14px; font-weight:800; color:var(--navy); }
+.rm-ml { font-size:7px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:var(--t-light); margin-top:3px; }
+.rm-mc { font-size:7px; color:var(--mint-dim); margin-top:2px; }
+.rm-terps { padding:14px 20px; }
+.rm-terp-title { font-size:7px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--t-light); margin-bottom:10px; }
+.rm-trow { display:flex; justify-content:space-between; align-items:center; margin-bottom:3px; }
+.rm-tn { font-size:8.5px; color:var(--t-body); }
+.rm-tn.lead { font-weight:700; color:var(--navy); }
+.rm-tp { font-family:'Space Mono',monospace; font-size:8.5px; color:var(--mint-dim); }
+.rm-ttrack { height:2.5px; background:var(--border-l); margin-bottom:6px; border-radius:2px; overflow:hidden; }
+.rm-tfill { height:100%; background:var(--navy); border-radius:2px; }
+.rm-tfill.lead { background:var(--navy); }
+.rm-cann { padding:14px 20px; border-top:1px solid var(--border-l); background:var(--off); }
+.rm-cann-title { font-size:7px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--t-light); margin-bottom:8px; }
+.rm-cann-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:5px; }
+.rm-cann-cell { padding:7px 9px; background:var(--white); border:1px solid var(--border-l); }
+.rm-cann-lbl { font-family:'Space Mono',monospace; font-size:7px; letter-spacing:.5px; color:var(--t-light); margin-bottom:3px; }
+.rm-cann-val { font-family:'Nunito',sans-serif; font-size:13px; font-weight:800; color:var(--navy); line-height:1; }
+.rm-cann-unit { font-size:7px; color:var(--t-faint); }
+.rm-entourage { padding:10px 20px; background:var(--teal-tint); border-top:1px solid var(--border-l); border-left:3px solid var(--mint); }
+.rm-ent-text { font-size:9.5px; color:var(--t-mid); line-height:1.5; }
+.rm-ent-text strong { font-weight:700; color:var(--navy); }
+
+.rpreview-points { display:flex; flex-direction:column; gap:36px; }
+.pv-num { font-family:'EB Garamond',serif; font-size:52px; font-weight:600; color:rgba(142,207,176,.3); line-height:1; margin-bottom:7px; }
+.pv-title { font-size:18px; font-weight:700; color:var(--navy); margin-bottom:9px; }
+.pv-body { font-size:14px; color:var(--t-mid); line-height:1.72; }
+
+/* ═══════════════════════════════
+   EDUCATION
+═══════════════════════════════ */
+.education { background:var(--white); }
+.edu-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:2px; margin-top:60px; border:1px solid var(--border); }
+.edu-card { padding:42px 40px; background:var(--white); border:1px solid var(--border-l); transition:background .25s; }
+.edu-card:hover { background:var(--teal-wash); }
+.edu-icon { font-size:34px; display:block; margin-bottom:20px; }
+.edu-title { font-size:19px; font-weight:700; color:var(--navy); margin-bottom:11px; }
+.edu-body { font-size:13.5px; color:var(--t-mid); line-height:1.72; margin-bottom:18px; }
+.edu-tags { display:flex; flex-wrap:wrap; gap:6px; }
+.edu-tag { font-family:'Space Mono',monospace; font-size:8px; letter-spacing:1px; text-transform:uppercase; color:var(--mint-dim); background:var(--teal-tint); border:1px solid rgba(90,171,136,.2); padding:3px 9px; border-radius:3px; }
+
+/* ═══════════════════════════════
+   AUDIENCES
+═══════════════════════════════ */
+.audiences { background:var(--navy-deep); }
+.audiences .section-title { color:var(--white); }
+.audiences .section-body { color:rgba(255,255,255,.48); }
+.audiences .section-label { color:var(--mint); }
+.audiences .section-label::before { background:var(--mint); }
+
+.aud-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-top:56px; }
+.aud-card { background:rgba(255,255,255,.04); border:1px solid rgba(142,207,176,.1); border-radius:4px; padding:32px 24px; transition:all .3s; }
+.aud-card:hover { background:rgba(142,207,176,.07); border-color:rgba(142,207,176,.25); transform:translateY(-4px); box-shadow:0 16px 48px rgba(0,0,0,.2); }
+.aud-emoji { font-size:34px; display:block; margin-bottom:18px; }
+.aud-title { font-size:17px; font-weight:700; color:var(--white); margin-bottom:14px; }
+.aud-points { display:flex; flex-direction:column; gap:9px; }
+.aud-point { font-size:12px; color:rgba(255,255,255,.48); line-height:1.55; padding-left:16px; position:relative; }
+.aud-point::before { content:'→'; position:absolute; left:0; color:var(--mint); font-size:10px; top:1px; }
+
+/* ═══════════════════════════════
+   ADVOCACY
+═══════════════════════════════ */
+.advocacy {
+  background:var(--navy);
+  padding:120px 64px;
+  text-align:center;
+  position:relative; overflow:hidden;
+}
+.advocacy::before {
+  content:'';
+  position:absolute; inset:0;
+  background-image:repeating-linear-gradient(45deg, rgba(142,207,176,.014) 0, rgba(142,207,176,.014) 1px, transparent 1px, transparent 40px);
+}
+.advocacy-inner { position:relative; z-index:1; max-width:780px; margin:0 auto; }
+.advocacy .section-label { justify-content:center; color:var(--mint); }
+.advocacy .section-label::before { background:var(--mint); }
+.advocacy-title { font-family:'EB Garamond',serif; font-size:clamp(40px,5vw,66px); font-weight:600; color:var(--white); line-height:1.08; margin-bottom:28px; letter-spacing:-.5px; }
+.advocacy-title em { font-style:italic; color:var(--mint); }
+.advocacy-body { font-size:17px; color:rgba(255,255,255,.58); line-height:1.78; margin-bottom:52px; }
+.advocacy-body strong { color:rgba(255,255,255,.9); font-weight:600; }
+.pillars { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; margin-bottom:56px; text-align:left; }
+.pillar { background:rgba(255,255,255,.05); border:1px solid rgba(142,207,176,.11); padding:26px 24px; border-radius:4px; }
+.pillar-icon { font-size:24px; display:block; margin-bottom:13px; }
+.pillar-title { font-size:15px; font-weight:700; color:var(--white); margin-bottom:7px; }
+.pillar-body { font-size:12.5px; color:rgba(255,255,255,.42); line-height:1.65; }
+
+/* ═══════════════════════════════
+   FREE / CTA
+═══════════════════════════════ */
+.free-section { background:var(--teal-wash); }
+.free-layout { display:grid; grid-template-columns:1fr 1fr; gap:80px; align-items:center; }
+.free-badge { display:inline-flex; align-items:center; gap:9px; background:rgba(90,171,136,.12); border:1px solid rgba(90,171,136,.25); padding:7px 16px; border-radius:30px; font-family:'Space Mono',monospace; font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--mint-dim); margin-bottom:20px; }
+.free-checks { display:flex; flex-direction:column; gap:16px; margin-top:36px; }
+.free-check { display:flex; align-items:flex-start; gap:13px; }
+.free-check-dot { width:22px; height:22px; background:rgba(90,171,136,.18); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; flex-shrink:0; margin-top:1px; color:var(--mint-dim); }
+.free-check-text { font-size:14px; color:var(--t-body); line-height:1.5; }
+.free-check-text strong { font-weight:700; color:var(--navy); }
+.free-cta-box { background:var(--navy); border-radius:6px; padding:48px 40px; text-align:center; }
+.free-cta-title { font-family:'EB Garamond',serif; font-size:36px; font-weight:600; color:var(--white); margin-bottom:12px; }
+.free-cta-sub { font-size:14px; color:rgba(255,255,255,.48); margin-bottom:32px; line-height:1.65; }
+.free-cta-sub strong { color:rgba(255,255,255,.8); font-weight:600; }
+.upload-drop {
+  border:2px dashed rgba(142,207,176,.28); border-radius:6px; padding:40px;
+  cursor:pointer; transition:all .3s; text-decoration:none; display:block;
+}
+.upload-drop:hover { border-color:var(--mint); background:rgba(142,207,176,.05); }
+.upload-drop-icon { font-size:36px; display:block; margin-bottom:13px; }
+.upload-drop-text { font-size:14px; font-weight:700; color:var(--white); margin-bottom:5px; }
+.upload-drop-sub { font-size:11px; color:rgba(255,255,255,.36); }
+.free-note { font-size:9.5px; color:rgba(255,255,255,.25); margin-top:16px; letter-spacing:1.5px; text-transform:uppercase; }
+.free-note span { color:var(--mint); }
+
+/* btn used in sections */
+.btn-primary {
+  background:var(--mint); color:var(--navy-deep);
+  font-family:'Nunito',sans-serif; font-size:13px; font-weight:800; letter-spacing:1.5px; text-transform:uppercase;
+  padding:16px 34px; border-radius:40px; text-decoration:none; border:none; cursor:pointer;
+  transition:all .25s; display:inline-flex; align-items:center; gap:8px;
+}
+.btn-primary:hover { background:var(--mint-pale); transform:translateY(-2px); box-shadow:0 12px 40px rgba(142,207,176,.3); }
+
+/* ═══════════════════════════════
+   DISCLAIMER
+═══════════════════════════════ */
+.disclaimer { background:var(--white); padding:64px 64px; border-top:1px solid var(--border); }
+.disclaimer-inner { max-width:880px; margin:0 auto; }
+.disclaimer-head { font-family:'Space Mono',monospace; font-size:9px; letter-spacing:3px; text-transform:uppercase; color:var(--t-light); margin-bottom:22px; display:flex; align-items:center; gap:12px; }
+.disclaimer-head::after { content:''; flex:1; height:1px; background:var(--border); }
+.disclaimer-body { font-size:12px; color:var(--t-light); line-height:1.82; }
+.disclaimer-body p { margin-bottom:13px; }
+.disclaimer-body strong { color:var(--t-mid); font-weight:600; }
+
+/* ═══════════════════════════════
+   FOOTER
+═══════════════════════════════ */
+.footer { background:var(--navy-deep); padding:52px 64px; display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:48px; border-top:1px solid rgba(142,207,176,.08); }
+.footer-brand img { height:44px; margin-bottom:14px; display:block; }
+.footer-brand-fb { font-family:'Nunito',sans-serif; font-weight:900; font-size:15px; letter-spacing:4px; color:var(--white); text-transform:uppercase; margin-bottom:10px; }
+.footer-brand p { font-size:12px; color:rgba(255,255,255,.32); line-height:1.65; margin-top:4px; }
+.footer-col-title { font-size:10px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:rgba(255,255,255,.36); margin-bottom:18px; }
+.footer-col-links { display:flex; flex-direction:column; gap:11px; }
+.footer-col-links a { font-size:13px; color:rgba(255,255,255,.42); text-decoration:none; transition:color .2s; }
+.footer-col-links a:hover { color:var(--mint); }
+.footer-bottom { background:rgba(0,0,0,.25); padding:20px 64px; display:flex; justify-content:space-between; align-items:center; border-top:1px solid rgba(255,255,255,.04); }
+.footer-copy { font-size:11px; color:rgba(255,255,255,.22); }
+.footer-legal { font-size:10px; color:rgba(255,255,255,.18); text-align:right; line-height:1.65; max-width:520px; }
+
+/* ═══════════════════════════════
+   RESPONSIVE
+═══════════════════════════════ */
+@media (max-width:1024px) {
+  .hero-split { grid-template-columns:1fr; gap:44px; }
+  .hero { padding:90px 32px 80px; }
+  .preview-panel { width:360px; }
+  .rpreview-layout { grid-template-columns:1fr; gap:44px; }
+}
+@media (max-width:900px) {
+  .nav-links { display:none; }
+  .section { padding:72px 28px; }
+  .stats-bar { grid-template-columns:repeat(2,1fr); padding:28px; }
+  .stat-cell:nth-child(2) { border-right:none; }
+  .problem-layout { grid-template-columns:1fr; gap:44px; }
+  .how-steps { grid-template-columns:1fr; }
+  .how-connector { display:none; }
+  .features-grid { grid-template-columns:1fr; }
+  .aud-grid { grid-template-columns:1fr 1fr; }
+  .pillars { grid-template-columns:1fr; }
+  .edu-grid { grid-template-columns:1fr; }
+  .free-layout { grid-template-columns:1fr; gap:44px; }
+  .footer { grid-template-columns:1fr; }
+  .footer-bottom { flex-direction:column; gap:12px; text-align:center; }
+  .footer-legal { text-align:center; }
+  .advocacy { padding:80px 28px; }
+  .disclaimer { padding:60px 28px; }
+}
+@media (max-width:600px) {
+  .aud-grid { grid-template-columns:1fr; }
+  .hero-title { letter-spacing:-1px; }
+}
+
+/* bar animate on scroll */
+.bar-a { transform:scaleX(0); transform-origin:left; transition:transform .9s cubic-bezier(.16,1,.3,1); }
+.bar-a.bar-go { transform:scaleX(1); }
 </style>
 </head>
-
 <body>
 
-<div class="container">
-
-  <div class="logo">ALEM</div>
-
-  <h1>Understand your COA</h1>
-
-  <p>
-    Upload your cannabis certificate of analysis and transform raw chemistry
-    into clear, actionable insights.
-  </p>
-
-  <div class="upload-box" onclick="document.getElementById('fileInput').click()">
-    Click or drop your COA here
+<!-- ── NAV ── -->
+<nav class="nav" id="top">
+  <div class="nav-logo">
+    <img src="https://www.alem.solutions/wp-content/uploads/2024/04/Alem-Brand-Green.png"
+         alt="Alem — Beyond Healthcare Solutions"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+    <div class="nav-logo-fallback">ALEM</div>
   </div>
-
-  <input type="file" id="fileInput" />
-
-  <button class="btn" onclick="handleUpload()">Analyze COA</button>
-
-  <div class="loader" id="loader">
-    Analyzing chemistry... please wait
+  <div class="nav-links">
+    <a href="#how">How it works</a>
+    <a href="#features">Features</a>
+    <a href="#education">Education</a>
+    <a href="#audiences">Who it's for</a>
+    <a href="https://www.alem.solutions" target="_blank" rel="noopener">Alem Solutions</a>
+    <a class="nav-cta" href="#upload">Analyse Free ↗</a>
   </div>
+</nav>
 
-  <div class="note">
-    No personal data is collected.  
-    We only process chemical reports to help accelerate research and improve product quality.
+<!-- ── HERO ── -->
+<section class="hero" id="home">
+  <div class="hero-grid"></div>
+  <div class="hero-glow-l"></div>
+  <div class="hero-glow-r"></div>
+
+  <div class="hero-split">
+
+    <!-- LEFT: Headline + description + live report hover -->
+    <div class="hero-left">
+      <div class="hero-eyebrow">
+        <span class="hero-eyebrow-line"></span>
+        Alem Chemical Intelligence &nbsp;·&nbsp; Beyond Healthcare Solutions
+      </div>
+
+      <h1 class="hero-title">
+        Your cannabis<br>
+        COA finally<br>
+        <em>makes sense.</em>
+      </h1>
+
+      <p class="hero-subtitle">
+        Upload any Certificate of Analysis and receive a
+        <strong>complete chemical intelligence report</strong> — terpene fingerprint,
+        entourage effect analysis, compound-by-compound education, and a plain-English
+        summary. Built for patients, clinicians, brands, and buyers.
+      </p>
+
+      <!-- See live report with full hover preview -->
+      <div class="hero-preview-wrap">
+        <a href="https://coa-middleware.onrender.com/report/91bce22c-6276-4861-a2c5-2b0d30619d8f"
+           target="_blank" rel="noopener" class="btn-ghost-hero">
+          👁 &nbsp; See a live report
+          <span style="opacity:.45;font-size:10px;">↗</span>
+        </a>
+
+        <div class="preview-panel">
+          <div class="pp-nav">
+            <div class="pp-logo">ALEM</div>
+            <div class="pp-badge">Live report preview</div>
+          </div>
+          <div class="pp-hero">
+            <div class="pp-name">Luminarium <span class="pp-name-sub">(d9)</span></div>
+            <div class="pp-meta">Dried Flower · Batch 3208-1 · High North Inc. · 2025-03-25</div>
+            <div class="pp-nar">Terpinolene-dominant chemotype with high THC potency tier. Significant CBGA presence — a chemically distinctive, premium expression.</div>
+          </div>
+          <div class="pp-score-row">
+            <div>
+              <div class="pp-score-n">81</div>
+              <div class="pp-score-d">/100</div>
+              <div class="pp-score-g">A− · Strong</div>
+            </div>
+            <div class="pp-bars">
+              <div class="pp-brow"><div class="pp-blbl">Potency</div><div class="pp-btrack"><div class="pp-bfill" style="width:88%;background:#1a4a62"></div></div><div class="pp-bnum">22/25</div></div>
+              <div class="pp-brow"><div class="pp-blbl">Terpenes</div><div class="pp-btrack"><div class="pp-bfill" style="width:84%;background:#1a4a62"></div></div><div class="pp-bnum">21/25</div></div>
+              <div class="pp-brow"><div class="pp-blbl">Minors</div><div class="pp-btrack"><div class="pp-bfill" style="width:100%;background:#c09838"></div></div><div class="pp-bnum">20/20</div></div>
+              <div class="pp-brow"><div class="pp-blbl">Safety</div><div class="pp-btrack"><div class="pp-bfill" style="width:40%;background:#c07858"></div></div><div class="pp-bnum">8/20</div></div>
+              <div class="pp-brow"><div class="pp-blbl">Data</div><div class="pp-btrack"><div class="pp-bfill" style="width:100%;background:#c09838"></div></div><div class="pp-bnum">10/10</div></div>
+            </div>
+          </div>
+          <div class="pp-metrics">
+            <div class="pp-m"><div class="pp-mv">24.1%</div><div class="pp-ml">THC</div><div class="pp-mc">↑ above avg</div></div>
+            <div class="pp-m"><div class="pp-mv">26.4%</div><div class="pp-ml">THCA</div><div class="pp-mc">×0.877</div></div>
+            <div class="pp-m"><div class="pp-mv">2.30%</div><div class="pp-ml">Terpenes</div><div class="pp-mc">top 20%</div></div>
+            <div class="pp-m"><div class="pp-mv">ND</div><div class="pp-ml">CBD</div><div class="pp-mc" style="color:rgba(255,255,255,.2)">n/d</div></div>
+          </div>
+          <div class="pp-ct">
+            <div class="pp-ct-code">TPN · MYR · OCI</div>
+            <div class="pp-ct-tag">☀ Uplifting · Haze type</div>
+          </div>
+          <div class="pp-terps">
+            <div class="pp-t-title">Terpene fingerprint · 12 compounds · All annotated ⓘ</div>
+            <div class="pp-trow"><span class="pp-tn lead">Terpinolene ⓘ</span><span class="pp-tp">0.899%</span></div>
+            <div class="pp-ttrack"><div class="pp-tfill lead" style="width:100%"></div></div>
+            <div class="pp-trow"><span class="pp-tn">β-Myrcene ⓘ</span><span class="pp-tp">0.417%</span></div>
+            <div class="pp-ttrack"><div class="pp-tfill" style="width:46%"></div></div>
+            <div class="pp-trow"><span class="pp-tn">Ocimene ⓘ</span><span class="pp-tp">0.311%</span></div>
+            <div class="pp-ttrack"><div class="pp-tfill" style="width:35%"></div></div>
+            <div class="pp-trow"><span class="pp-tn">α-Pinene ⓘ</span><span class="pp-tp">0.172%</span></div>
+            <div class="pp-ttrack"><div class="pp-tfill" style="width:19%"></div></div>
+          </div>
+          <div class="pp-footer">
+            <span class="pp-footer-txt">Hover any ⓘ in the full report to learn the science behind every number</span>
+            <a href="https://coa-middleware.onrender.com/report/91bce22c-6276-4861-a2c5-2b0d30619d8f" target="_blank" class="pp-footer-link">Open full report →</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-free">
+        <span>Free</span>
+        <div class="hero-free-dot"></div>
+        No account
+        <div class="hero-free-dot"></div>
+        No data collected
+        <div class="hero-free-dot"></div>
+        <span>No catch</span>
+      </div>
+    </div>
+
+    <!-- RIGHT: Upload box -->
+    <div class="hero-right">
+      <div class="hub">
+        <div class="hub-head">
+          <div class="hub-title">Analyse your COA</div>
+          <div class="hub-badge">Always free</div>
+        </div>
+        <div class="hub-body">
+          <a href="https://coa-middleware.onrender.com" class="hub-drop">
+            <span class="hub-drop-icon">📄</span>
+            <div class="hub-drop-title">Drop your COA here</div>
+            <div class="hub-drop-sub">PDF, PNG, JPG or TIFF · Up to 20MB</div>
+            <div class="hub-btn">⬆ &nbsp; Upload &amp; Analyse Free</div>
+            <div class="hub-formats">Any accredited lab · Any format · Instant results</div>
+          </a>
+
+          <div class="hub-div">What you get</div>
+
+          <div class="hub-checks">
+            <div class="hub-check">
+              <div class="hub-check-dot">🎯</div>
+              <div class="hub-check-text"><strong>Intelligence score</strong> across 5 dimensions — potency, terpenes, minors, safety, completeness</div>
+            </div>
+            <div class="hub-check">
+              <div class="hub-check-dot">🌿</div>
+              <div class="hub-check-text"><strong>Terpene fingerprint</strong> with hover education on every compound — aroma, benefits, lineage</div>
+            </div>
+            <div class="hub-check">
+              <div class="hub-check-dot">⬡</div>
+              <div class="hub-check-text"><strong>Entourage effect</strong> assessment — full-spectrum synergy signal from cannabinoid breadth</div>
+            </div>
+            <div class="hub-check">
+              <div class="hub-check-dot">👥</div>
+              <div class="hub-check-text"><strong>4 audience views</strong> — Brand, Clinical, Patient, and Buyer intelligence from one upload</div>
+            </div>
+            <div class="hub-check">
+              <div class="hub-check-dot">🔗</div>
+              <div class="hub-check-text"><strong>Permanent shareable URL</strong> + PDF export — send to your doctor, buyer, or brand team</div>
+            </div>
+          </div>
+        </div>
+        <div class="hub-foot">
+          <span>No personal data collected</span> · Chemistry processing only · <span>Alem Solutions · NSW AU</span>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /hero-split -->
+
+  <div class="scroll-hint">
+    <div class="scroll-hint-lbl">Scroll</div>
+    <div class="scroll-line"></div>
   </div>
+</section>
 
+<!-- ── STATS BAR ── -->
+<div class="stats-bar">
+  <div class="stat-cell">
+    <span class="stat-num">5</span>
+    <div class="stat-label">Intelligence Dimensions Scored</div>
+  </div>
+  <div class="stat-cell">
+    <span class="stat-num">12+</span>
+    <div class="stat-label">Terpenes Identified &amp; Explained</div>
+  </div>
+  <div class="stat-cell">
+    <span class="stat-num">4</span>
+    <div class="stat-label">Audience Intelligence Profiles</div>
+  </div>
+  <div class="stat-cell">
+    <span class="stat-num">0</span>
+    <div class="stat-label">Cost. Always. Forever.</div>
+  </div>
 </div>
 
+<!-- ── PROBLEM ── -->
+<section class="section problem" id="problem">
+  <div class="section-inner">
+    <div class="reveal">
+      <span class="section-label">The problem</span>
+      <h2 class="section-title">A COA without context<br>is just <em>noise.</em></h2>
+      <p class="section-body">A Certificate of Analysis is one of the most important documents in cannabis healthcare — and most people holding one have no idea what it means. Numbers like "THCA 26.39 wt%" or "TPN-MYR-OCI" sit on a page with no interpretation, no context, no guidance. That's a problem for patients making healthcare decisions. It's a problem that shouldn't exist.</p>
+    </div>
+
+    <div class="problem-layout">
+      <div class="reveal rd1">
+        <div class="coa-raw">
+          <div class="coa-raw-header">
+            <div class="coa-raw-title">Certificate of Analysis — Unprocessed</div>
+            <div class="coa-raw-badge">What most patients receive</div>
+          </div>
+          <div class="coa-raw-body">
+            <div class="coa-row"><span class="coa-k">THCA</span><span class="coa-v unclear">26.3858 wt%</span></div>
+            <div class="coa-row"><span class="coa-k">D9-THC</span><span class="coa-v unclear">0.9961 wt%</span></div>
+            <div class="coa-row"><span class="coa-k">CBGA</span><span class="coa-v unclear">1.4019 wt%</span></div>
+            <div class="coa-row"><span class="coa-k">CBCA</span><span class="coa-v unclear">0.2386 wt%</span></div>
+            <div class="coa-row"><span class="coa-k">THCVA</span><span class="coa-v unclear">0.1689 wt%</span></div>
+            <div class="coa-row"><span class="coa-k">Terpinolene</span><span class="coa-v unclear">0.8991 wt%</span></div>
+            <div class="coa-row"><span class="coa-k">β-Myrcene</span><span class="coa-v unclear">0.4174 wt%</span></div>
+            <div class="coa-row"><span class="coa-k">Ocimene</span><span class="coa-v unclear">0.3112 wt%</span></div>
+            <div class="coa-row"><span class="coa-k">α-Pinene</span><span class="coa-v unclear">0.1724 wt%</span></div>
+            <div class="coa-row"><span class="coa-k">Total Terpenes</span><span class="coa-v unclear">2.2994 wt%</span></div>
+            <div class="coa-row"><span class="coa-k">Pesticides</span><span class="coa-v warn">Not Tested</span></div>
+            <div class="coa-row"><span class="coa-k">Heavy Metals</span><span class="coa-v warn">Not Tested</span></div>
+            <div class="coa-row"><span class="coa-k">Microbials</span><span class="coa-v warn">Not Tested</span></div>
+          </div>
+          <div class="coa-raw-footer">← What does any of this mean for my health?</div>
+        </div>
+      </div>
+
+      <div class="problem-points reveal rd2">
+        <div class="pp">
+          <div class="pp-icon">🧬</div>
+          <div>
+            <div class="pp-title">Chemistry without translation</div>
+            <div class="pp-body">Lab reports are designed for analytical chemists. They output raw data — precise, rigorous, and completely opaque to the patient holding the document. The meaning stays locked inside the numbers.</div>
+          </div>
+        </div>
+        <div class="pp">
+          <div class="pp-icon">⚕️</div>
+          <div>
+            <div class="pp-title">Clinical decisions with incomplete context</div>
+            <div class="pp-body">Clinicians prescribing medicinal cannabis need more than THC%. Terpene profiles, minor cannabinoids, the entourage effect — these matter therapeutically. Most COAs provide none of that context.</div>
+          </div>
+        </div>
+        <div class="pp">
+          <div class="pp-icon">🏪</div>
+          <div>
+            <div class="pp-title">Buyers and brands flying blind</div>
+            <div class="pp-body">A product's chemotype fingerprint, market differentiation, and premium positioning story all live in the COA. Without intelligence, brands can't tell theirs — and buyers can't evaluate what they're listing.</div>
+          </div>
+        </div>
+        <div class="pp">
+          <div class="pp-icon">⚠️</div>
+          <div>
+            <div class="pp-title">"Not Tested" is not the same as "Safe"</div>
+            <div class="pp-body">When pesticide or heavy metal panels are absent from a COA, that absence is invisible without context. Patients and clinicians deserve to know when safety data is missing — not just when it passes.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── HOW IT WORKS ── -->
+<section class="section how" id="how">
+  <div class="section-inner">
+    <div class="reveal">
+      <span class="section-label">How it works</span>
+      <h2 class="section-title">Three steps.<br><em>One complete intelligence report.</em></h2>
+      <p class="section-body">Upload any cannabis COA — PDF, image, or scan. Our system reads every compound, scores the chemistry across five dimensions, and returns a permanent report with plain-English education built into every single data point.</p>
+    </div>
+
+    <div class="how-steps">
+      <div class="how-step reveal rd1">
+        <div class="how-step-num">1</div>
+        <span class="how-step-icon">📄</span>
+        <div class="how-step-title">Upload your COA</div>
+        <div class="how-step-body">Drag, drop, or tap to upload any Certificate of Analysis. PDF, JPG, PNG, or TIFF — from any ISO 17025-accredited laboratory worldwide. No account required. No personal data is collected. Processing begins instantly.</div>
+      </div>
+      <div class="how-step reveal rd2">
+        <div class="how-step-num">2</div>
+        <span class="how-step-icon">🧪</span>
+        <div class="how-step-title">We extract &amp; analyse</div>
+        <div class="how-step-body">Our dual-pass AI engine reads and extracts every cannabinoid and terpene value, applies our proprietary 5-dimension scoring model, generates your chemotype fingerprint, identifies lineage cluster, and calculates entourage effect signal — all in under 15 seconds.</div>
+      </div>
+      <div class="how-step reveal rd3">
+        <div class="how-step-num">3</div>
+        <span class="how-step-icon">📊</span>
+        <div class="how-step-title">Receive your report</div>
+        <div class="how-step-body">A permanent, shareable URL with your full intelligence report. Every compound has a hover tooltip explaining its science. Four audience views. Score breakdown. Post-harvest analysis. Entourage effect signal. PDF export. Free forever.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── FEATURES ── -->
+<section class="section features" id="features">
+  <div class="section-inner">
+    <div class="reveal">
+      <span class="section-label">What you get</span>
+      <h2 class="section-title">Everything your COA<br><em>should have told you.</em></h2>
+      <p class="section-body">Not just a summary — a full chemical intelligence report with hover-to-learn annotations on every compound, every metric, every score. 50+ interactive data points. All free.</p>
+    </div>
+
+    <div class="features-grid">
+      <div class="feat reveal">
+        <div class="feat-icon">🎯</div>
+        <div class="feat-title">5-Dimension Intelligence Score</div>
+        <div class="feat-body">Scored across Potency, Terpene Richness, Minor Cannabinoids, Safety Data, and Data Completeness. Each dimension has its own methodology, explained transparently via hover tooltip. Total score from 0–100 with letter grade.</div>
+        <div class="feat-tag">0–100 pts · A+ to D</div>
+      </div>
+      <div class="feat reveal rd1">
+        <div class="feat-icon">🌿</div>
+        <div class="feat-title">Terpene Fingerprint ID</div>
+        <div class="feat-body">Every product receives a 3-letter chemotype code (e.g. TPN-MYR-OCI) identifying its dominant terpene cluster. Enables cross-product comparison and genetic lineage identification. Radar chart visualisation included.</div>
+        <div class="feat-tag">12 terpenes · Radar chart · Lineage</div>
+      </div>
+      <div class="feat reveal rd2">
+        <div class="feat-icon">⬡</div>
+        <div class="feat-title">Entourage Effect Analysis</div>
+        <div class="feat-body">The synergistic relationship between cannabinoids and terpenes — explained for every product. Minor cannabinoid breadth scoring. Full-spectrum complexity signal. Entourage strength assessment referenced to Russo (2011).</div>
+        <div class="feat-tag">Full-spectrum · Synergy · Russo 2011</div>
+      </div>
+      <div class="feat reveal rd3">
+        <div class="feat-icon">ⓘ</div>
+        <div class="feat-title">50+ Educational Hover Tooltips</div>
+        <div class="feat-body">Every compound, every score, every indicator has a hover tooltip teaching you what it is, how it was derived, and where to find it on your COA. Chemistry education built into every single data point in the report.</div>
+        <div class="feat-tag">50+ annotated data points</div>
+      </div>
+      <div class="feat reveal">
+        <div class="feat-icon">👥</div>
+        <div class="feat-title">4-Audience Intelligence</div>
+        <div class="feat-body">The same chemistry, interpreted four ways: Brand positioning, Clinical prescribing, Patient experience, and Buyer procurement. Each view gives specific, actionable intelligence optimised for its audience. Switch with one click.</div>
+        <div class="feat-tag">Brand · Clinical · Patient · Buyer</div>
+      </div>
+      <div class="feat reveal rd1">
+        <div class="feat-icon">🛡️</div>
+        <div class="feat-title">Safety &amp; Compliance Audit</div>
+        <div class="feat-body">Every safety panel checked: pesticides, heavy metals, microbials, mycotoxins, residual solvents, moisture. Missing panels are flagged clearly. ISO 17025, TGO93, ICH Q3D, USP standards explained. Absence is not compliance.</div>
+        <div class="feat-tag">ISO 17025 · TGO93 · ICH Q3D · USP</div>
+      </div>
+      <div class="feat reveal rd2">
+        <div class="feat-icon">🌱</div>
+        <div class="feat-title">Post-Harvest Intelligence</div>
+        <div class="feat-body">Freshness, curing quality, oxidative degradation via CBN signal, and CBGA biosynthetic marker — inferred directly from chemistry. Tells you how well this product was handled from harvest to shelf, before any sensory assessment.</div>
+        <div class="feat-tag">Freshness · Curing · Degradation · CBGA</div>
+      </div>
+      <div class="feat reveal rd3">
+        <div class="feat-icon">🔗</div>
+        <div class="feat-title">Permanent Shareable Report</div>
+        <div class="feat-body">Every report lives at a permanent URL. Share with clinicians, buyers, patients, or teammates. No login required to view. PDF export included. Designed to travel — because chemistry should be transparent and accessible.</div>
+        <div class="feat-tag">Permanent URL · PDF Export · No paywall</div>
+      </div>
+      <div class="feat reveal">
+        <div class="feat-icon">🆓</div>
+        <div class="feat-title">Completely Free. Always.</div>
+        <div class="feat-body">No account. No credit card. No paywall. No ads. No data sold. No catch. Alem Chemical Intelligence is free because chemistry transparency should not be a premium feature. It is the baseline every patient and clinician deserves.</div>
+        <div class="feat-tag">Free forever · No data sold · No ads</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── REPORT PREVIEW ── -->
+<section class="section rpreview" id="preview">
+  <div class="section-inner">
+    <div class="reveal">
+      <span class="section-label">Live example</span>
+      <h2 class="section-title">This is what a real<br><em>report looks like.</em></h2>
+    </div>
+
+    <div class="rpreview-layout">
+      <div class="report-mock reveal rd1">
+        <div class="rm-nav">
+          <div class="rm-logo">ALEM</div>
+          <div class="rm-schema">Schema v5.0 · ISO 17025:2017</div>
+        </div>
+        <div class="rm-hero">
+          <div class="rm-name">Luminarium <span class="rm-name-sub">(d9)</span></div>
+          <div class="rm-meta">Dried Flower &nbsp;·&nbsp; Batch 3208-1 &nbsp;·&nbsp; High North Inc.</div>
+          <div class="rm-nar">Terpinolene-dominant chemotype with high THC potency tier. Significant CBGA and THCVA presence — a chemically distinctive, premium expression.</div>
+        </div>
+        <div class="rm-score">
+          <div class="rm-ring">
+            <div class="rm-ring-n">81</div>
+            <div class="rm-ring-d">/100</div>
+            <div class="rm-ring-g">A− · Strong</div>
+          </div>
+          <div class="rm-bars">
+            <div class="rm-brow"><div class="rm-blbl">Potency</div><div class="rm-btrack"><div class="rm-bfill bar-a" id="b1" style="width:88%;background:#1a4a62"></div></div><div class="rm-bnum">22/25</div></div>
+            <div class="rm-brow"><div class="rm-blbl">Terpenes</div><div class="rm-btrack"><div class="rm-bfill bar-a" id="b2" style="width:84%;background:#1a4a62"></div></div><div class="rm-bnum">21/25</div></div>
+            <div class="rm-brow"><div class="rm-blbl">Minors</div><div class="rm-btrack"><div class="rm-bfill bar-a" id="b3" style="width:100%;background:#c09838"></div></div><div class="rm-bnum">20/20</div></div>
+            <div class="rm-brow"><div class="rm-blbl">Safety</div><div class="rm-btrack"><div class="rm-bfill bar-a" id="b4" style="width:40%;background:#c07858"></div></div><div class="rm-bnum">8/20</div></div>
+            <div class="rm-brow"><div class="rm-blbl">Data</div><div class="rm-btrack"><div class="rm-bfill bar-a" id="b5" style="width:100%;background:#c09838"></div></div><div class="rm-bnum">10/10</div></div>
+          </div>
+        </div>
+        <div class="rm-ct">
+          <div class="rm-ct-code">TPN · MYR · OCI</div>
+          <div class="rm-ct-tag">☀ Uplifting · Haze type · Moderate confidence</div>
+        </div>
+        <div class="rm-metrics">
+          <div class="rm-m"><div class="rm-mv">24.1%</div><div class="rm-ml">THC Total</div><div class="rm-mc">↑ above avg.</div></div>
+          <div class="rm-m"><div class="rm-mv">26.4%</div><div class="rm-ml">THCA</div><div class="rm-mc">×0.877</div></div>
+          <div class="rm-m"><div class="rm-mv">2.30%</div><div class="rm-ml">Terpenes</div><div class="rm-mc">top 20%</div></div>
+          <div class="rm-m"><div class="rm-mv">ND</div><div class="rm-ml">CBD</div><div class="rm-mc" style="color:var(--t-faint);font-style:italic">not detected</div></div>
+        </div>
+        <div class="rm-terps">
+          <div class="rm-terp-title">Terpene Fingerprint · 12 compounds · Hover any compound for full education ⓘ</div>
+          <div class="rm-trow"><span class="rm-tn lead">Terpinolene ⓘ</span><span class="rm-tp">0.899%</span></div>
+          <div class="rm-ttrack"><div class="rm-tfill lead" style="width:100%"></div></div>
+          <div class="rm-trow"><span class="rm-tn">β-Myrcene ⓘ</span><span class="rm-tp">0.417%</span></div>
+          <div class="rm-ttrack"><div class="rm-tfill" style="width:46%;background:#8aa0b0"></div></div>
+          <div class="rm-trow"><span class="rm-tn">Ocimene ⓘ</span><span class="rm-tp">0.311%</span></div>
+          <div class="rm-ttrack"><div class="rm-tfill" style="width:35%;background:#8aa0b0"></div></div>
+          <div class="rm-trow"><span class="rm-tn">α-Pinene ⓘ</span><span class="rm-tp">0.172%</span></div>
+          <div class="rm-ttrack"><div class="rm-tfill" style="width:19%;background:#b8c8d4"></div></div>
+        </div>
+        <div class="rm-cann">
+          <div class="rm-cann-title">Cannabinoid Profile · 6 detected · Entourage effect active ⬡</div>
+          <div class="rm-cann-grid">
+            <div class="rm-cann-cell"><div class="rm-cann-lbl">THCA</div><div class="rm-cann-val">26.39<span class="rm-cann-unit"> wt%</span></div></div>
+            <div class="rm-cann-cell"><div class="rm-cann-lbl">D9-THC</div><div class="rm-cann-val">1.00<span class="rm-cann-unit"> wt%</span></div></div>
+            <div class="rm-cann-cell" style="background:var(--gold-pale);border-color:rgba(192,152,56,.3)"><div class="rm-cann-lbl" style="color:var(--gold)">CBGA ★</div><div class="rm-cann-val" style="color:var(--gold)">1.40<span class="rm-cann-unit"> wt%</span></div></div>
+            <div class="rm-cann-cell"><div class="rm-cann-lbl">CBCA</div><div class="rm-cann-val">0.24<span class="rm-cann-unit"> wt%</span></div></div>
+            <div class="rm-cann-cell"><div class="rm-cann-lbl">THCVA</div><div class="rm-cann-val">0.17<span class="rm-cann-unit"> wt%</span></div></div>
+            <div class="rm-cann-cell"><div class="rm-cann-lbl">CBG</div><div class="rm-cann-val">0.11<span class="rm-cann-unit"> wt%</span></div></div>
+          </div>
+        </div>
+        <div class="rm-entourage">
+          <div class="rm-ent-text"><strong>Entourage Effect signal: Strong.</strong> 6 cannabinoids + 12 terpenes — full-spectrum complexity. THC does not act alone in this profile.</div>
+        </div>
+      </div>
+
+      <div class="rpreview-points">
+        <div class="reveal">
+          <div class="pv-num">01</div>
+          <div class="pv-title">Every number has a hover explanation</div>
+          <div class="pv-body">See the ⓘ next to Terpinolene? Hover it and you learn its aroma, therapeutic properties, lineage associations, and exactly how it contributes to the score. Every data point in your report works this way. 50+ annotations.</div>
+        </div>
+        <div class="reveal rd1">
+          <div class="pv-num">02</div>
+          <div class="pv-title">The scoring is transparent and auditable</div>
+          <div class="pv-body">We show you exactly how every point was awarded — the thresholds, the methodology, the reasoning. No black box. Hover any score bar to see the full calculation logic and where to verify it on the original COA.</div>
+        </div>
+        <div class="reveal rd2">
+          <div class="pv-num">03</div>
+          <div class="pv-title">Chemistry tells a story. We tell it for you.</div>
+          <div class="pv-body">The "What This Means" summary turns raw chemistry into a plain-English narrative. What's distinctive about this profile. What it signals clinically. What it means for market positioning. All in one paragraph.</div>
+        </div>
+        <div class="reveal rd3" style="margin-top:8px;">
+          <a href="https://coa-middleware.onrender.com/report/91bce22c-6276-4861-a2c5-2b0d30619d8f" target="_blank" class="btn-primary">View the full live report →</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── EDUCATION ── -->
+<section class="section education" id="education">
+  <div class="section-inner">
+    <div class="reveal">
+      <span class="section-label">Free education built in</span>
+      <h2 class="section-title">Learn what your<br><em>medicine is made of.</em></h2>
+      <p class="section-body">Every Alem report is also a chemistry lesson. We believe patients and clinicians deserve to understand the science behind their medicine — not just receive numbers on a page. Our tooltips, narratives, and annotations are designed to teach, not just display.</p>
+    </div>
+
+    <div class="edu-grid">
+      <div class="edu-card reveal">
+        <span class="edu-icon">🌿</span>
+        <div class="edu-title">The Entourage Effect</div>
+        <div class="edu-body">Why the sum is greater than the parts. Terpenes and cannabinoids work synergistically — meaning the whole-plant matrix produces different therapeutic outcomes than isolated compounds. Every report includes an entourage signal score and plain-English explanation referenced to Russo (2011). Hover any cannabinoid to understand its role in the entourage.</div>
+        <div class="edu-tags"><span class="edu-tag">Cannabinoids</span><span class="edu-tag">Terpenes</span><span class="edu-tag">Synergy</span><span class="edu-tag">Russo 2011</span></div>
+      </div>
+      <div class="edu-card reveal rd1">
+        <span class="edu-icon">🧬</span>
+        <div class="edu-title">Cannabinoid Pharmacology</div>
+        <div class="edu-body">What is THCA and how does it become THC? What does CBGA tell us about genetics and harvest timing? Why does CBN signal product age? Every cannabinoid in your report has a hover tooltip explaining its pharmacology, therapeutic research status, and clinical significance — with citations where evidence exists.</div>
+        <div class="edu-tags"><span class="edu-tag">THCA</span><span class="edu-tag">CBGA</span><span class="edu-tag">CBN</span><span class="edu-tag">CBG</span><span class="edu-tag">CBCA</span><span class="edu-tag">THCVA</span></div>
+      </div>
+      <div class="edu-card reveal rd2">
+        <span class="edu-icon">🍃</span>
+        <div class="edu-title">Terpene Chemistry &amp; Aroma</div>
+        <div class="edu-body">From Terpinolene's piney brightness to Myrcene's earthy depth to Caryophyllene's spice — every terpene is annotated with its aroma profile, observed associations, and emerging research on potential therapeutic properties. We distinguish between preclinical data and clinical evidence. Learning cannabis botany has never been this accessible.</div>
+        <div class="edu-tags"><span class="edu-tag">Aromatics</span><span class="edu-tag">Lineage</span><span class="edu-tag">Chemotype</span><span class="edu-tag">12+ terpenes</span></div>
+      </div>
+      <div class="edu-card reveal rd3">
+        <span class="edu-icon">🛡️</span>
+        <div class="edu-title">Reading Safety Panels</div>
+        <div class="edu-body">What does "Not Tested" actually mean? What's the difference between a missing panel and a failed test? We explain every safety standard — TGO93 for pesticides, ICH Q3D for heavy metals, USP 2021/2023 for microbials — and flag exactly what to request from your producer. Absence is not compliance.</div>
+        <div class="edu-tags"><span class="edu-tag">TGO93</span><span class="edu-tag">ICH Q3D</span><span class="edu-tag">USP 467</span><span class="edu-tag">ISO 17025</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── AUDIENCES ── -->
+<section class="section audiences" id="audiences">
+  <div class="section-inner">
+    <div class="reveal">
+      <span class="section-label">Who it's for</span>
+      <h2 class="section-title">One report.<br><em>Four different conversations.</em></h2>
+      <p class="section-body">The same chemistry means different things to different people. Alem generates four distinct intelligence views from a single COA upload — each optimised for its audience, each immediately actionable.</p>
+    </div>
+
+    <div class="aud-grid">
+      <div class="aud-card reveal">
+        <span class="aud-emoji">🏥</span>
+        <div class="aud-title">Patients</div>
+        <div class="aud-points">
+          <div class="aud-point">Understand what your medicine actually contains</div>
+          <div class="aud-point">Plain-English explanation of every compound</div>
+          <div class="aud-point">Effect direction based on terpene profile</div>
+          <div class="aud-point">Know what "not tested" means for your safety</div>
+          <div class="aud-point">Have more informed conversations with your doctor</div>
+        </div>
+      </div>
+      <div class="aud-card reveal rd1">
+        <span class="aud-emoji">⚕️</span>
+        <div class="aud-title">Clinicians</div>
+        <div class="aud-points">
+          <div class="aud-point">Terpene chemotype and effect direction inference</div>
+          <div class="aud-point">Dose titration context from THC tier</div>
+          <div class="aud-point">Entourage effect complexity assessment</div>
+          <div class="aud-point">Safety panel completeness audit</div>
+          <div class="aud-point">CBN degradation signal for product quality</div>
+        </div>
+      </div>
+      <div class="aud-card reveal rd2">
+        <span class="aud-emoji">🏷️</span>
+        <div class="aud-title">Brands</div>
+        <div class="aud-points">
+          <div class="aud-point">Market differentiation signals from chemotype</div>
+          <div class="aud-point">Premium positioning via terpene richness</div>
+          <div class="aud-point">CBGA biosynthetic depth narrative</div>
+          <div class="aud-point">Intelligence score for brand communication</div>
+          <div class="aud-point">Shareable report as a marketing asset</div>
+        </div>
+      </div>
+      <div class="aud-card reveal rd3">
+        <span class="aud-emoji">📦</span>
+        <div class="aud-title">Buyers &amp; Distributors</div>
+        <div class="aud-points">
+          <div class="aud-point">Shelf differentiation potential scoring</div>
+          <div class="aud-point">Premium pricing justification from terpene data</div>
+          <div class="aud-point">Safety compliance gap identification</div>
+          <div class="aud-point">Chemotype fingerprint for inventory comparison</div>
+          <div class="aud-point">Due diligence before procurement</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── ADVOCACY ── -->
+<section class="advocacy">
+  <div class="advocacy-inner">
+    <div class="reveal">
+      <span class="section-label" style="justify-content:center">Our belief</span>
+    </div>
+    <h2 class="advocacy-title reveal">
+      Chemistry transparency<br>
+      is <em>not a luxury.</em><br>
+      It is a right.
+    </h2>
+    <p class="advocacy-body reveal">
+      <strong>Patients are making healthcare decisions</strong> with documents they cannot read. Clinicians are prescribing products without the full chemical picture. Buyers are listing products without understanding what they're selling. We built Alem Chemical Intelligence because <strong>the data exists — it just needs to speak.</strong>
+    </p>
+
+    <div class="pillars">
+      <div class="pillar reveal rd1">
+        <span class="pillar-icon">🔬</span>
+        <div class="pillar-title">Research-driven</div>
+        <div class="pillar-body">Every tooltip, every annotation, every therapeutic reference is grounded in peer-reviewed research. We cite sources. We acknowledge uncertainty. We clearly distinguish between clinical evidence and preclinical inference.</div>
+      </div>
+      <div class="pillar reveal rd2">
+        <span class="pillar-icon">🌏</span>
+        <div class="pillar-title">Patient-first</div>
+        <div class="pillar-body">Built by Alem Solutions, whose founding mission is improving patient wellbeing through better information. This tool exists because patients deserve to understand what they are taking — not just that a doctor has approved it.</div>
+      </div>
+      <div class="pillar reveal rd3">
+        <span class="pillar-icon">📖</span>
+        <div class="pillar-title">Radically transparent</div>
+        <div class="pillar-body">We show our scoring methodology. We explain every calculation. We flag what we don't know. We distinguish between high-confidence data and directional inference. No black boxes. No marketing language dressed as science.</div>
+      </div>
+    </div>
+
+    <div class="reveal">
+      <a href="#upload" class="btn-primary">Join the movement — Upload free ↗</a>
+    </div>
+  </div>
+</section>
+
+<!-- ── FREE / CTA ── -->
+<section class="section free-section" id="upload">
+  <div class="section-inner">
+    <div class="free-layout">
+      <div>
+        <div class="reveal">
+          <div class="free-badge">✓ &nbsp; 100% Free · Always</div>
+          <span class="section-label">Start now</span>
+          <h2 class="section-title">Your COA is waiting<br>to <em>tell its story.</em></h2>
+        </div>
+        <div class="free-checks reveal rd1">
+          <div class="free-check">
+            <div class="free-check-dot">✓</div>
+            <div class="free-check-text"><strong>No account required.</strong> Upload and receive your report immediately. No registration, no email, no login. Ever.</div>
+          </div>
+          <div class="free-check">
+            <div class="free-check-dot">✓</div>
+            <div class="free-check-text"><strong>No personal data collected.</strong> We process the chemistry in your document. Nothing about you is stored, tracked, or profiled.</div>
+          </div>
+          <div class="free-check">
+            <div class="free-check-dot">✓</div>
+            <div class="free-check-text"><strong>Permanent shareable report.</strong> Every analysis gets a permanent URL. Share with your doctor, buyer, or brand team — no paywall to view.</div>
+          </div>
+          <div class="free-check">
+            <div class="free-check-dot">✓</div>
+            <div class="free-check-text"><strong>PDF export included.</strong> Download a beautifully formatted PDF of your full intelligence report. Free, always.</div>
+          </div>
+          <div class="free-check">
+            <div class="free-check-dot">✓</div>
+            <div class="free-check-text"><strong>Any accredited lab's COA.</strong> PDF, image, or scan — from any ISO 17025 certified laboratory worldwide. Any product type.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="free-cta-box reveal rd2">
+        <div class="free-cta-title">Analyse your COA</div>
+        <div class="free-cta-sub">Transform raw chemistry into <strong>complete intelligence</strong> in under 15 seconds.</div>
+        <a href="https://coa-middleware.onrender.com" class="upload-drop">
+          <span class="upload-drop-icon">📄</span>
+          <div class="upload-drop-text">Click or drop your COA here</div>
+          <div class="upload-drop-sub">PDF · PNG · JPG · TIFF · Up to 20MB</div>
+        </a>
+        <div class="free-note"><span>Free</span> · No account · No data collected · <span>No catch</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── DISCLAIMER ── -->
+<section class="disclaimer">
+  <div class="disclaimer-inner">
+    <div class="disclaimer-head">Important Disclaimers &amp; Limitations</div>
+    <div class="disclaimer-body">
+      <p><strong>Not medical advice.</strong> Alem Chemical Intelligence reports are generated exclusively from the chemical data contained within the submitted Certificate of Analysis. All analysis, scoring, terpene characterisations, cannabinoid descriptions, and effect direction inferences are informational in nature and do not constitute medical advice, clinical recommendations, or therapeutic guidance. Always consult a qualified healthcare professional before making any decisions about medicinal cannabis use, prescription, or dosage adjustment.</p>
+      <p><strong>Chemistry only.</strong> This report reflects the chemistry documented in the submitted COA at the time of laboratory testing. It does not account for individual patient physiology, tolerance, consumption method, product batch variation, storage conditions post-testing, or any other factor that may influence therapeutic outcomes. The same chemical profile may produce very different effects in different individuals.</p>
+      <p><strong>Effect direction is observational, not clinical.</strong> Terpene-based effect direction inferences (e.g. "Uplifting / mentally active") are derived from observational correlations between terpene chemotypes and self-reported experiences. They are not based on randomised controlled trials conducted on this specific product. They represent a directional, population-level signal — not a personal clinical prediction.</p>
+      <p><strong>Safety data limitation.</strong> If a safety panel is listed as "Not Tested" in this report, it means that data was not present in the submitted COA. This is not a confirmation of product safety. Products without pesticide, heavy metal, or microbial testing should not be assumed compliant. Always request complete safety documentation from your producer or pharmacist before use.</p>
+      <p><strong>For Healthcare Professionals and adults over 18 only.</strong> Medicinal cannabis is a regulated substance in Australia and internationally. Regulations vary by jurisdiction. This tool is intended to support informed conversations, not to replace licensed healthcare provider guidance. Alem Solutions complies with all applicable Australian TGA regulations. The information on this platform is for informational purposes only.</p>
+      <p><strong>No liability.</strong> Alem Solutions Pty Ltd accepts no liability for decisions made based on intelligence reports generated by this system. Reports are provided as-is, based on the accuracy of the submitted document. We do not verify laboratory credentials, authenticate COA documents, or guarantee the accuracy of OCR-extracted chemical data.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ── FOOTER ── -->
+<footer>
+  <div class="footer">
+    <div class="footer-brand">
+      <img src="https://www.alem.solutions/wp-content/uploads/2024/04/Alem-Brand-Green.png"
+           alt="Alem Solutions"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+      <div class="footer-brand-fb">ALEM</div>
+      <p>Medicinal cannabis procurement &amp; product development specialists. NSW, Australia. Helping patients, clinicians, and the industry access better chemistry intelligence — for free.</p>
+    </div>
+    <div>
+      <div class="footer-col-title">Chemical Intelligence</div>
+      <div class="footer-col-links">
+        <a href="https://coa-middleware.onrender.com" target="_blank">Upload a COA →</a>
+        <a href="https://coa-middleware.onrender.com/report/91bce22c-6276-4861-a2c5-2b0d30619d8f" target="_blank">See a live report</a>
+        <a href="#how">How it works</a>
+        <a href="#features">Features</a>
+        <a href="#education">Educational content</a>
+        <a href="#audiences">Who it's for</a>
+      </div>
+    </div>
+    <div>
+      <div class="footer-col-title">Alem Solutions</div>
+      <div class="footer-col-links">
+        <a href="https://www.alem.solutions" target="_blank" rel="noopener">alem.solutions</a>
+        <a href="https://www.alem.solutions/about-us/" target="_blank">About us</a>
+        <a href="https://www.alem.solutions/contact-us/" target="_blank">Contact</a>
+        <a href="/cdn-cgi/l/email-protection#6f0e030a021c00031a1b0600011c0e1a2f08020e0603410c0002"><span class="__cf_email__" data-cfemail="3e5f525b534d51524b4a5751504d5f4b7e59535f5752105d5153">[email&#160;protected]</span></a>
+        <a href="tel:+61410249892">+61 410 249 892</a>
+      </div>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <div class="footer-copy">© 2025 Alem Solutions Pty Ltd · NSW Australia · All rights reserved</div>
+    <div class="footer-legal">This platform is for Healthcare Professionals and individuals over 18. Medicinal cannabis is a regulated treatment option in Australia, approved by the TGA for specific conditions under the guidance of healthcare professionals only. This is not medical advice.</div>
+  </div>
+</footer>
+
 <script>
-let selectedFile = null;
+// ── Scroll reveal ──
+const obs = new IntersectionObserver((entries) => {
+  entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); obs.unobserve(e.target); } });
+}, { threshold: 0.1, rootMargin: '0px 0px -32px 0px' });
+document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
 
-document.getElementById("fileInput").addEventListener("change", function(e) {
-  selectedFile = e.target.files[0];
-});
-
-async function handleUpload() {
-  if (!selectedFile) {
-    alert("Please select a file first");
-    return;
-  }
-
-  document.getElementById("loader").style.display = "block";
-
-  const formData = new FormData();
-  formData.append("file", selectedFile);
-
-  try {
-    const res = await fetch("/upload-coa", {
-      method: "POST",
-      body: formData
-    });
-
-    const data = await res.json();
-
-    if (data.success) {
-      window.location.href = data.report_url;
-    } else {
-      alert(data.error || "Something went wrong");
+// ── Animate mockup score bars on scroll ──
+const bars = document.querySelectorAll('.bar-a');
+const mockObs = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      bars.forEach((b, i) => setTimeout(() => b.classList.add('bar-go'), i * 90));
+      mockObs.disconnect();
     }
+  });
+}, { threshold: 0.25 });
+const mock = document.querySelector('.report-mock');
+if (mock) mockObs.observe(mock);
 
-  } catch (err) {
-    alert("Upload failed");
-  }
-}
+// ── Nav background on scroll ──
+const nav = document.querySelector('.nav');
+window.addEventListener('scroll', () => {
+  nav.style.background = window.scrollY > 50 ? 'rgba(5,20,30,.99)' : 'rgba(7,30,42,.97)';
+}, { passive: true });
+
+// ── Smooth scroll anchors ──
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+  a.addEventListener('click', e => {
+    const t = document.querySelector(a.getAttribute('href'));
+    if (t) { e.preventDefault(); t.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  });
+});
 </script>
-
 </body>
 </html>
