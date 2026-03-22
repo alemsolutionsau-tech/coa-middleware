@@ -802,13 +802,21 @@ body {
           <div class="hub-badge">Always free</div>
         </div>
         <div class="hub-body">
-          <a href="https://coa-middleware.onrender.com" class="hub-drop">
-            <span class="hub-drop-icon">📄</span>
-            <div class="hub-drop-title">Drop your COA here</div>
-            <div class="hub-drop-sub">PDF, PNG, JPG or TIFF · Up to 20MB</div>
-            <div class="hub-btn">⬆ &nbsp; Upload &amp; Analyse Free</div>
-            <div class="hub-formats">Any accredited lab · Any format · Instant results</div>
-          </a>
+          <input type="file" id="hubFileInput" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff">
+          <div class="hub-drop" id="hubDrop">
+            <span class="hub-drop-icon" id="hubIcon">📄</span>
+            <div class="hub-drop-title" id="hubTitle">Click or drop your COA here</div>
+            <div class="hub-drop-sub" id="hubSub">PDF, PNG, JPG or TIFF · Up to 20MB</div>
+            <div id="hubSelectedFile" style="display:none;margin:8px auto 0;padding:7px 16px;border-radius:999px;background:rgba(142,207,176,.15);border:1px solid rgba(142,207,176,.3);color:var(--mint);font-size:12px;font-weight:700;max-width:94%;word-break:break-word;text-align:center;"></div>
+            <div class="hub-formats" style="margin-top:8px;">Any accredited lab · Any format · Instant results</div>
+          </div>
+          <button class="hub-btn" id="hubBtn" onclick="hubHandleUpload()" disabled style="width:100%;margin-top:14px;cursor:not-allowed;opacity:0.45;pointer-events:none;">
+            ⬆ &nbsp; Analyse Free
+          </button>
+          <div style="min-height:22px;margin-top:10px;text-align:center;display:flex;align-items:center;justify-content:center;gap:8px;">
+            <span id="hubSpinner" style="display:none;width:14px;height:14px;border:2px solid rgba(142,207,176,.2);border-top-color:var(--mint);border-radius:50%;animation:hubSpin .8s linear infinite;flex-shrink:0;"></span>
+            <span id="hubStatusText" style="font-size:12px;color:rgba(255,255,255,.5);"></span>
+          </div>
 
           <div class="hub-div">What you get</div>
 
@@ -1304,11 +1312,21 @@ body {
       <div class="free-cta-box reveal rd2">
         <div class="free-cta-title">Analyse your COA</div>
         <div class="free-cta-sub">Transform raw chemistry into <strong>complete intelligence</strong> in under 15 seconds.</div>
-        <a href="https://coa-middleware.onrender.com" class="upload-drop">
-          <span class="upload-drop-icon">📄</span>
-          <div class="upload-drop-text">Click or drop your COA here</div>
-          <div class="upload-drop-sub">PDF · PNG · JPG · TIFF · Up to 20MB</div>
-        </a>
+        <input type="file" id="ctaFileInput" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff">
+        <div class="upload-drop" id="ctaDrop">
+          <span class="upload-drop-icon" id="ctaIcon">📄</span>
+          <div class="upload-drop-text" id="ctaTitle">Click or drop your COA here</div>
+          <div class="upload-drop-sub" id="ctaSub">PDF · PNG · JPG · TIFF · Up to 20MB</div>
+          <div id="ctaSelectedFile" style="display:none;margin:8px auto 0;padding:6px 14px;border-radius:999px;background:rgba(142,207,176,.12);border:1px solid rgba(142,207,176,.25);color:var(--mint);font-size:11px;font-weight:700;word-break:break-word;"></div>
+        </div>
+        <button id="ctaBtn" onclick="ctaHandleUpload()" disabled
+          style="width:100%;margin-top:16px;padding:15px 24px;background:var(--mint);color:var(--navy-deep);font-family:'Nunito',sans-serif;font-size:13px;font-weight:800;letter-spacing:2px;text-transform:uppercase;border:none;border-radius:30px;cursor:not-allowed;opacity:0.45;pointer-events:none;transition:all .25s;">
+          ⬆ &nbsp; Analyse Free
+        </button>
+        <div style="min-height:22px;margin-top:12px;text-align:center;display:flex;align-items:center;justify-content:center;gap:8px;">
+          <span id="ctaSpinner" style="display:none;width:14px;height:14px;border:2px solid rgba(142,207,176,.2);border-top-color:var(--mint);border-radius:50%;animation:hubSpin .8s linear infinite;flex-shrink:0;"></span>
+          <span id="ctaStatusText" style="font-size:12px;color:rgba(255,255,255,.5);"></span>
+        </div>
         <div class="free-note"><span>Free</span> · No account · No data collected · <span>No catch</span></div>
       </div>
     </div>
@@ -1368,14 +1386,119 @@ body {
   </div>
 </footer>
 
+<style>@keyframes hubSpin { to { transform: rotate(360deg); } }</style>
 <script>
+// ══════════════════════════════════════════════════
+// UPLOAD ENGINE — proven pattern from working original
+// Two self-contained zones: hub (hero) + cta (bottom)
+// ══════════════════════════════════════════════════
+
+function setupUpload({ dropId, inputId, iconId, titleId, subId, btnId }) {
+  const drop  = document.getElementById(dropId);
+  const input = document.getElementById(inputId);
+  if (!drop || !input) return;
+
+  // Click to browse
+  input.addEventListener('change', () => {
+    if (input.files[0]) runUpload(input.files[0], { iconId, titleId, subId, btnId });
+  });
+
+  // Drag over — visual feedback
+  drop.addEventListener('dragover', e => {
+    e.preventDefault();
+    drop.style.borderColor = 'var(--mint)';
+    drop.style.background  = 'rgba(142,207,176,.09)';
+  });
+  drop.addEventListener('dragleave', () => {
+    drop.style.borderColor = '';
+    drop.style.background  = '';
+  });
+
+  // Drop
+  drop.addEventListener('drop', e => {
+    e.preventDefault();
+    drop.style.borderColor = '';
+    drop.style.background  = '';
+    const file = e.dataTransfer.files[0];
+    if (file) runUpload(file, { iconId, titleId, subId, btnId });
+  });
+}
+
+function runUpload(file, { iconId, titleId, subId, btnId }) {
+  const allowed = ['application/pdf','image/png','image/jpeg','image/jpg','image/tiff'];
+  if (!allowed.includes(file.type) && !file.name.match(/\.(pdf|png|jpg|jpeg|tiff|tif)$/i)) {
+    setStatus({ iconId, titleId, subId, btnId,
+      icon: '⚠️', title: 'Unsupported file type',
+      sub: 'Please upload a PDF, PNG, JPG, or TIFF file', btn: null });
+    return;
+  }
+  if (file.size > 20 * 1024 * 1024) {
+    setStatus({ iconId, titleId, subId, btnId,
+      icon: '⚠️', title: 'File too large',
+      sub: 'Maximum file size is 20MB', btn: null });
+    return;
+  }
+
+  // Loading state
+  setStatus({ iconId, titleId, subId, btnId,
+    icon: '⏳', title: 'Analysing chemistry…',
+    sub: file.name + ' · Processing in progress',
+    btn: '🧪 &nbsp; Extracting compounds…', btnDisabled: true });
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  fetch('/upload-coa', { method: 'POST', body: formData })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.report_url) {
+        setStatus({ iconId, titleId, subId, btnId,
+          icon: '✅', title: 'Report ready!',
+          sub: 'Score: ' + data.score + '/100 · ' + data.grade + ' · ' + data.tier,
+          btn: '→ &nbsp; View your report', btnDisabled: false });
+        // Redirect after short delay so they see the success state
+        setTimeout(() => { window.location.href = data.report_url; }, 900);
+      } else {
+        setStatus({ iconId, titleId, subId, btnId,
+          icon: '❌', title: 'Something went wrong',
+          sub: data.error || 'Please try again or check the file format',
+          btn: '↺ &nbsp; Try again', btnDisabled: false });
+      }
+    })
+    .catch(err => {
+      setStatus({ iconId, titleId, subId, btnId,
+        icon: '❌', title: 'Upload failed',
+        sub: 'Network error — please check your connection and try again',
+        btn: '↺ &nbsp; Try again', btnDisabled: false });
+    });
+}
+
+function setStatus({ iconId, titleId, subId, btnId, icon, title, sub, btn, btnDisabled }) {
+  const iconEl  = iconId  ? document.getElementById(iconId)  : null;
+  const titleEl = titleId ? document.getElementById(titleId) : null;
+  const subEl   = subId   ? document.getElementById(subId)   : null;
+  const btnEl   = btnId   ? document.getElementById(btnId)   : null;
+  if (iconEl)  iconEl.textContent  = icon;
+  if (titleEl) titleEl.textContent = title;
+  if (subEl)   subEl.textContent   = sub;
+  if (btnEl && btn !== null) {
+    btnEl.innerHTML = btn;
+    btnEl.style.opacity = btnDisabled ? '0.6' : '1';
+    btnEl.style.cursor  = btnDisabled ? 'not-allowed' : 'pointer';
+  }
+}
+
+// Init both upload zones
+setupUpload({ dropId:'hubDrop',  inputId:'hubFileInput', iconId:'hubIcon',  titleId:'hubTitle',  subId:'hubSub',  btnId:'hubBtn' });
+setupUpload({ dropId:'ctaDrop',  inputId:'ctaFileInput', iconId:'ctaIcon',  titleId:'ctaTitle',  subId:'ctaSub',  btnId:null });
+
 // ── Scroll reveal ──
 const obs = new IntersectionObserver((entries) => {
   entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); obs.unobserve(e.target); } });
 }, { threshold: 0.1, rootMargin: '0px 0px -32px 0px' });
 document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
 
-// ── Animate mockup score bars on scroll ──
+// ── Animate mockup bars on scroll ──
 const bars = document.querySelectorAll('.bar-a');
 const mockObs = new IntersectionObserver((entries) => {
   entries.forEach(e => {
@@ -1398,6 +1521,266 @@ window.addEventListener('scroll', () => {
 document.querySelectorAll('a[href^="#"]').forEach(a => {
   a.addEventListener('click', e => {
     const t = document.querySelector(a.getAttribute('href'));
+    if (t) { e.preventDefault(); t.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  });
+});
+</script>
+</body>
+</html
+<script>
+// ══════════════════════════════════════════════════
+// UPLOAD ENGINE — proven pattern from working original
+// Two self-contained IIFE zones: hub (hero) + cta (bottom)
+// ══════════════════════════════════════════════════
+
+// ═════════════════════
+// HUB ZONE (hero box)
+// ═════════════════════
+(function () {
+  var selectedFile = null;
+  var isUploading  = false;
+
+  var fileInput      = document.getElementById('hubFileInput');
+  var dropZone       = document.getElementById('hubDrop');
+  var selectedFileEl = document.getElementById('hubSelectedFile');
+  var btn            = document.getElementById('hubBtn');
+  var spinner        = document.getElementById('hubSpinner');
+  var statusText     = document.getElementById('hubStatusText');
+
+  // Click drop zone → open native file picker
+  dropZone.addEventListener('click', function () {
+    if (!isUploading) fileInput.click();
+  });
+
+  // File chosen via browser dialog
+  fileInput.addEventListener('change', function () {
+    var file = fileInput.files[0];
+    if (file) setFile(file);
+  });
+
+  // Drag visual feedback
+  dropZone.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    if (!isUploading) {
+      dropZone.style.borderColor = 'var(--mint)';
+      dropZone.style.background  = 'rgba(142,207,176,.09)';
+    }
+  });
+  dropZone.addEventListener('dragleave', function () {
+    dropZone.style.borderColor = '';
+    dropZone.style.background  = '';
+  });
+
+  // File dropped
+  dropZone.addEventListener('drop', function (e) {
+    e.preventDefault();
+    dropZone.style.borderColor = '';
+    dropZone.style.background  = '';
+    if (isUploading) return;
+    var file = e.dataTransfer.files[0];
+    if (file) setFile(file);
+  });
+
+  function setFile(file) {
+    selectedFile = file;
+    // Show filename pill
+    selectedFileEl.style.display = 'block';
+    selectedFileEl.textContent   = 'Selected: ' + file.name;
+    // Update labels
+    document.getElementById('hubTitle').textContent = 'File ready — click Analyse Free';
+    document.getElementById('hubSub').textContent   = file.name;
+    // Enable button
+    btn.disabled                = false;
+    btn.style.cursor            = 'pointer';
+    btn.style.opacity           = '1';
+    btn.style.pointerEvents     = 'auto';
+    // Status
+    setStatus('File selected. Click Analyse Free to continue.', false, false);
+  }
+
+  function setStatus(msg, loading, isError) {
+    statusText.textContent = msg;
+    statusText.style.color = isError ? '#f88' : loading ? 'rgba(255,255,255,.6)' : 'var(--mint)';
+    spinner.style.display  = loading ? 'inline-block' : 'none';
+  }
+
+  // Called by button onclick="hubHandleUpload()"
+  window.hubHandleUpload = async function () {
+    if (!selectedFile || isUploading) return;
+    isUploading             = true;
+    btn.disabled            = true;
+    btn.style.cursor        = 'not-allowed';
+    btn.style.opacity       = '0.6';
+    btn.style.pointerEvents = 'none';
+    btn.textContent         = 'Uploading…';
+    setStatus('Uploading file…', true, false);
+
+    // Secondary message after 1s
+    var msgTimer = setTimeout(function () {
+      if (isUploading) setStatus('Analysing chemistry… this can take a moment.', true, false);
+    }, 1000);
+
+    var formData = new FormData();
+    formData.append('file', selectedFile);
+
+    try {
+      var res  = await fetch('/upload-coa', { method: 'POST', body: formData });
+      var data = await res.json();
+      clearTimeout(msgTimer);
+
+      if (!res.ok || !data.success) throw new Error(data.error || 'Analysis failed.');
+
+      setStatus('✅ Report ready! Redirecting…', false, false);
+      btn.textContent = '→ Opening report…';
+      setTimeout(function () { window.location.href = data.report_url; }, 600);
+
+    } catch (err) {
+      clearTimeout(msgTimer);
+      setStatus('❌ ' + (err.message || 'Upload failed. Please try again.'), false, true);
+      btn.disabled            = false;
+      btn.style.cursor        = 'pointer';
+      btn.style.opacity       = '1';
+      btn.style.pointerEvents = 'auto';
+      btn.innerHTML           = '⬆ &nbsp; Analyse Free';
+      isUploading             = false;
+    }
+  };
+}());
+
+// ══════════════════════
+// CTA ZONE (bottom box)
+// ══════════════════════
+(function () {
+  var selectedFile = null;
+  var isUploading  = false;
+
+  var fileInput      = document.getElementById('ctaFileInput');
+  var dropZone       = document.getElementById('ctaDrop');
+  var selectedFileEl = document.getElementById('ctaSelectedFile');
+  var btn            = document.getElementById('ctaBtn');
+  var spinner        = document.getElementById('ctaSpinner');
+  var statusText     = document.getElementById('ctaStatusText');
+
+  dropZone.addEventListener('click', function () {
+    if (!isUploading) fileInput.click();
+  });
+
+  fileInput.addEventListener('change', function () {
+    var file = fileInput.files[0];
+    if (file) setFile(file);
+  });
+
+  dropZone.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    if (!isUploading) {
+      dropZone.style.borderColor = 'var(--mint)';
+      dropZone.style.background  = 'rgba(142,207,176,.06)';
+    }
+  });
+  dropZone.addEventListener('dragleave', function () {
+    dropZone.style.borderColor = '';
+    dropZone.style.background  = '';
+  });
+  dropZone.addEventListener('drop', function (e) {
+    e.preventDefault();
+    dropZone.style.borderColor = '';
+    dropZone.style.background  = '';
+    if (isUploading) return;
+    var file = e.dataTransfer.files[0];
+    if (file) setFile(file);
+  });
+
+  function setFile(file) {
+    selectedFile = file;
+    selectedFileEl.style.display = 'block';
+    selectedFileEl.textContent   = 'Selected: ' + file.name;
+    document.getElementById('ctaTitle').textContent = 'File ready — click Analyse Free';
+    document.getElementById('ctaSub').textContent   = file.name;
+    btn.disabled            = false;
+    btn.style.cursor        = 'pointer';
+    btn.style.opacity       = '1';
+    btn.style.pointerEvents = 'auto';
+    setStatus('File selected. Click Analyse Free to continue.', false, false);
+  }
+
+  function setStatus(msg, loading, isError) {
+    statusText.textContent = msg;
+    statusText.style.color = isError ? '#f88' : loading ? 'rgba(255,255,255,.5)' : 'var(--mint)';
+    spinner.style.display  = loading ? 'inline-block' : 'none';
+  }
+
+  window.ctaHandleUpload = async function () {
+    if (!selectedFile || isUploading) return;
+    isUploading             = true;
+    btn.disabled            = true;
+    btn.style.cursor        = 'not-allowed';
+    btn.style.opacity       = '0.6';
+    btn.style.pointerEvents = 'none';
+    btn.textContent         = 'Uploading…';
+    setStatus('Uploading file…', true, false);
+
+    var msgTimer = setTimeout(function () {
+      if (isUploading) setStatus('Analysing chemistry… this can take a moment.', true, false);
+    }, 1000);
+
+    var formData = new FormData();
+    formData.append('file', selectedFile);
+
+    try {
+      var res  = await fetch('/upload-coa', { method: 'POST', body: formData });
+      var data = await res.json();
+      clearTimeout(msgTimer);
+
+      if (!res.ok || !data.success) throw new Error(data.error || 'Analysis failed.');
+
+      setStatus('✅ Report ready! Redirecting…', false, false);
+      btn.textContent = '→ Opening report…';
+      setTimeout(function () { window.location.href = data.report_url; }, 600);
+
+    } catch (err) {
+      clearTimeout(msgTimer);
+      setStatus('❌ ' + (err.message || 'Upload failed. Please try again.'), false, true);
+      btn.disabled            = false;
+      btn.style.cursor        = 'pointer';
+      btn.style.opacity       = '1';
+      btn.style.pointerEvents = 'auto';
+      btn.innerHTML           = '⬆ &nbsp; Analyse Free';
+      isUploading             = false;
+    }
+  };
+}());
+
+// ── Scroll reveal ──────────────────────────────────
+var obs = new IntersectionObserver(function (entries) {
+  entries.forEach(function (e) {
+    if (e.isIntersecting) { e.target.classList.add('visible'); obs.unobserve(e.target); }
+  });
+}, { threshold: 0.1, rootMargin: '0px 0px -32px 0px' });
+document.querySelectorAll('.reveal').forEach(function (el) { obs.observe(el); });
+
+// ── Animate mockup score bars ──────────────────────
+var bars = document.querySelectorAll('.bar-a');
+var mockObs = new IntersectionObserver(function (entries) {
+  entries.forEach(function (e) {
+    if (e.isIntersecting) {
+      bars.forEach(function (b, i) { setTimeout(function () { b.classList.add('bar-go'); }, i * 90); });
+      mockObs.disconnect();
+    }
+  });
+}, { threshold: 0.25 });
+var mock = document.querySelector('.report-mock');
+if (mock) mockObs.observe(mock);
+
+// ── Nav darken on scroll ───────────────────────────
+var nav = document.querySelector('.nav');
+window.addEventListener('scroll', function () {
+  nav.style.background = window.scrollY > 50 ? 'rgba(5,20,30,.99)' : 'rgba(7,30,42,.97)';
+}, { passive: true });
+
+// ── Smooth anchor scroll ───────────────────────────
+document.querySelectorAll('a[href^="#"]').forEach(function (a) {
+  a.addEventListener('click', function (e) {
+    var t = document.querySelector(a.getAttribute('href'));
     if (t) { e.preventDefault(); t.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
   });
 });
