@@ -1340,13 +1340,8 @@ app.post("/upload-coa-multi", upload.array("files", 10), async (req, res) => {
 
     // 3. Combine all OCR text — ordered by file index (page order matters)
     const combinedText = ocrResults
-      .map((r, i) => `[FILE ${i + 1}]
-${r.plain_text}`)
-      .join("
-
----
-
-")
+      .map((r, i) => "[FILE " + (i + 1) + "]\n" + r.plain_text)
+      .join("\n\n---\n\n")
       .trim();
 
     const totalPages = ocrResults.reduce((sum, r) => sum + r.page_count, 0);
