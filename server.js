@@ -1306,6 +1306,98 @@ app.get("/health", async (req, res) => {
   return res.json({ success: true, message: "Alem v5 running", schema: "5.0" });
 });
 
+// ─────────────────────────────────────────────
+// MULTI-FILE UPLOAD ROUTE
+// Accepts 1–10 files (pages/images of one COA)
+// OCRs each in parallel, merges text, one analysis
+// ─────────────────────────────────────────────
+
+app.post("/upload-coa-multi", upload.array("files", 10), async (req, res) => {
+  try {
+    console.log(`📥 Multi-file COA upload: ${(req.files || []).length} file(s)`);
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ success: false, error: "No files uploaded" });
+    }
+
+    // 1. Upload all files to Supabase in parallel
+    const uploadResults = await Promise.all(
+      req.files.map((file, idx) =>
+        uploadBufferToSupabase({
+          buffer: file.buffer,
+          originalName: file.originalname || `upload-${Date.now()}-${idx}`,
+          mimeType: file.mimetype,
+          folder: "raw_documents",
+        })
+      )
+    );
+    console.log(`☁️  Stored ${uploadResults.length} file(s)`);
+
+    // 2. OCR all files in parallel
+    console.log("🔍 Azure OCR — processing all files in parallel...");
+    const ocrResults = await Promise.all(
+      uploadResults.map(({ publicUrl }) => extractDocumentFromUrl(publicUrl))
+    );
+
+    // 3. Combine all OCR text — ordered by file index (page order matters)
+    const combinedText = ocrResults
+      .map((r, i) => `[FILE ${i + 1}]
+${r.plain_text}`)
+      .join("
+
+---
+
+")
+      .trim();
+
+    const totalPages = ocrResults.reduce((sum, r) => sum + r.page_count, 0);
+    console.log(`✅ OCR complete: ${combinedText.length} chars, ${totalPages} total pages across ${req.files.length} file(s)`);
+
+    // 4. Single dual-pass extraction on combined text
+    const { chemistry, contaminants } = await runDualPassExtraction(combinedText);
+    console.log("✅ Dual-pass extraction complete");
+
+    // 5. Score, intelligence
+    const scoring = computeIntelligenceScore(chemistry, contaminants);
+    console.log(`✅ Score: ${scoring.total}/100 (${scoring.grade})`);
+
+    const fingerprintId = generateFingerprintId(chemistry.top_terpenes);
+    const leadTerpene   = chemistry.top_terpenes?.[0]?.name || "";
+    const terpIntel     = getTerpeneIntel(leadTerpene);
+    const audiences     = buildAudienceNarratives(chemistry, contaminants, scoring);
+    const postHarvest   = buildPostHarvestIntel(chemistry, contaminants);
+    const intelligence  = { fingerprintId, effectDirection: terpIntel.direction, lineageCluster: terpIntel.lineage, lineageConfidence: terpIntel.lineageConfidence, audiences, postHarvest };
+
+    // 6. Store — use first file as primary reference
+    const primaryFilename = req.files[0].originalname || `multi-upload-${Date.now()}`;
+    const insertedRow = await insertCOAReport({
+      chemistry, contaminants, scoring, intelligence,
+      sourceUrl:        uploadResults[0].publicUrl,
+      storagePath:      uploadResults[0].storagePath,
+      originalFilename: primaryFilename,
+      mimeType:         ocrResults[0].mimeType,
+    });
+    console.log(`✅ Stored report ID: ${insertedRow.id}`);
+
+    const proto = req.headers["x-forwarded-proto"] || req.protocol || "https";
+    const base  = `${proto}://${req.get("host")}`;
+
+    return res.json({
+      success:      true,
+      id:           insertedRow.id,
+      score:        scoring.total,
+      grade:        scoring.grade,
+      tier:         scoring.tier,
+      fingerprint_id: fingerprintId,
+      files_processed: req.files.length,
+      report_url:   `${base}/report/${insertedRow.id}`,
+      pdf_url:      `${base}/pdf/${insertedRow.id}`,
+    });
+  } catch (error) {
+    console.error("❌ Multi-upload pipeline error:", error.message);
+    return res.status(500).json({ success: false, error: error.message || "Upload pipeline failed" });
+  }
+});
+
 app.post("/upload-coa", upload.single("file"), async (req, res) => {
   try {
     console.log("📥 COA upload received");
