@@ -880,11 +880,10 @@ async function runDualPassExtraction(ocrText, pages = []) {
 // AZURE OCR
 // ─────────────────────────────────────────────
 
-async function extractDocumentFromUrl(fileUrl) {
-  if (!fileUrl || typeof fileUrl !== "string") throw new Error("fileUrl must be a non-empty string");
-  const fileResponse = await axios.get(fileUrl, { responseType: "arraybuffer", timeout: 60000, maxRedirects: 5, validateStatus: (status) => status >= 200 && status < 300 });
-  const mimeType = detectMimeType(fileUrl, fileResponse.headers["content-type"]);
-  const poller = await azureClient.beginAnalyzeDocument("prebuilt-layout", fileResponse.data, { contentType: mimeType });
+async function extractDocumentFromBuffer(buffer, mimeType) {
+  if (!buffer) throw new Error("No buffer provided");
+  console.log(`   → Sending ${buffer.length} bytes directly to Azure OCR (${mimeType})`);
+  const poller = await azureClient.beginAnalyzeDocument("prebuilt-layout", buffer, { contentType: mimeType || "application/pdf" });
   const result = await poller.pollUntilDone();
   const pages = (result.pages || []).map(page => ({
     page_number: page.pageNumber,
@@ -894,6 +893,14 @@ async function extractDocumentFromUrl(fileUrl) {
   console.log(`   → OCR pages: ${pages.length}, total chars: ${plain_text.length}`);
   pages.forEach(p => console.log(`   → Page ${p.page_number}: ${p.text.length} chars`));
   return { mimeType, plain_text, page_count: pages.length, table_count: (result.tables || []).length, pages };
+}
+
+// Keep URL-based version as fallback only
+async function extractDocumentFromUrl(fileUrl) {
+  if (!fileUrl || typeof fileUrl !== "string") throw new Error("fileUrl must be a non-empty string");
+  const fileResponse = await axios.get(fileUrl, { responseType: "arraybuffer", timeout: 60000, maxRedirects: 5, validateStatus: (status) => status >= 200 && status < 300 });
+  const mimeType = detectMimeType(fileUrl, fileResponse.headers["content-type"]);
+  return extractDocumentFromBuffer(Buffer.from(fileResponse.data), mimeType);
 }
 
 // ─────────────────────────────────────────────
@@ -1907,6 +1914,7 @@ app.post("/upload-coa-multi", upload.array("files", 10), async (req, res) => {
       return res.status(400).json({ success: false, error: "No files uploaded" });
     }
 
+    // Upload to Supabase for storage, but OCR from buffer directly
     const uploadResults = await Promise.all(
       req.files.map((file, idx) =>
         uploadBufferToSupabase({
@@ -1919,9 +1927,10 @@ app.post("/upload-coa-multi", upload.array("files", 10), async (req, res) => {
     );
     console.log(`☁️  Stored ${uploadResults.length} file(s)`);
 
-    console.log("🔍 Azure OCR — processing all files in parallel...");
+    // Send buffers DIRECTLY to Azure — avoids partial reads from URL fetching
+    console.log("🔍 Azure OCR — processing all files directly from buffer...");
     const ocrResults = await Promise.all(
-      uploadResults.map(({ publicUrl }) => extractDocumentFromUrl(publicUrl))
+      req.files.map((file) => extractDocumentFromBuffer(file.buffer, file.mimetype))
     );
 
     const combinedText = ocrResults
@@ -1991,8 +2000,9 @@ app.post("/upload-coa", upload.single("file"), async (req, res) => {
     const { publicUrl, storagePath } = await uploadBufferToSupabase({ buffer: req.file.buffer, originalName: originalFilename, mimeType, folder: "raw_documents" });
     console.log("☁️  Stored:", storagePath);
 
-    console.log("🔍 Azure OCR...");
-    const extracted = await extractDocumentFromUrl(publicUrl);
+    // Send buffer DIRECTLY to Azure — avoids partial reads from URL fetching
+    console.log("🔍 Azure OCR (direct buffer)...");
+    const extracted = await extractDocumentFromBuffer(req.file.buffer, mimeType);
     console.log(`✅ OCR: ${extracted.plain_text.length} chars, ${extracted.page_count} pages`);
 
     const { chemistry, contaminants } = await runDualPassExtraction(extracted.plain_text, extracted.pages || []);
