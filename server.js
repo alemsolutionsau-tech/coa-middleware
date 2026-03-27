@@ -72,40 +72,52 @@ CRITICAL RULES:
 - NEVER truncate arrays. Extract EVERY single compound listed — no limits.
 - For units: always use "wt%" not "%". If the COA says wt%, use "wt%".
 
+UNIT CONVERSION — CRITICAL:
+- If values are reported in mg/g, convert to wt% by dividing by 10. Example: 249.19 mg/g = 24.919 wt%.
+- If values are reported as % (without "wt"), treat as wt%.
+- If values are in both units, always use wt% (or convert mg/g ÷ 10).
+- Do NOT convert ppm, ppb values — leave those as-is.
+
+PRODUCT TYPE DETECTION:
+- product_type: detect from the COA. Common values: "Dried Flower", "Concentrate", "Distillate", "Live Resin", "Rosin", "Hash", "Kief", "Tincture", "Edible", "Capsule", "Topical", "Oil", "Vape Cartridge", "Shatter", "Wax", "Budder", "Extract"
+- If concentrate/extract, THC may be 60-95 wt% — this is normal, do NOT cap or modify.
+
 CANNABINOIDS — EXTRACT ALL:
 - top_cannabinoids: include EVERY cannabinoid row in the table, whether detected or ND. No limit.
 - Capture BOTH anhydrous and as-received values if present. Prefer anhydrous (higher accuracy) for total_thc and total_cbd.
-- THCA-A = THCA. Normalise the name to "THCA".
-- D9-THC = D9-THC. Keep as-is.
-- CBNA: capture value if present (cannabinolic acid).
-- total_cannabinoids: look for "Total of all quantified cannabinoids" line. Use anhydrous value if two totals exist.
+- Name normalisations: THCA-A → "THCA", Δ9-THC → "D9-THC", delta-9-THC → "D9-THC", D8-THC → "D8-THC", Δ8-THC → "D8-THC", CBC → "CBC", CBCA → "CBCA"
+- If only "Total THC" is reported (no breakdown), put the value in thc_total and leave thca/d9thc empty.
+- total_cannabinoids: look for "Total of all quantified cannabinoids", "Total Cannabinoids", or sum line. Use anhydrous if two exist.
 
 TERPENES — EXTRACT ALL WITHOUT EXCEPTION:
 - top_terpenes: include EVERY single terpene row that has a numeric value (wt%) above 0.
 - Include BLQ entries as "BLQ" in the value field.
 - Do NOT cap or truncate. If there are 25 terpenes detected, return all 25.
-- Sort by value descending (highest first), putting BLQ entries at the bottom.
-- total_terpenes: look for "Total of all quantified terpenes" anywhere in the document. This is the authoritative sum. Do not compute it yourself unless it is completely absent.
+- Sort by value descending (highest first), BLQ entries at the bottom.
+- Name normalisations: β-Myrcene → "Beta-Myrcene", β-Caryophyllene → "Trans-Caryophyllene", β-Pinene → "Beta-Pinene", D-Limonene → "(R)-(+)-Limonene", d-Limonene → "(R)-(+)-Limonene", α-Pinene → "Alpha-Pinene", α-Humulene → "Alpha-Humulene", α-Bisabolol → "Alpha-Bisabolol", α-Terpineol → "Alpha-Terpineol"
+- total_terpenes: look for "Total of all quantified terpenes", "Total Terpenes", or sum line. Compute from sum ONLY if no total line exists.
+- If terpenes are reported in mg/g, convert to wt% (÷ 10).
 
 MINOR CANNABINOIDS — extract each individually:
-- thca: THCA-A value (anhydrous preferred)
+- thca: THCA value (anhydrous preferred)
 - cbda: CBDA value
-- cbn: CBN free form value (not total CBN formula)
+- cbn: CBN free-form value (not total CBN formula result)
 - cbna: CBNA value
-- cbg: CBG value
+- cbg: CBG value (free form, not acid)
 - cbga: CBGA value
 - cbca: CBCA value
-- thcva: THCVA value
+- thcva: THCVA or THCV-A value
 - d8thc: D8-THC if present
+- cbc: CBC if present
 
-FLAVONOIDS — EXTRACT ALL:
-- flavonoids: array of { name, value, unit } for every flavonoid detected (numeric value). Include total if present.
+FLAVONOIDS — EXTRACT ALL (if panel present):
+- flavonoids: array of { name, value, unit } for every flavonoid with a numeric value.
 - total_flavonoids: "Total of all quantified flavonoids" value if present.
 
 PHYSICAL / QUALITY DATA:
-- moisture_content: Loss on Drying % value
-- water_activity: Water Activity value (aw)
-- foreign_matter: result of Foreign Matter / Visual Inspection
+- moisture_content: Loss on Drying % value (numeric only, e.g. "7.2854")
+- water_activity: Water Activity aw value (numeric only, e.g. "0.5531")
+- foreign_matter: result of Foreign Matter / Visual Inspection / Olfactory test
 
 IDENTIFICATION TESTS:
 - hptlc_result: result of HPTLC identification (e.g. "THC-dominant. Conforms")
@@ -135,6 +147,7 @@ Return this exact shape:
   "cbg": "",
   "cbga": "",
   "cbca": "",
+  "cbc": "",
   "thcva": "",
   "d8thc": "",
   "total_terpenes": "",
@@ -168,56 +181,50 @@ Read ALL OCR text from a cannabis Certificate of Analysis and extract EVERY safe
 
 CRITICAL RULES:
 - Return valid JSON only. No markdown. No prose.
-- For each contaminant category, record the precise result: "Pass", "Fail", "ND" (not detected), "BLQ" (below limit of quantification), "Not tested", or the actual numeric value if reported.
-- Do NOT invent results. Only record what is explicitly stated in the document.
-- For pesticide panels: if ALL compounds read ND, result is "ND — all compounds not detected". If any fail, list them.
-- For heavy metals: record each metal individually AND overall status.
-- For microbials: record each pathogen individually AND overall status.
-- positive_flags: things that indicate quality or compliance (no limit — capture all)
-- warning_flags: things that are missing, borderline, or concerning (no limit)
+- NEVER invent or assume results. Only record what is explicitly stated.
+- Accept ANY result format: "Pass", "PASS", "Fail", "FAIL", "ND", "N/D", "None Detected", "Not Detected", "BLQ", "Below LOQ", "<LOQ", "Absent", "Absent in 1g", "Absent in 10g", "<10 CFU/g", numeric ppm/ppb values, or "Not Tested".
+- For overall status fields: if all individual results in a category are ND/BLQ/Absent/Pass → set status to "ND" or "Pass". If any fail → "Fail".
+- positive_flags: things indicating quality or compliance (no limit)
+- warning_flags: things missing, borderline, or concerning (no limit)
 
-PESTICIDES — CRITICAL:
-- Scan the ENTIRE document for any pesticide table (EP 2.8.13 or similar).
-- pesticides_status: "ND" if all compounds not detected, "Pass" if explicitly stated, "Fail" if any detected above RL.
-- pesticides_method: the method reference (e.g. "LAB-MTD-041 (Ph. Eur. 2.8.13)")
-- pesticides_compound_count: how many compounds were tested
-- pesticides_detail: brief summary of findings
+PESTICIDES — CRITICAL (may use any of these standards):
+- EP 2.8.13 (European), TGO93/TGO100 (Australian), Health Canada (Canadian), California/Oregon/state-specific panels, or custom lab panels
+- pesticides_status: derive from results — "ND" if all ND, "Pass" if all pass, "Fail" if any detected above RL
+- pesticides_method: method reference found in document
+- pesticides_compound_count: count of compounds in the panel (look for the total number tested)
+- pesticides_detail: brief summary
 
-HEAVY METALS — CRITICAL:
-- heavy_metals_status: overall status
-- For each metal: arsenic_result, cadmium_result, lead_result, mercury_result — record the exact result (ND, BLQ, or numeric ppm)
-- heavy_metals_method: method reference
+HEAVY METALS — CRITICAL (may use any of these):
+- ICH Q3D (US), Ph. Eur. 2.4.27 ICP-MS (EU), Health Canada, TGO101 (AU)
+- For each metal record EXACT result text: "BLQ", "ND", "<0.1 ppm", "0.023 ppm", etc.
+- heavy_metals_status: "Pass"/"ND"/"BLQ" if all within limits, "Fail" if any exceeded
+- arsenic_result, cadmium_result, lead_result, mercury_result
 
-MICROBIALS — CRITICAL:
-- microbials_status: overall status
-- yeast_mold: result
-- total_aerobic: result  
-- bile_tolerant_gram_negative: result
-- salmonella: result
-- s_aureus: result
-- p_aeruginosa: result
-- e_coli: result
-- microbials_method: method reference
+MICROBIALS — CRITICAL (may use any of these):
+- USP <2021>/<2023>, EP 2.6.12, ISO 21149, Health Canada, or state-specific
+- Accept results like: "Absent in 10g", "Not Detected", "<10 CFU/g", "Pass", numeric CFU/g values
+- microbials_status: overall — "Pass"/"ND"/"Absent" if all clear
+- Individual: yeast_mold, total_aerobic, bile_tolerant_gram_negative, salmonella, s_aureus, p_aeruginosa, e_coli
 
 MYCOTOXINS:
-- mycotoxins_status: overall status (ND if all not detected)
-- aflatoxin_b1, aflatoxin_b2, aflatoxin_g1, aflatoxin_g2: individual results (ppb)
-- sum_aflatoxins: total aflatoxin sum result
-- ochratoxin_a: result (ppb)
-- mycotoxins_method: method reference
+- Accept EU, US, or Canadian limits
+- mycotoxins_status: "ND" if all not detected, "Pass" if all pass
+- aflatoxin_b1, aflatoxin_b2, aflatoxin_g1, aflatoxin_g2: values in ppb
+- sum_aflatoxins, ochratoxin_a
 
 RESIDUAL SOLVENTS:
-- residual_solvents_status: "Pass", "ND", "Not tested", or actual result
+- May be present for extracts/concentrates — USP <467>, EP 2.4.24, or state panels
+- residual_solvents_status: "Pass", "ND", "Not tested"
 
 PHYSICAL / STABILITY:
-- moisture_content: Loss on Drying % — extract the numeric value
-- water_activity: Water Activity aw value — extract the numeric value
-- foreign_matter_status: result of foreign matter / visual inspection
+- moisture_content: ANY of — "Loss on Drying", "Moisture Content", "Water Content" — numeric value only (e.g. "7.2854")
+- water_activity: "Water Activity", "Aw" value — numeric only (e.g. "0.5531")
+- foreign_matter_status: "Foreign Matter", "Visual Inspection", "Olfactory" result
 
-LAB ACCREDITATION:
-- iso_17025: true/false — is ISO 17025:2017 accreditation stated?
-- scc_accredited: true/false — is SCC (Standards Council of Canada) accreditation stated?
-- lab_accreditation_body: name of accreditation body if stated
+LAB ACCREDITATION — look for any of:
+- iso_17025: ISO 17025:2017, ISO/IEC 17025, A2LA, PJLA, Perry Johnson Labs
+- scc_accredited: SCC, Standards Council of Canada
+- Other accreditations: A2LA, NELAP, TNI, DAkkS, UKAS, NATA — put in lab_accreditation_body
 
 Return this exact shape:
 {
@@ -264,8 +271,8 @@ Return this exact shape:
   "warning_flags": [""]
 }
 
-For contaminant_narrative: write 2-3 sentences summarising the complete safety profile. If any data is absent, state clearly what is missing.
-For lab_quality_summary: describe the laboratory's accreditation, method standards, and notable analytical details found in the document.
+For contaminant_narrative: 2-3 sentences summarising the complete safety profile. State clearly what is tested and what is missing.
+For lab_quality_summary: describe accreditation, method standards, and notable analytical details.
 `;
 
 // ─────────────────────────────────────────────
@@ -276,16 +283,38 @@ function computeIntelligenceScore(extracted, contaminants) {
   let score = 0;
   const breakdown = {};
 
+  // Detect product type to apply correct scoring thresholds
+  const productType = String(extracted.product_type || "").toLowerCase();
+  const isConcentrate = /concentrat|distillat|resin|rosin|hash|kief|shatter|wax|budder|extract|oil|tincture|vape|cartridge/i.test(productType);
+  const isCBD = toNum(extracted.cbd_total) > toNum(extracted.thc_total) * 2;
+
   const thc = toNum(extracted.thc_total);
-  let potencyScore = 0;
-  if (thc >= 28) potencyScore = 25;
-  else if (thc >= 24) potencyScore = 22;
-  else if (thc >= 20) potencyScore = 18;
-  else if (thc >= 15) potencyScore = 13;
-  else if (thc > 0) potencyScore = 8;
   const cbd = toNum(extracted.cbd_total);
-  if (cbd >= 15 && thc < 5) potencyScore = Math.max(potencyScore, 20);
-  breakdown.potency = { score: potencyScore, max: 25 };
+  let potencyScore = 0;
+
+  if (isConcentrate) {
+    // Concentrate potency thresholds (THC typically 50-95%)
+    if (thc >= 80) potencyScore = 25;
+    else if (thc >= 70) potencyScore = 22;
+    else if (thc >= 60) potencyScore = 18;
+    else if (thc >= 50) potencyScore = 13;
+    else if (thc > 0) potencyScore = 8;
+  } else if (isCBD) {
+    // CBD-dominant product
+    if (cbd >= 15) potencyScore = 25;
+    else if (cbd >= 10) potencyScore = 20;
+    else if (cbd >= 5) potencyScore = 15;
+    else if (cbd > 0) potencyScore = 8;
+  } else {
+    // Flower (default)
+    if (thc >= 28) potencyScore = 25;
+    else if (thc >= 24) potencyScore = 22;
+    else if (thc >= 20) potencyScore = 18;
+    else if (thc >= 15) potencyScore = 13;
+    else if (thc > 0) potencyScore = 8;
+    if (cbd >= 15 && thc < 5) potencyScore = Math.max(potencyScore, 20);
+  }
+  breakdown.potency = { score: potencyScore, max: 25, productType: isConcentrate ? "concentrate" : isCBD ? "CBD" : "flower" };
   score += potencyScore;
 
   const terps = toNum(extracted.total_terpenes);
@@ -417,10 +446,28 @@ const CANNABINOID_EDUCATION = {
   "CBG": { title: "CBG — Cannabigerol", body: "Non-psychoactive. Binds to both CB1 and CB2 receptors.", therapeutic: "Studied for antibacterial, neuroprotective, and anti-inflammatory properties." },
   "CBN": { title: "CBN — Cannabinol", body: "Degradation product of THC. Forms when THC oxidises.", therapeutic: "Mildly psychoactive. High CBN signals age or poor storage." },
   "CBD": { title: "CBD — Cannabidiol", body: "The second most researched cannabinoid. Non-psychoactive.", therapeutic: "Extensive research into anxiolytic, anticonvulsant, anti-inflammatory, and neuroprotective properties." },
+  "CBC": { title: "CBC — Cannabichromene", body: "Non-psychoactive minor cannabinoid. The active form of CBCA.", therapeutic: "Studied for anti-inflammatory, antidepressant, and potential neurogenesis-promoting effects. One of the 'big six' cannabinoids of research interest." },
 };
 
+// Normalise terpene name for consistent lookups — handles Greek letters, variant spellings
+function normaliseTerpeneName(name = "") {
+  return String(name)
+    .replace(/β-|β /gi, "Beta-")
+    .replace(/α-|α /gi, "Alpha-")
+    .replace(/Δ-|Δ /gi, "Delta-")
+    .replace(/\(R\)-\(\+\)-/gi, "")
+    .replace(/\(R\)-/gi, "")
+    .replace(/\(S\)-/gi, "")
+    .replace(/d-Limonene/gi, "Limonene")
+    .replace(/D-Limonene/gi, "Limonene")
+    .replace(/trans-/gi, "Trans-")
+    .replace(/cis-/gi, "Cis-")
+    .trim();
+}
+
 function getTerpeneIntel(terpName = "") {
-  const key = String(terpName).toLowerCase().trim();
+  const normalised = normaliseTerpeneName(terpName);
+  const key = normalised.toLowerCase().trim();
   for (const [k, v] of Object.entries(TERPENE_INTEL)) {
     if (key.includes(k)) return v;
   }
@@ -774,8 +821,9 @@ function normalizeContaminants(data = {}) {
 // ─────────────────────────────────────────────
 
 async function extractChemistry(ocrText) {
-  // Chemistry data (cannabinoids, terpenes, flavonoids, moisture) is at the START of the doc
-  const modelInput = prepareChemistryText(ocrText);
+  // Text is already pre-sliced by runDualPassExtraction — use directly
+  const modelInput = String(ocrText || "").trim();
+  if (!modelInput) return normalizeChemistry({});
   console.log(`🧪 Chemistry extraction pass... (${modelInput.length} chars)`);
   try {
     const raw = await callOpenAI(CHEMISTRY_EXTRACTION_PROMPT, modelInput, 3200);
@@ -794,10 +842,12 @@ async function extractChemistry(ocrText) {
 }
 
 async function extractContaminants(ocrText) {
-  // Contaminants (water activity, mycotoxins, microbials, heavy metals, pesticides) are in the MIDDLE-TAIL
-  // Use the contaminant-specific slicer to ensure these pages are always included
-  const modelInput = prepareContaminantText(ocrText);
+  // Text is already pre-sliced by runDualPassExtraction — use directly
+  const modelInput = String(ocrText || "").trim();
+  if (!modelInput) return normalizeContaminants({});
   console.log(`🛡️ Contaminant extraction pass... (${modelInput.length} chars)`);
+  // Log first 300 chars so we can verify safety panels are in the text
+  console.log(`   → Contaminant text preview: ${modelInput.slice(0, 300).replace(/\n/g, " ")}`);
   try {
     const raw = await callOpenAI(CONTAMINANT_EXTRACTION_PROMPT, modelInput, 2400);
     const json = extractJSON(raw);
@@ -816,28 +866,90 @@ async function extractContaminants(ocrText) {
 }
 
 async function runDualPassExtraction(ocrText, pages = []) {
-  // If we have per-page data, build targeted texts for each pass
-  let chemText = ocrText;
-  let contamText = ocrText;
+  const fullText = String(ocrText || "").trim();
+  let chemText = "";
+  let contamText = "";
+
+  // ── EXPANDED SAFETY KEYWORD LIST covering all lab formats ──
+  const safetyKeywords = [
+    // Water/moisture
+    "Water Activity", "water activity", "Loss on Drying", "Moisture Content", "Moisture Analysis",
+    // Microbials
+    "Microbial", "microbial", "Total Yeast", "Yeast and Mold", "Yeast & Mold", "Total Aerobic",
+    "Salmonella", "E. coli", "E.coli", "Staphylococcus", "Pseudomonas", "Aspergillus",
+    // Mycotoxins
+    "Mycotoxin", "mycotoxin", "Aflatoxin", "aflatoxin", "Ochratoxin",
+    // Heavy Metals
+    "Heavy Metal", "heavy metal", "Arsenic", "Cadmium", "Lead", "Mercury", "ICP-MS",
+    // Pesticides
+    "Pesticide", "pesticide", "EP 2.8.13", "2.8.13", "TGO93", "TGO100",
+    // Residual solvents
+    "Residual Solvent", "residual solvent",
+    // Visual/foreign matter
+    "Foreign Matter", "Visual Inspection",
+    // Flavonoids (also middle of doc)
+    "Flavonoid", "flavonoid", "Cannflavin",
+  ];
 
   if (pages && pages.length > 0) {
-    // Chemistry: pages 1-3 (cannabinoids, terpenes, flavonoids, moisture, water activity)
-    const chemPages = pages.filter(p => p.page_number <= 3);
-    const chemRaw = chemPages.map(p => `[PAGE ${p.page_number}]\n${p.text}`).join("\n\n");
-    chemText = chemRaw.slice(0, MAX_OCR_CHARS);
+    const totalPages = pages.length;
 
-    // Contaminants: all pages but with emphasis on pages 3-8 (safety panels)
-    // Include page 1 header for lab/product context, then pages 3 onwards for safety
-    const headerPage = pages.find(p => p.page_number === 1);
-    const safetyPages = pages.filter(p => p.page_number >= 3);
-    const header = headerPage ? `[PAGE 1 - HEADER]\n${headerPage.text.slice(0, 1500)}\n\n` : "";
-    const safetyRaw = safetyPages.map(p => `[PAGE ${p.page_number}]\n${p.text}`).join("\n\n");
-    contamText = (header + safetyRaw).slice(0, MAX_OCR_CHARS);
+    if (totalPages <= 2) {
+      // SHORT COA: everything may be on 1-2 pages — send ALL pages to BOTH passes
+      chemText = pages.map(p => `[PAGE ${p.page_number}]\n${p.text}`).join("\n\n");
+      contamText = chemText;
+      console.log(`📄 Short COA (${totalPages} pages): sending all pages to both passes (${chemText.length} chars)`);
+    } else {
+      // MULTI-PAGE COA: targeted split
+      // Chemistry: pages 1 to ceil(totalPages/2) — cannabinoids/terpenes always in first half
+      const chemPageLimit = Math.max(3, Math.ceil(totalPages / 2));
+      const chemPages = pages.filter(p => p.page_number <= chemPageLimit);
+      chemText = chemPages.map(p => `[PAGE ${p.page_number}]\n${p.text}`).join("\n\n");
 
-    console.log(`📄 Smart split: Chemistry text ${chemText.length} chars (pages 1-3), Contaminant text ${contamText.length} chars (pages 3-8)`);
+      // Contaminants: page 1 header + pages from 3rd onward (safety panels always in second half)
+      const page1 = pages.find(p => p.page_number === 1);
+      const safetyStartPage = Math.max(3, Math.ceil(totalPages * 0.3));
+      const safetyPages = pages.filter(p => p.page_number >= safetyStartPage);
+      const headerCtx = page1 ? `[DOCUMENT HEADER]\n${page1.text.slice(0, 800)}\n\n` : "";
+      const safetyText = safetyPages.map(p => `[PAGE ${p.page_number}]\n${p.text}`).join("\n\n");
+      contamText = headerCtx + safetyText;
+
+      console.log(`📄 Multi-page COA (${totalPages} pages): chemistry pages 1-${chemPageLimit} (${chemText.length} chars), safety pages ${safetyStartPage}-${totalPages} (${contamText.length} chars)`);
+    }
   } else {
-    console.log(`📄 No page data available — using full-text slicing strategies`);
+    // ── KEYWORD-SEARCH FALLBACK (no page data) ──
+    let safetyStartIndex = -1;
+    for (const kw of safetyKeywords) {
+      const idx = fullText.indexOf(kw);
+      if (idx !== -1 && (safetyStartIndex === -1 || idx < safetyStartIndex)) {
+        safetyStartIndex = idx;
+      }
+    }
+
+    if (safetyStartIndex > 500) {
+      // Safety section found after a reasonable chemistry section
+      chemText = fullText.slice(0, Math.min(fullText.length, MAX_OCR_CHARS));
+      const headerCtx = fullText.slice(0, 800);
+      contamText = headerCtx + "\n\n[...chemistry section omitted...]\n\n" + fullText.slice(safetyStartIndex);
+      console.log(`📄 Keyword-split: chemistry ${chemText.length} chars, safety starts at char ${safetyStartIndex} (${contamText.length} chars)`);
+    } else if (safetyStartIndex >= 0) {
+      // Safety data starts very early — short/combined COA, send everything to both
+      chemText = fullText.slice(0, MAX_OCR_CHARS);
+      contamText = fullText.slice(0, MAX_OCR_CHARS);
+      console.log(`📄 Short/combined COA: full text (${chemText.length} chars) to both passes`);
+    } else {
+      // No safety keywords found at all — send everything
+      chemText = fullText.slice(0, MAX_OCR_CHARS);
+      contamText = fullText.slice(0, MAX_OCR_CHARS);
+      console.log(`📄 No safety keywords found — full text (${chemText.length} chars) to both passes`);
+    }
   }
+
+  // Enforce MAX_OCR_CHARS on both
+  if (chemText.length > MAX_OCR_CHARS) chemText = chemText.slice(0, MAX_OCR_CHARS);
+  if (contamText.length > MAX_OCR_CHARS) contamText = contamText.slice(0, MAX_OCR_CHARS);
+
+  console.log(`🚀 Dispatching: chemistry=${chemText.length} chars, contaminants=${contamText.length} chars`);
 
   const [chemistry, contaminants] = await Promise.all([
     extractChemistry(chemText),
@@ -1001,7 +1113,8 @@ function renderReportHTML(reportJson = {}, options = {}) {
     const isBlq = String(t.value || "").toLowerCase() === "blq";
     const width = isBlq ? 2 : Math.max(3, maxTerpVal > 0 ? (val / maxTerpVal) * 100 : 0);
     const isLead = i === 0;
-    const edu = TERPENE_EDUCATION[t.name] || null;
+    // Try exact name first, then normalised name for education lookup
+    const edu = TERPENE_EDUCATION[t.name] || TERPENE_EDUCATION[normaliseTerpeneName(t.name)] || null;
     const icon = edu
       ? infoIcon(`<span class="tooltip"><strong>${esc(t.name)}</strong><span class="tt-body">${esc("Aroma: " + edu.aroma)}</span><span class="tt-coa">${esc(edu.therapeutic)}</span></span>`, "tt-right row-info")
       : "";
