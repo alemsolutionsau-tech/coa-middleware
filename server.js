@@ -39,8 +39,8 @@ app.use(express.static(path.join(__dirname, "public")));
 
 const PORT = process.env.PORT || 3000;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o";
-const MAX_OCR_CHARS = Number(process.env.MAX_OCR_CHARS_FOR_OPENAI || 28000);
-const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS || 90000);
+const MAX_OCR_CHARS = Number(process.env.MAX_OCR_CHARS_FOR_OPENAI || 80000); // gpt-4o handles 128k tokens; 80k chars ≈ 20k tokens — fits any COA
+const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS || 120000); // 2 min timeout for large docs
 const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || "raw_documents";
 
 if (!process.env.AZURE_DOC_INTELLIGENCE_ENDPOINT || !process.env.AZURE_DOC_INTELLIGENCE_KEY) {
@@ -622,42 +622,6 @@ function sanitizeFileName(name = "") {
   return String(name || "").replace(/[^a-zA-Z0-9-_.]/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "");
 }
 
-function prepareOCRText(cleanText = "") {
-  const text = String(cleanText || "").trim();
-  if (!text) return "";
-  // If fits, return everything — no truncation at all
-  if (text.length <= MAX_OCR_CHARS) return text;
-  // Fallback: head + tail (used by chemistry pass which needs start of doc)
-  const headLen = Math.floor(MAX_OCR_CHARS * 0.70);
-  const tailLen = MAX_OCR_CHARS - headLen;
-  return [text.slice(0, headLen), "\n\n[TRUNCATED — MIDDLE SECTION OMITTED]\n\n", text.slice(-tailLen)].join("");
-}
-
-// Chemistry needs the BEGINNING of the document (cannabinoids, terpenes, flavonoids are pages 1-4)
-function prepareChemistryText(cleanText = "") {
-  const text = String(cleanText || "").trim();
-  if (!text) return "";
-  // Chemistry data is always in the first portion — take a generous head slice
-  const limit = Math.min(text.length, MAX_OCR_CHARS);
-  return text.slice(0, limit);
-}
-
-// Contaminants need the FULL document — they span pages 3-7
-// We send: a small header (lab name, product) + the entire tail where safety panels live
-function prepareContaminantText(cleanText = "") {
-  const text = String(cleanText || "").trim();
-  if (!text) return "";
-  if (text.length <= MAX_OCR_CHARS) return text;
-  // Take first 2000 chars (product/lab header) + everything from halfway onward
-  // This ensures we always capture pesticides, metals, microbials, mycotoxins
-  const header = text.slice(0, 2000);
-  const midPoint = Math.floor(text.length * 0.30); // Start from 30% in — catches water activity onwards
-  const tail = text.slice(midPoint);
-  const tailAllowed = MAX_OCR_CHARS - header.length - 50;
-  const combined = header + "\n\n[...chemistry section omitted for safety extraction...]\n\n" + tail.slice(0, tailAllowed);
-  return combined;
-}
-
 function detectMimeType(url = "", headerContentType = "") {
   const lowerUrl = String(url || "").toLowerCase();
   const lowerHeader = String(headerContentType || "").toLowerCase();
@@ -695,8 +659,30 @@ function extractJSON(text = "") {
   const trimmed = String(text || "").trim();
   if (!trimmed) throw new Error("Empty OpenAI response");
   const first = trimmed.indexOf("{");
+  if (first === -1) throw new Error("No JSON object found in response");
   const last = trimmed.lastIndexOf("}");
-  if (first === -1 || last === -1 || last <= first) throw new Error("No valid JSON object found");
+  // If closing brace missing (truncated), attempt to repair
+  if (last === -1 || last <= first) {
+    console.warn("⚠️  JSON appears truncated — attempting repair");
+    const partial = trimmed.slice(first);
+    let braces = 0, brackets = 0, inStr = false, escape = false;
+    for (const ch of partial) {
+      if (escape) { escape = false; continue; }
+      if (ch === "\\" && inStr) { escape = true; continue; }
+      if (ch === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (ch === "{") braces++;
+      if (ch === "}") braces--;
+      if (ch === "[") brackets++;
+      if (ch === "]") brackets--;
+    }
+    let repaired = partial;
+    if (inStr) repaired += '"';
+    for (let i = 0; i < brackets; i++) repaired += "]";
+    for (let i = 0; i < braces; i++) repaired += "}";
+    try { JSON.parse(repaired); console.warn("⚠️  JSON repair successful"); return repaired; }
+    catch (_) { throw new Error("JSON truncated and repair failed"); }
+  }
   return trimmed.slice(first, last + 1);
 }
 
@@ -842,118 +828,50 @@ async function extractChemistry(ocrText) {
 }
 
 async function extractContaminants(ocrText) {
-  // Text is already pre-sliced by runDualPassExtraction — use directly
   const modelInput = String(ocrText || "").trim();
   if (!modelInput) return normalizeContaminants({});
   console.log(`🛡️ Contaminant extraction pass... (${modelInput.length} chars)`);
-  // Log first 300 chars so we can verify safety panels are in the text
-  console.log(`   → Contaminant text preview: ${modelInput.slice(0, 300).replace(/\n/g, " ")}`);
+  console.log(`   → Preview: ${modelInput.slice(0, 400).replace(/\n/g, " ")}`);
   try {
-    const raw = await callOpenAI(CONTAMINANT_EXTRACTION_PROMPT, modelInput, 2400);
+    const raw = await callOpenAI(CONTAMINANT_EXTRACTION_PROMPT, modelInput, 3000);
+    console.log(`   → Raw response: ${raw.length} chars`);
     const json = extractJSON(raw);
     const parsed = JSON.parse(json);
-    console.log(`   → Pesticides: ${parsed.pesticides_status} (${parsed.pesticides_compound_count || "?"} compounds)`);
-    console.log(`   → Heavy Metals: ${parsed.heavy_metals_status} | As:${parsed.arsenic_result} Cd:${parsed.cadmium_result} Pb:${parsed.lead_result} Hg:${parsed.mercury_result}`);
-    console.log(`   → Microbials: ${parsed.microbials_status}`);
-    console.log(`   → Mycotoxins: ${parsed.mycotoxins_status}`);
-    console.log(`   → Water Activity: ${parsed.water_activity} | Moisture: ${parsed.moisture_content}`);
+    console.log(`   → Pesticides: "${parsed.pesticides_status}" (${parsed.pesticides_compound_count || "?"} compounds)`);
+    console.log(`   → Metals: "${parsed.heavy_metals_status}" | As:${parsed.arsenic_result} Cd:${parsed.cadmium_result} Pb:${parsed.lead_result} Hg:${parsed.mercury_result}`);
+    console.log(`   → Microbials: "${parsed.microbials_status}" | Yeast:${parsed.yeast_mold} Salmonella:${parsed.salmonella}`);
+    console.log(`   → Mycotoxins: "${parsed.mycotoxins_status}" | B1:${parsed.aflatoxin_b1} OTA:${parsed.ochratoxin_a}`);
+    console.log(`   → Water activity: "${parsed.water_activity}" | Moisture: "${parsed.moisture_content}"`);
     console.log(`   → ISO 17025: ${parsed.iso_17025} | SCC: ${parsed.scc_accredited}`);
     return normalizeContaminants(parsed);
   } catch (err) {
-    console.warn("Contaminant extraction failed, returning empty:", err.message);
+    console.error("❌ Contaminant extraction FAILED:", err.message);
     return normalizeContaminants({});
   }
 }
 
 async function runDualPassExtraction(ocrText, pages = []) {
   const fullText = String(ocrText || "").trim();
-  let chemText = "";
-  let contamText = "";
 
-  // ── EXPANDED SAFETY KEYWORD LIST covering all lab formats ──
-  const safetyKeywords = [
-    // Water/moisture
-    "Water Activity", "water activity", "Loss on Drying", "Moisture Content", "Moisture Analysis",
-    // Microbials
-    "Microbial", "microbial", "Total Yeast", "Yeast and Mold", "Yeast & Mold", "Total Aerobic",
-    "Salmonella", "E. coli", "E.coli", "Staphylococcus", "Pseudomonas", "Aspergillus",
-    // Mycotoxins
-    "Mycotoxin", "mycotoxin", "Aflatoxin", "aflatoxin", "Ochratoxin",
-    // Heavy Metals
-    "Heavy Metal", "heavy metal", "Arsenic", "Cadmium", "Lead", "Mercury", "ICP-MS",
-    // Pesticides
-    "Pesticide", "pesticide", "EP 2.8.13", "2.8.13", "TGO93", "TGO100",
-    // Residual solvents
-    "Residual Solvent", "residual solvent",
-    // Visual/foreign matter
-    "Foreign Matter", "Visual Inspection",
-    // Flavonoids (also middle of doc)
-    "Flavonoid", "flavonoid", "Cannflavin",
-  ];
+  // Simple, reliable approach:
+  // Azure OCR extracts ALL text from ALL pages.
+  // We send the FULL text to both passes and let GPT find what it needs.
+  // gpt-4o supports 128k token context — a full 20-page COA is only ~15-20k tokens.
+  // No splitting, no routing, no missed data.
 
-  if (pages && pages.length > 0) {
-    const totalPages = pages.length;
+  let textToSend = fullText;
 
-    if (totalPages <= 2) {
-      // SHORT COA: everything may be on 1-2 pages — send ALL pages to BOTH passes
-      chemText = pages.map(p => `[PAGE ${p.page_number}]\n${p.text}`).join("\n\n");
-      contamText = chemText;
-      console.log(`📄 Short COA (${totalPages} pages): sending all pages to both passes (${chemText.length} chars)`);
-    } else {
-      // MULTI-PAGE COA: targeted split
-      // Chemistry: pages 1 to ceil(totalPages/2) — cannabinoids/terpenes always in first half
-      const chemPageLimit = Math.max(3, Math.ceil(totalPages / 2));
-      const chemPages = pages.filter(p => p.page_number <= chemPageLimit);
-      chemText = chemPages.map(p => `[PAGE ${p.page_number}]\n${p.text}`).join("\n\n");
-
-      // Contaminants: page 1 header + pages from 3rd onward (safety panels always in second half)
-      const page1 = pages.find(p => p.page_number === 1);
-      const safetyStartPage = Math.max(3, Math.ceil(totalPages * 0.3));
-      const safetyPages = pages.filter(p => p.page_number >= safetyStartPage);
-      const headerCtx = page1 ? `[DOCUMENT HEADER]\n${page1.text.slice(0, 800)}\n\n` : "";
-      const safetyText = safetyPages.map(p => `[PAGE ${p.page_number}]\n${p.text}`).join("\n\n");
-      contamText = headerCtx + safetyText;
-
-      console.log(`📄 Multi-page COA (${totalPages} pages): chemistry pages 1-${chemPageLimit} (${chemText.length} chars), safety pages ${safetyStartPage}-${totalPages} (${contamText.length} chars)`);
-    }
-  } else {
-    // ── KEYWORD-SEARCH FALLBACK (no page data) ──
-    let safetyStartIndex = -1;
-    for (const kw of safetyKeywords) {
-      const idx = fullText.indexOf(kw);
-      if (idx !== -1 && (safetyStartIndex === -1 || idx < safetyStartIndex)) {
-        safetyStartIndex = idx;
-      }
-    }
-
-    if (safetyStartIndex > 500) {
-      // Safety section found after a reasonable chemistry section
-      chemText = fullText.slice(0, Math.min(fullText.length, MAX_OCR_CHARS));
-      const headerCtx = fullText.slice(0, 800);
-      contamText = headerCtx + "\n\n[...chemistry section omitted...]\n\n" + fullText.slice(safetyStartIndex);
-      console.log(`📄 Keyword-split: chemistry ${chemText.length} chars, safety starts at char ${safetyStartIndex} (${contamText.length} chars)`);
-    } else if (safetyStartIndex >= 0) {
-      // Safety data starts very early — short/combined COA, send everything to both
-      chemText = fullText.slice(0, MAX_OCR_CHARS);
-      contamText = fullText.slice(0, MAX_OCR_CHARS);
-      console.log(`📄 Short/combined COA: full text (${chemText.length} chars) to both passes`);
-    } else {
-      // No safety keywords found at all — send everything
-      chemText = fullText.slice(0, MAX_OCR_CHARS);
-      contamText = fullText.slice(0, MAX_OCR_CHARS);
-      console.log(`📄 No safety keywords found — full text (${chemText.length} chars) to both passes`);
-    }
+  // Only truncate if truly enormous (shouldn't happen for any real COA)
+  if (textToSend.length > MAX_OCR_CHARS) {
+    console.log(`📄 COA text ${fullText.length} chars — truncating to ${MAX_OCR_CHARS}`);
+    textToSend = fullText.slice(0, MAX_OCR_CHARS);
   }
 
-  // Enforce MAX_OCR_CHARS on both
-  if (chemText.length > MAX_OCR_CHARS) chemText = chemText.slice(0, MAX_OCR_CHARS);
-  if (contamText.length > MAX_OCR_CHARS) contamText = contamText.slice(0, MAX_OCR_CHARS);
-
-  console.log(`🚀 Dispatching: chemistry=${chemText.length} chars, contaminants=${contamText.length} chars`);
+  console.log(`📄 Full OCR text: ${textToSend.length} chars across ${pages.length || "?"} pages — sending complete text to both passes`);
 
   const [chemistry, contaminants] = await Promise.all([
-    extractChemistry(chemText),
-    extractContaminants(contamText)
+    extractChemistry(textToSend),
+    extractContaminants(textToSend),
   ]);
   return { chemistry, contaminants };
 }
