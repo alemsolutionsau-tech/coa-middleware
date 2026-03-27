@@ -39,8 +39,8 @@ app.use(express.static(path.join(__dirname, "public")));
 
 const PORT = process.env.PORT || 3000;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o";
-const MAX_OCR_CHARS = Number(process.env.MAX_OCR_CHARS_FOR_OPENAI || 18000);
-const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS || 60000);
+const MAX_OCR_CHARS = Number(process.env.MAX_OCR_CHARS_FOR_OPENAI || 28000);
+const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS || 90000);
 const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || "raw_documents";
 
 if (!process.env.AZURE_DOC_INTELLIGENCE_ENDPOINT || !process.env.AZURE_DOC_INTELLIGENCE_KEY) {
@@ -578,10 +578,37 @@ function sanitizeFileName(name = "") {
 function prepareOCRText(cleanText = "") {
   const text = String(cleanText || "").trim();
   if (!text) return "";
+  // If fits, return everything — no truncation at all
   if (text.length <= MAX_OCR_CHARS) return text;
-  const headLen = Math.floor(MAX_OCR_CHARS * 0.65);
+  // Fallback: head + tail (used by chemistry pass which needs start of doc)
+  const headLen = Math.floor(MAX_OCR_CHARS * 0.70);
   const tailLen = MAX_OCR_CHARS - headLen;
   return [text.slice(0, headLen), "\n\n[TRUNCATED — MIDDLE SECTION OMITTED]\n\n", text.slice(-tailLen)].join("");
+}
+
+// Chemistry needs the BEGINNING of the document (cannabinoids, terpenes, flavonoids are pages 1-4)
+function prepareChemistryText(cleanText = "") {
+  const text = String(cleanText || "").trim();
+  if (!text) return "";
+  // Chemistry data is always in the first portion — take a generous head slice
+  const limit = Math.min(text.length, MAX_OCR_CHARS);
+  return text.slice(0, limit);
+}
+
+// Contaminants need the FULL document — they span pages 3-7
+// We send: a small header (lab name, product) + the entire tail where safety panels live
+function prepareContaminantText(cleanText = "") {
+  const text = String(cleanText || "").trim();
+  if (!text) return "";
+  if (text.length <= MAX_OCR_CHARS) return text;
+  // Take first 2000 chars (product/lab header) + everything from halfway onward
+  // This ensures we always capture pesticides, metals, microbials, mycotoxins
+  const header = text.slice(0, 2000);
+  const midPoint = Math.floor(text.length * 0.30); // Start from 30% in — catches water activity onwards
+  const tail = text.slice(midPoint);
+  const tailAllowed = MAX_OCR_CHARS - header.length - 50;
+  const combined = header + "\n\n[...chemistry section omitted for safety extraction...]\n\n" + tail.slice(0, tailAllowed);
+  return combined;
 }
 
 function detectMimeType(url = "", headerContentType = "") {
@@ -747,8 +774,9 @@ function normalizeContaminants(data = {}) {
 // ─────────────────────────────────────────────
 
 async function extractChemistry(ocrText) {
-  const modelInput = prepareOCRText(ocrText);
-  console.log("🧪 Chemistry extraction pass...");
+  // Chemistry data (cannabinoids, terpenes, flavonoids, moisture) is at the START of the doc
+  const modelInput = prepareChemistryText(ocrText);
+  console.log(`🧪 Chemistry extraction pass... (${modelInput.length} chars)`);
   try {
     const raw = await callOpenAI(CHEMISTRY_EXTRACTION_PROMPT, modelInput, 3200);
     const json = extractJSON(raw);
@@ -756,6 +784,8 @@ async function extractChemistry(ocrText) {
     console.log(`   → Terpenes extracted: ${(parsed.top_terpenes || []).length}`);
     console.log(`   → Cannabinoids extracted: ${(parsed.top_cannabinoids || []).length}`);
     console.log(`   → Flavonoids extracted: ${(parsed.flavonoids || []).length}`);
+    console.log(`   → Total terpenes: ${parsed.total_terpenes}`);
+    console.log(`   → Moisture: ${parsed.moisture_content}, Water activity: ${parsed.water_activity}`);
     return normalizeChemistry(parsed);
   } catch (err) {
     console.warn("Chemistry extraction failed, returning empty:", err.message);
@@ -764,16 +794,20 @@ async function extractChemistry(ocrText) {
 }
 
 async function extractContaminants(ocrText) {
-  const modelInput = prepareOCRText(ocrText);
-  console.log("🛡️ Contaminant extraction pass...");
+  // Contaminants (water activity, mycotoxins, microbials, heavy metals, pesticides) are in the MIDDLE-TAIL
+  // Use the contaminant-specific slicer to ensure these pages are always included
+  const modelInput = prepareContaminantText(ocrText);
+  console.log(`🛡️ Contaminant extraction pass... (${modelInput.length} chars)`);
   try {
-    const raw = await callOpenAI(CONTAMINANT_EXTRACTION_PROMPT, modelInput, 2000);
+    const raw = await callOpenAI(CONTAMINANT_EXTRACTION_PROMPT, modelInput, 2400);
     const json = extractJSON(raw);
     const parsed = JSON.parse(json);
-    console.log(`   → Pesticides: ${parsed.pesticides_status}`);
-    console.log(`   → Heavy Metals: ${parsed.heavy_metals_status}`);
+    console.log(`   → Pesticides: ${parsed.pesticides_status} (${parsed.pesticides_compound_count || "?"} compounds)`);
+    console.log(`   → Heavy Metals: ${parsed.heavy_metals_status} | As:${parsed.arsenic_result} Cd:${parsed.cadmium_result} Pb:${parsed.lead_result} Hg:${parsed.mercury_result}`);
     console.log(`   → Microbials: ${parsed.microbials_status}`);
     console.log(`   → Mycotoxins: ${parsed.mycotoxins_status}`);
+    console.log(`   → Water Activity: ${parsed.water_activity} | Moisture: ${parsed.moisture_content}`);
+    console.log(`   → ISO 17025: ${parsed.iso_17025} | SCC: ${parsed.scc_accredited}`);
     return normalizeContaminants(parsed);
   } catch (err) {
     console.warn("Contaminant extraction failed, returning empty:", err.message);
@@ -781,8 +815,34 @@ async function extractContaminants(ocrText) {
   }
 }
 
-async function runDualPassExtraction(ocrText) {
-  const [chemistry, contaminants] = await Promise.all([extractChemistry(ocrText), extractContaminants(ocrText)]);
+async function runDualPassExtraction(ocrText, pages = []) {
+  // If we have per-page data, build targeted texts for each pass
+  let chemText = ocrText;
+  let contamText = ocrText;
+
+  if (pages && pages.length > 0) {
+    // Chemistry: pages 1-3 (cannabinoids, terpenes, flavonoids, moisture, water activity)
+    const chemPages = pages.filter(p => p.page_number <= 3);
+    const chemRaw = chemPages.map(p => `[PAGE ${p.page_number}]\n${p.text}`).join("\n\n");
+    chemText = chemRaw.slice(0, MAX_OCR_CHARS);
+
+    // Contaminants: all pages but with emphasis on pages 3-8 (safety panels)
+    // Include page 1 header for lab/product context, then pages 3 onwards for safety
+    const headerPage = pages.find(p => p.page_number === 1);
+    const safetyPages = pages.filter(p => p.page_number >= 3);
+    const header = headerPage ? `[PAGE 1 - HEADER]\n${headerPage.text.slice(0, 1500)}\n\n` : "";
+    const safetyRaw = safetyPages.map(p => `[PAGE ${p.page_number}]\n${p.text}`).join("\n\n");
+    contamText = (header + safetyRaw).slice(0, MAX_OCR_CHARS);
+
+    console.log(`📄 Smart split: Chemistry text ${chemText.length} chars (pages 1-3), Contaminant text ${contamText.length} chars (pages 3-8)`);
+  } else {
+    console.log(`📄 No page data available — using full-text slicing strategies`);
+  }
+
+  const [chemistry, contaminants] = await Promise.all([
+    extractChemistry(chemText),
+    extractContaminants(contamText)
+  ]);
   return { chemistry, contaminants };
 }
 
@@ -796,8 +856,14 @@ async function extractDocumentFromUrl(fileUrl) {
   const mimeType = detectMimeType(fileUrl, fileResponse.headers["content-type"]);
   const poller = await azureClient.beginAnalyzeDocument("prebuilt-layout", fileResponse.data, { contentType: mimeType });
   const result = await poller.pollUntilDone();
-  const pages = (result.pages || []).map(page => ({ page_number: page.pageNumber, text: (page.lines || []).map(line => line.content).join("\n") }));
-  return { mimeType, plain_text: pages.map(p => p.text).join("\n\n").trim(), page_count: pages.length, table_count: (result.tables || []).length };
+  const pages = (result.pages || []).map(page => ({
+    page_number: page.pageNumber,
+    text: (page.lines || []).map(line => line.content).join("\n")
+  }));
+  const plain_text = pages.map(p => `[PAGE ${p.page_number}]\n${p.text}`).join("\n\n").trim();
+  console.log(`   → OCR pages: ${pages.length}, total chars: ${plain_text.length}`);
+  pages.forEach(p => console.log(`   → Page ${p.page_number}: ${p.text.length} chars`));
+  return { mimeType, plain_text, page_count: pages.length, table_count: (result.tables || []).length, pages };
 }
 
 // ─────────────────────────────────────────────
@@ -1835,7 +1901,12 @@ app.post("/upload-coa-multi", upload.array("files", 10), async (req, res) => {
     const totalPages = ocrResults.reduce((sum, r) => sum + r.page_count, 0);
     console.log(`✅ OCR complete: ${combinedText.length} chars, ${totalPages} total pages across ${req.files.length} file(s)`);
 
-    const { chemistry, contaminants } = await runDualPassExtraction(combinedText);
+    // Merge pages from all files with renumbered page numbers for smart splitting
+    const allPages = ocrResults.flatMap((r, fileIdx) =>
+      (r.pages || []).map(p => ({ ...p, page_number: p.page_number + (fileIdx > 0 ? ocrResults.slice(0, fileIdx).reduce((s, x) => s + x.page_count, 0) : 0) }))
+    );
+
+    const { chemistry, contaminants } = await runDualPassExtraction(combinedText, allPages);
     console.log("✅ Dual-pass extraction complete");
 
     const scoring = computeIntelligenceScore(chemistry, contaminants);
@@ -1893,7 +1964,7 @@ app.post("/upload-coa", upload.single("file"), async (req, res) => {
     const extracted = await extractDocumentFromUrl(publicUrl);
     console.log(`✅ OCR: ${extracted.plain_text.length} chars, ${extracted.page_count} pages`);
 
-    const { chemistry, contaminants } = await runDualPassExtraction(extracted.plain_text);
+    const { chemistry, contaminants } = await runDualPassExtraction(extracted.plain_text, extracted.pages || []);
     console.log("✅ Dual-pass extraction complete");
 
     const scoring = computeIntelligenceScore(chemistry, contaminants);
