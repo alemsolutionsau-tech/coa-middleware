@@ -8,6 +8,11 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
 
+const path = require("path");
+
+// serve static files (your index.html, css, js)
+app.use(express.static(path.join(__dirname, "public")));
+
 const PORT = process.env.PORT || 3000;
 
 function esc(v = "") {
@@ -408,7 +413,7 @@ function renderReportHTML(data = {}) {
 ========================= */
 
 app.get("/", (req, res) => {
-  res.send(renderLandingPage());
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 app.get("/health", (req, res) => {
