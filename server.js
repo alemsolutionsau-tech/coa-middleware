@@ -1487,11 +1487,11 @@ function renderReportHTML(reportJson = {}, options = {}) {
           <button class="intel-tab" type="button" data-intel-tab="buyer">Buyer / Brand</button>
         </div>
 
-        <div class="intel-panel active" data-intel-panel="patient">
-          ${(audiences.patient || []).map((item, idx) => `
-            <div class="intel-row"><div class="num">${String(idx + 1).padStart(2, "0")}</div><div class="copy">${esc(item)}</div></div>
-          `).join("")}
-        </div>
+<div class="intel-panel" data-intel-panel="buyer">
+  ${(audiences.buyer?.length ? audiences.buyer : (audiences.brand || [])).map((item, idx) => `
+    <div class="intel-row"><div class="num">${String(idx + 1).padStart(2, "0")}</div><div class="copy">${esc(item)}</div></div>
+  `).join("")}
+</div>
 
         <div class="intel-panel" data-intel-panel="clinician">
           ${(audiences.clinical || []).map((item, idx) => `
