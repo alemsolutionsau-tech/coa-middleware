@@ -938,957 +938,206 @@ async function getReportById(id) {
 // LAYER 5 — REPORT HTML RENDERER (v7 — Full Chemistry + Full Safety)
 // ─────────────────────────────────────────────
 
-function renderReportHTML(reportJson = {}, options = {}) {
-  const chemistry = reportJson.chemistry || {};
-  const contaminants = reportJson.contaminants || {};
-  const scoring = reportJson.scoring || computeIntelligenceScore(chemistry, contaminants);
-  const intelligence = reportJson.intelligence || {};
+function renderReportHTML(data = {}) {
+  const esc = (str) => String(str || "-").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-  const terpenes = chemistry.top_terpenes || [];
-  const cannabinoids = chemistry.top_cannabinoids || [];
-  const flavonoids = chemistry.flavonoids || [];
-  const thc = toNum(chemistry.thc_total);
-  const cbd = toNum(chemistry.cbd_total);
-  const terps = toNum(chemistry.total_terpenes);
-  const cbga = toNum(chemistry.cbga);
-  const cbn = toNum(chemistry.cbn);
-  const cbna = toNum(chemistry.cbna);
-  const moisture = chemistry.moisture_content || contaminants.moisture_content || "";
-  const waterActivity = chemistry.water_activity || contaminants.water_activity || "";
-  const leadTerpene = terpenes[0]?.name || "";
-  const secondTerpene = terpenes[1]?.name || "";
-  const thirdTerpene = terpenes[2]?.name || "";
-  const terpIntel = getTerpeneIntel(leadTerpene);
-  const fingerprintId = intelligence.fingerprintId || generateFingerprintId(terpenes);
+  const badges = (data.flags || []).map(flag => `
+    <div class="badge ${flag.type || "neutral"}">${esc(flag.label)}</div>
+  `).join("");
 
-  // Safely build audiences and postHarvest — guard against old DB records with wrong shape
-  let audiences;
-  try {
-    const rawAud = intelligence.audiences;
-    audiences = (rawAud && Array.isArray(rawAud.brand)) ? rawAud : buildAudienceNarratives(chemistry, contaminants, scoring);
-  } catch (_) {
-    audiences = buildAudienceNarratives(chemistry, contaminants, scoring);
-  }
-  // Ensure all four panels are always arrays
-  audiences.brand    = Array.isArray(audiences.brand)    ? audiences.brand    : [];
-  audiences.clinical = Array.isArray(audiences.clinical) ? audiences.clinical : [];
-  audiences.patient  = Array.isArray(audiences.patient)  ? audiences.patient  : [];
-  audiences.buyer    = Array.isArray(audiences.buyer)    ? audiences.buyer    : [];
-
-  let postHarvest;
-  try {
-    const rawPH = intelligence.postHarvest;
-    postHarvest = (rawPH && rawPH.freshness && rawPH.curing && rawPH.degradation && rawPH.stability)
-      ? rawPH : buildPostHarvestIntel(chemistry, contaminants);
-  } catch (_) {
-    postHarvest = buildPostHarvestIntel(chemistry, contaminants);
-  }
-  // Ensure all four signals always have label+note
-  const safePH = {
-    freshness:   postHarvest.freshness   || { label: "Unknown", note: "Data not available." },
-    curing:      postHarvest.curing      || { label: "Unknown", note: "Data not available." },
-    degradation: postHarvest.degradation || { label: "Unknown", note: "Data not available." },
-    stability:   postHarvest.stability   || { label: "Unknown", note: "Data not available." },
-  };
-
-  const activeTerps = terpenes.filter(t => toNum(t.value) > 0);
-  const blqTerps = terpenes.filter(t => String(t.value).toLowerCase() === "blq");
-  const maxTerpVal = activeTerps.length > 0 ? Math.max(...activeTerps.map(t => toNum(t.value)), 0.001) : 0.001;
-  const productName = chemistry.product_name || "COA Report";
-  const heroNarrative = chemistry.hero_narrative || `${leadTerpene ? leadTerpene + "-dominant" : "Cannabis"} profile with ${terps > 2 ? "strong" : terps > 1 ? "moderate" : "light"} terpene expression.`;
-
-  const safeTotal = scoring.total ?? 0;
-  const safeGrade = scoring.grade || "—";
-  const safeTier = scoring.tier || "—";
-
-  const ringCirc = 351.86;
-  const ringOffset = ((100 - safeTotal) / 100 * ringCirc).toFixed(1);
-
-  // Status helpers
-  const pestPass = /pass|nd|not detected/i.test(contaminants.pesticides_status || "");
-  const metalsPass = /pass|nd|not detected|blq/i.test(contaminants.heavy_metals_status || "");
-  const microPass = /pass|nd|not detected|absent/i.test(contaminants.microbials_status || "");
-  const mycoPass = /pass|nd|not detected/i.test(contaminants.mycotoxins_status || "");
-  const isoPass = contaminants.iso_17025 === true || /17025/i.test(chemistry.laboratory_accreditation || "");
-  const sccPass = contaminants.scc_accredited === true;
-  const hasMoisture = !!(moisture && moisture !== "");
-  const hasWaterActivity = !!(waterActivity && waterActivity !== "");
-  const hasForeignMatter = !!(contaminants.foreign_matter_status && contaminants.foreign_matter_status !== "");
-  const hasFlavonoids = flavonoids.length > 0;
-
-  function infoIcon(content, variant = "") {
-    return `<span class="info-icon${variant ? " " + variant : ""}" tabindex="0">ⓘ${content}</span>`;
-  }
-
-  function sbRow(label, fillClass, widthPct, delay, scoreStr, tooltipTitle, ttBody, ttHow, ttCoa) {
-    return `
-    <div class="sb-row">
-      <div class="sb-lbl-wrap">
-        <span class="sb-lbl">${esc(label)}</span>
-        ${infoIcon(`<span class="tooltip"><strong>${esc(tooltipTitle)}</strong><span class="tt-body">${esc(ttBody)}</span><span class="tt-how"><strong>How we scored it:</strong> ${esc(ttHow)}</span><span class="tt-coa"><strong>Check on your COA:</strong> ${esc(ttCoa)}</span></span>`)}
-      </div>
-      <div class="sb-track"><div class="sb-fill ${fillClass}" style="width:${widthPct}%;animation-delay:${delay}s"></div></div>
-      <div class="sb-num">${esc(scoreStr)}</div>
-    </div>`;
-  }
-
-  function terpBar(t, i) {
-    if (!t || !t.name) return "";
-    const val = toNum(t.value);
-    const isBlq = String(t.value || "").toLowerCase() === "blq";
-    const width = isBlq ? 2 : Math.max(3, maxTerpVal > 0 ? (val / maxTerpVal) * 100 : 0);
-    const isLead = i === 0;
-    // Try exact name first, then normalised name for education lookup
-    const edu = TERPENE_EDUCATION[t.name] || TERPENE_EDUCATION[normaliseTerpeneName(t.name)] || null;
-    const icon = edu
-      ? infoIcon(`<span class="tooltip"><strong>${esc(t.name)}</strong><span class="tt-body">${esc("Aroma: " + edu.aroma)}</span><span class="tt-coa">${esc(edu.therapeutic)}</span></span>`, "tt-right row-info")
-      : "";
-    return `
-    <div class="tb">
-      <div class="tb-row">
-        <span class="tb-name${isLead ? " lead" : ""}${isBlq ? " blq" : ""}">${esc(t.name)}${icon}</span>
-        <span class="tb-pct${isBlq ? " blq" : ""}">${isBlq ? "BLQ" : esc(String(t.value || "")) + " " + esc(t.unit || "wt%")}</span>
-      </div>
-      <div class="tb-track"><div class="tb-fill${isLead ? " lead" : ""}${isBlq ? " blq" : ""}" style="width:${width.toFixed(1)}%;animation-delay:${(i * 0.04 + 0.04).toFixed(2)}s"></div></div>
-    </div>`;
-  }
-
-  function cannCell(name, value, unit, note, isHighlight = false) {
-    if (!name) return "";
-    const edu = CANNABINOID_EDUCATION[String(name)] || null;
-    const icon = edu
-      ? infoIcon(`<span class="tooltip"><strong>${esc(edu.title)}</strong><span class="tt-body">${esc(edu.body)}</span><span class="tt-coa">${esc(edu.therapeutic)}</span></span>`, "cann-info")
-      : "";
-    const safeVal = String(value ?? "");
-    const isNd = !safeVal || safeVal === "ND" || safeVal === "" || toNum(safeVal) === 0;
-    return `
-    <div class="cann-cell${isHighlight ? " hl" : ""}${isNd ? " nd-cell" : ""}">
-      ${icon}
-      <div class="cann-lbl">${esc(name)}</div>
-      <div class="cann-val${isNd ? " nd" : ""}">${isNd ? "<span class='nd-tag'>ND</span>" : esc(safeVal) + "<span class='cann-unit'> " + esc(unit || "wt%") + "</span>"}</div>
-      ${note ? `<div class="cann-note">${esc(String(note))}</div>` : ""}
-    </div>`;
-  }
-
-  function phRow(dotClass, label, note, ttTitle, ttBody, ttCoa) {
-    const icon = infoIcon(`<span class="tooltip"><strong>${esc(ttTitle)}</strong><span class="tt-body">${esc(ttBody)}</span><span class="tt-coa"><strong>Signal source:</strong> ${esc(ttCoa)}</span></span>`, "ph-info tt-right");
-    return `
-    <div class="ph-row">
-      <div class="ph-dot ${dotClass}"></div>
-      <div>
-        <div class="ph-lbl" style="display:flex;align-items:center;gap:5px;">${esc(label)}${icon}</div>
-        <div class="ph-note">${esc(note)}</div>
-      </div>
-    </div>`;
-  }
-
-  function sfRow(label, dotClass, statusText, pass) {
-    return `
-    <div class="sf-row">
-      <div class="sf-dot ${pass ? "pass" : "nt"}"></div>
-      <div class="sf-name">${esc(label)}</div>
-      <div class="sf-val${pass ? " pass" : ""}">${esc(statusText || (pass ? "✓ Confirmed" : "not tested"))}</div>
-    </div>`;
-  }
-
-  function metalRow(metal, result) {
-    const safeResult = String(result ?? "");
-    const isNd = !safeResult || safeResult === "ND" || safeResult === "" || safeResult.toLowerCase().includes("nd");
-    const isBlq = safeResult.toLowerCase().includes("blq");
-    const isPass = isNd || isBlq;
-    return `<div class="metal-row">
-      <div class="sf-dot ${isPass ? "pass" : "nt"}"></div>
-      <div class="metal-name">${esc(metal)}</div>
-      <div class="metal-val ${isPass ? "pass" : "warn"}">${esc(safeResult || "—")}</div>
-    </div>`;
-  }
-
-  function microbialRow(pathogen, result) {
-    const safeResult = String(result ?? "");
-    const isPass = !safeResult || /absent|nd|not detected|< 10/i.test(safeResult);
-    return `<div class="metal-row">
-      <div class="sf-dot ${isPass ? "pass" : "nt"}"></div>
-      <div class="metal-name">${esc(pathogen)}</div>
-      <div class="metal-val ${isPass ? "pass" : "warn"}">${esc(safeResult || "—")}</div>
-    </div>`;
-  }
-
-  function mycoRow(compound, result) {
-    const safeResult = String(result ?? "");
-    const isNd = !safeResult || safeResult.toLowerCase() === "nd" || safeResult === "0";
-    return `<div class="metal-row">
-      <div class="sf-dot ${isNd ? "pass" : "nt"}"></div>
-      <div class="metal-name">${esc(compound)}</div>
-      <div class="metal-val ${isNd ? "pass" : "warn"}">${esc(safeResult || "ND")}</div>
-    </div>`;
-  }
-
-  function flavonoidBar(f, i) {
-    if (!f || !f.name) return "";
-    const val = toNum(f.value);
-    const flavNums = flavonoids.map(x => toNum(x.value)).filter(v => v > 0);
-    const maxVal = flavNums.length > 0 ? Math.max(...flavNums) : 0.001;
-    const width = maxVal > 0 ? Math.max(3, (val / maxVal) * 100) : 3;
-    return `<div class="flav-row">
-      <div class="flav-name">${esc(f.name)}</div>
-      <div class="flav-track"><div class="flav-fill" style="width:${width.toFixed(1)}%;animation-delay:${(i*0.04).toFixed(2)}s"></div></div>
-      <div class="flav-val">${esc(String(f.value ?? ""))} ${esc(f.unit || "wt%")}</div>
-    </div>`;
-  }
-
-  function audiencePanel(items = []) {
-    if (!items.length) return `<div class="ins-row"><div class="ins-arr"></div><span class="ins-text">No intelligence available.</span></div>`;
-    return items.map(line => `<div class="ins-row"><div class="ins-arr"></div><span class="ins-text">${esc(line)}</span></div>`).join("");
-  }
-
-  const safeBreakdown = scoring.breakdown || {};
-  const safePotency = safeBreakdown.potency || { score: 0, max: 25 };
-  const safeTerpenes = safeBreakdown.terpenes || { score: 0, max: 25 };
-  const safeMinors = safeBreakdown.minors || { score: 0, max: 20 };
-  const safeSafety = safeBreakdown.safety || { score: 0, max: 20 };
-  const safeData = safeBreakdown.dataCompleteness || { score: 0, max: 10 };
-
-  const potencyPct = safePotency.max > 0 ? Math.round(safePotency.score / safePotency.max * 100) : 0;
-  const terpPct = safeTerpenes.max > 0 ? Math.round(safeTerpenes.score / safeTerpenes.max * 100) : 0;
-  const minorPct = safeMinors.max > 0 ? Math.round(safeMinors.score / safeMinors.max * 100) : 0;
-  const safetyPct = safeSafety.max > 0 ? Math.round(safeSafety.score / safeSafety.max * 100) : 0;
-  const dataPct = safeData.max > 0 ? Math.round(safeData.score / safeData.max * 100) : 0;
-
-  const terpCount = activeTerps.length;
-  const blqCount = blqTerps.length;
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${esc(productName)} — Alem Chemical Intelligence</title>
-<link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,300;1,400;1,600&family=Space+Mono:wght@400;700&family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600&display=swap" rel="stylesheet">
-<style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-:root {
-  --alem-dark:   #0d2d3e;
-  --alem-mid:    #1a4a62;
-  --alem-accent: #8ecfb0;
-  --alem-tint:   #eef6fb;
-  --alem-wash:   #f4f8fb;
-  --white:       #ffffff;
-  --off:         #fafcfe;
-  --t-dark:      #0d2d3e;
-  --t-body:      #2a3d4a;
-  --t-mid:       #4a6070;
-  --t-light:     #8aa0b0;
-  --t-faint:     #b8c8d4;
-  --border:      #ccdde8;
-  --border-l:    #e2eef5;
-  --gold:        #9a7822;
-  --gold-l:      #c09a38;
-  --gold-tint:   #fef8ec;
-  --gold-bord:   #e8d8a8;
-  --warn-bg:     #fef6f0;
-  --warn-text:   #8a4818;
-  --warn-bord:   #f0cdb0;
-  --pass-green:  #2a7a5c;
-  --sh:          rgba(13,45,62,.09);
-}
-body { background:var(--alem-wash); font-family:'Nunito',sans-serif; font-size:13.5px; line-height:1.6; color:var(--t-body); min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:48px 16px 72px; }
-@keyframes rise { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
-@keyframes grow { from{transform:scaleX(0)} to{transform:scaleX(1)} }
-
-.rcard { width:100%; max-width:620px; background:var(--white); border:1px solid var(--border); box-shadow:0 2px 20px var(--sh),0 8px 40px var(--sh); animation:rise .55s cubic-bezier(.16,1,.3,1) both; }
-
-/* ── NAV ── */
-.nav { background:var(--alem-dark); padding:16px 28px; display:flex; justify-content:space-between; align-items:center; }
-.nav-right { text-align:right; }
-.nav-date { font-size:8px; font-weight:500; letter-spacing:2px; text-transform:uppercase; color:rgba(255,255,255,.38); }
-.nav-schema { font-family:'Space Mono',monospace; font-size:7.5px; color:rgba(255,255,255,.22); margin-top:3px; letter-spacing:1px; }
-
-/* ── HERO ── */
-.hero { background:var(--white); padding:32px 28px 28px; border-bottom:1px solid var(--border-l); }
-.hero-top { display:flex; justify-content:space-between; align-items:flex-start; gap:20px; }
-.hero-left { flex:1; }
-.hero-eye { font-size:7.5px; font-weight:600; letter-spacing:2px; text-transform:uppercase; color:var(--t-light); margin-bottom:10px; }
-.hero-name { font-family:'EB Garamond',Georgia,serif; font-size:46px; font-weight:600; color:var(--alem-dark); line-height:.95; letter-spacing:-.5px; }
-.hero-name-sub { font-family:'EB Garamond',Georgia,serif; font-size:24px; font-weight:400; font-style:italic; color:var(--t-light); display:block; margin-top:4px; }
-.hero-meta { font-size:9.5px; font-weight:400; letter-spacing:1px; color:var(--t-light); margin-top:10px; }
-.hero-narrative { font-family:'Nunito',sans-serif; font-style:italic; font-size:14.5px; font-weight:300; line-height:1.65; color:var(--t-mid); margin-top:14px; max-width:320px; }
-
-/* ── SCORE RING ── */
-.score-block { flex-shrink:0; text-align:center; }
-.score-ring { width:130px; height:130px; position:relative; }
-.score-ring svg { transform:rotate(-90deg); }
-.score-inner { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
-.score-n { font-family:'Nunito',sans-serif; font-size:52px; font-weight:800; color:var(--alem-dark); line-height:1; }
-.score-d { font-family:'Space Mono',monospace; font-size:11px; color:var(--t-light); }
-.score-grade { font-size:11px; font-weight:700; letter-spacing:2px; color:var(--alem-dark); margin-top:10px; text-transform:uppercase; }
-.score-tier { font-size:9px; font-weight:300; letter-spacing:2px; color:var(--t-light); text-transform:uppercase; margin-top:3px; }
-
-/* ── SCORE BREAKDOWN ── */
-.score-bd { background:var(--alem-tint); padding:20px 28px 24px; border-bottom:1px solid var(--border); }
-.sb-row { display:grid; grid-template-columns:1fr 1fr 56px; align-items:center; gap:14px; padding:8px 0; border-top:1px solid var(--border-l); }
-.sb-row:first-child { border-top:none; }
-.sb-lbl-wrap { display:flex; align-items:center; gap:6px; }
-.sb-lbl { font-size:9px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:var(--t-mid); }
-.sb-track { height:8px; background:var(--border); border-radius:4px; overflow:hidden; }
-.sb-fill { height:100%; border-radius:4px; transform-origin:left; animation:grow .8s cubic-bezier(.16,1,.3,1) both; }
-.f-g { background:var(--alem-mid); }
-.f-o { background:var(--gold); }
-.f-r { background:#c07858; }
-.sb-num { font-family:'Space Mono',monospace; font-size:10px; font-weight:700; color:var(--t-mid); text-align:right; }
-
-/* ── INFO ICON + TOOLTIP ── */
-.info-icon { position:relative; display:inline-flex; align-items:center; justify-content:center; width:15px; height:15px; background:var(--border); color:var(--t-mid); border-radius:50%; font-size:10px; font-style:normal; cursor:help; flex-shrink:0; transition:background .15s,color .15s; line-height:1; font-family:'Nunito',sans-serif; font-weight:800; user-select:none; vertical-align:middle; }
-.info-icon:hover,.info-icon:focus { background:var(--alem-dark); color:var(--white); outline:none; }
-.tooltip { display:none; position:absolute; left:22px; top:50%; transform:translateY(-50%); width:290px; background:var(--white); border:1px solid var(--border); border-radius:6px; padding:14px 16px; box-shadow:0 8px 32px rgba(13,45,62,.14),0 2px 8px rgba(13,45,62,.08); z-index:999; pointer-events:none; font-size:11px; font-weight:400; color:var(--t-body); line-height:1.6; font-family:'Nunito',sans-serif; text-transform:none; letter-spacing:0; }
-.tooltip strong { display:block; font-size:11.5px; font-weight:800; color:var(--alem-dark); margin-bottom:7px; letter-spacing:0; }
-.tooltip .tt-body { display:block; margin-bottom:9px; color:var(--t-body); }
-.tooltip .tt-how,.tooltip .tt-coa { display:block; font-size:10.5px; color:var(--t-mid); margin-top:7px; padding-top:7px; border-top:1px solid var(--border-l); line-height:1.55; }
-.tooltip .tt-how strong,.tooltip .tt-coa strong { display:inline; font-size:10.5px; font-weight:700; color:var(--alem-dark); margin-bottom:0; }
-.tooltip::before { content:''; position:absolute; left:-6px; top:50%; transform:translateY(-50%); width:0; height:0; border-top:6px solid transparent; border-bottom:6px solid transparent; border-right:6px solid var(--border); }
-.tooltip::after { content:''; position:absolute; left:-5px; top:50%; transform:translateY(-50%); width:0; height:0; border-top:5px solid transparent; border-bottom:5px solid transparent; border-right:5px solid var(--white); }
-.info-icon:hover .tooltip,.info-icon:focus .tooltip { display:block; }
-.tt-right .tooltip { left:22px; right:auto; top:50%; transform:translateY(-50%); }
-.tt-right .tooltip::before { left:-6px; right:auto; border-left:none; border-right:6px solid var(--border); border-top:6px solid transparent; border-bottom:6px solid transparent; top:50%; transform:translateY(-50%); }
-.tt-right .tooltip::after { left:-5px; right:auto; border-left:none; border-right:5px solid var(--white); border-top:5px solid transparent; border-bottom:5px solid transparent; top:50%; transform:translateY(-50%); }
-.sec-info { vertical-align:middle; margin-left:6px; }
-.row-info { margin-left:4px; flex-shrink:0; }
-.cann-info { position:absolute; top:8px; right:8px; }
-.cann-info .tooltip { width:260px; right:22px; left:auto; top:0; transform:none; }
-.cann-info .tooltip::before { right:-6px; left:auto; border-right:none; border-left:6px solid var(--border); border-top:6px solid transparent; border-bottom:6px solid transparent; top:12px; transform:none; }
-.cann-info .tooltip::after { right:-5px; left:auto; border-right:none; border-left:5px solid var(--white); border-top:5px solid transparent; border-bottom:5px solid transparent; top:13px; transform:none; }
-.ph-info .tooltip { width:260px; left:22px; top:50%; transform:translateY(-50%); right:auto; }
-.ph-info .tooltip::before { left:-6px; border-right:6px solid var(--border); border-left:none; border-top:6px solid transparent; border-bottom:6px solid transparent; top:50%; transform:translateY(-50%); right:auto; }
-.ph-info .tooltip::after { left:-5px; border-right:5px solid var(--white); border-left:none; border-top:5px solid transparent; border-bottom:5px solid transparent; top:50%; transform:translateY(-50%); right:auto; }
-.m-info { margin-top:5px; display:inline-flex; }
-.m-info .tooltip { width:240px; left:50%; transform:translateX(-50%); top:calc(100% + 10px); right:auto; }
-.m-info .tooltip::before { left:50%; transform:translateX(-50%); top:-6px; right:auto; border-top:none; border-bottom:6px solid var(--border); border-left:6px solid transparent; border-right:6px solid transparent; }
-.m-info .tooltip::after { left:50%; transform:translateX(-50%); top:-5px; right:auto; border-top:none; border-bottom:5px solid var(--white); border-left:5px solid transparent; border-right:5px solid transparent; }
-
-/* ── CHEMOTYPE ── */
-.ct-band { background:var(--white); border-bottom:1px solid var(--border-l); border-top:1px solid var(--border-l); padding:12px 28px; display:flex; align-items:center; }
-.ct-code { font-family:'Space Mono',monospace; font-size:13px; font-weight:700; letter-spacing:3px; color:var(--alem-dark); display:flex; align-items:center; gap:6px; }
-.ct-sep { width:1px; height:28px; background:var(--border); margin:0 18px; }
-.ct-lbl { font-size:7px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:var(--t-light); }
-.ct-lin { font-family:'Nunito',sans-serif; font-style:italic; font-size:13px; font-weight:400; color:var(--t-body); margin-top:1px; }
-.ct-right { margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; gap:4px; }
-.ct-effect { font-size:8px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--alem-mid); background:var(--alem-tint); border:1px solid var(--border); padding:3px 10px; border-radius:20px; display:flex; align-items:center; gap:5px; }
-.ct-conf { font-size:7px; letter-spacing:1px; color:var(--t-faint); text-transform:uppercase; display:flex; align-items:center; gap:4px; }
-
-/* ── METRICS ── */
-.metrics { display:grid; grid-template-columns:repeat(4,1fr); border-bottom:1px solid var(--border-l); }
-.m-cell { padding:18px 12px; text-align:center; border-right:1px solid var(--border-l); position:relative; }
-.m-cell:last-child { border-right:none; }
-.m-val { font-family:'Nunito',sans-serif; font-size:28px; font-weight:800; color:var(--alem-dark); line-height:1; }
-.m-unit { font-family:'Nunito',sans-serif; font-size:10px; color:var(--t-light); }
-.m-lbl { font-size:7px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--t-light); margin-top:5px; }
-.m-ctx { font-size:8px; font-weight:500; color:var(--alem-mid); margin-top:4px; }
-.m-ctx.nd { color:var(--t-faint); font-style:italic; }
-
-/* ── SUMMARY ── */
-.summary { padding:20px 28px; background:var(--alem-tint); border-bottom:1px solid var(--border-l); border-left:3px solid var(--alem-accent); }
-.summary-lbl { font-size:7.5px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:var(--alem-mid); margin-bottom:9px; }
-.summary-body { font-family:'EB Garamond',Georgia,serif; font-size:15px; font-weight:400; line-height:1.7; color:var(--t-dark); }
-
-/* ── SECTIONS ── */
-.sec { padding:24px 28px; border-bottom:1px solid var(--border-l); }
-.sec-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:18px; }
-.sec-title { font-size:8px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:var(--t-light); }
-.sec-badge { font-family:'Space Mono',monospace; font-size:8px; color:var(--alem-mid); background:var(--alem-tint); padding:2px 10px; border-radius:20px; }
-
-/* ── TERPENES ── */
-.terp-intro { font-size:12px; font-weight:400; color:var(--t-mid); background:var(--off); border:1px solid var(--border-l); padding:10px 14px; margin-bottom:16px; line-height:1.55; }
-.terp-intro strong { font-weight:700; color:var(--alem-dark); }
-.terp-wrap { display:flex; gap:20px; align-items:flex-start; }
-.t-bars { flex:1; display:flex; flex-direction:column; gap:7px; }
-.tb-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:3px; }
-.tb-name { font-size:9px; font-weight:400; color:var(--t-body); display:flex; align-items:center; gap:4px; }
-.tb-name.lead { font-weight:700; color:var(--alem-dark); }
-.tb-name.blq { color:var(--t-faint); font-style:italic; }
-.tb-pct { font-family:'Space Mono',monospace; font-size:9px; color:var(--alem-mid); }
-.tb-pct.blq { color:var(--t-faint); font-size:8px; }
-.tb-track { height:3px; background:var(--border-l); border-radius:2px; overflow:hidden; }
-.tb-fill { height:100%; background:var(--alem-mid); border-radius:2px; transform-origin:left; animation:grow .8s cubic-bezier(.16,1,.3,1) both; opacity:.75; }
-.tb-fill.lead { background:var(--alem-dark); opacity:1; }
-.tb-fill.blq { background:var(--border); opacity:.5; }
-.terp-footer { margin-top:12px; padding:8px 12px; background:var(--off); border:1px solid var(--border-l); display:flex; justify-content:space-between; align-items:center; }
-.terp-footer-txt { font-size:9px; color:var(--t-mid); }
-.terp-footer-val { font-family:'Space Mono',monospace; font-size:10px; font-weight:700; color:var(--alem-dark); }
-
-/* ── CANNABINOIDS ── */
-.cann-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
-.cann-cell { padding:12px 13px; background:var(--off); border:1px solid var(--border-l); position:relative; }
-.cann-cell.hl { background:var(--gold-tint); border-color:var(--gold-bord); }
-.cann-cell.nd-cell { opacity:.65; }
-.cann-lbl { font-family:'Space Mono',monospace; font-size:9px; letter-spacing:1px; color:var(--t-mid); margin-bottom:5px; }
-.cann-cell.hl .cann-lbl { color:var(--gold); }
-.cann-val { font-family:'Nunito',sans-serif; font-size:20px; font-weight:800; color:var(--alem-dark); line-height:1; }
-.cann-val.nd { font-size:12px; color:var(--t-faint); }
-.nd-tag { font-family:'Space Mono',monospace; font-size:10px; color:var(--t-faint); }
-.cann-cell.hl .cann-val { color:var(--gold); }
-.cann-unit { font-family:'Nunito',sans-serif; font-size:9px; color:var(--t-light); }
-.cann-note { font-size:8px; font-weight:300; color:var(--t-light); margin-top:5px; line-height:1.4; }
-.cann-cell.hl .cann-note { color:rgba(154,120,34,.7); }
-.cann-total { margin-top:10px; padding:11px 16px; background:var(--alem-tint); border:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
-.ct-lbl2 { font-size:8px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--t-mid); }
-.ct-val2 { font-family:'Nunito',sans-serif; font-size:20px; font-weight:800; color:var(--alem-dark); }
-
-/* ── ANHYDROUS BADGE ── */
-.anhydrous-note { margin-top:8px; padding:7px 12px; background:var(--off); border:1px solid var(--border-l); font-size:9px; color:var(--t-mid); display:flex; align-items:center; gap:8px; }
-.anhydrous-note strong { color:var(--alem-dark); font-weight:700; }
-
-/* ── ENTOURAGE BANNER ── */
-.entourage { margin-top:14px; padding:11px 14px; background:linear-gradient(135deg,var(--alem-tint),#f0f8ff); border:1px solid var(--border); border-left:3px solid var(--alem-accent); display:flex; align-items:flex-start; gap:10px; }
-.entourage-icon { font-size:16px; flex-shrink:0; margin-top:1px; }
-.entourage-body { font-size:10.5px; color:var(--t-body); line-height:1.55; }
-.entourage-body strong { font-weight:700; color:var(--alem-dark); }
-
-/* ── FLAVONOIDS ── */
-.flav-grid { display:flex; flex-direction:column; gap:6px; }
-.flav-row { display:grid; grid-template-columns:160px 1fr 80px; align-items:center; gap:10px; }
-.flav-name { font-size:10px; color:var(--t-body); }
-.flav-track { height:4px; background:var(--border-l); border-radius:2px; overflow:hidden; }
-.flav-fill { height:100%; background:#7a9e8a; border-radius:2px; transform-origin:left; animation:grow .8s cubic-bezier(.16,1,.3,1) both; opacity:.8; }
-.flav-val { font-family:'Space Mono',monospace; font-size:8.5px; color:var(--t-mid); text-align:right; }
-.flav-total { margin-top:10px; padding:8px 12px; background:var(--off); border:1px solid var(--border-l); display:flex; justify-content:space-between; font-size:9px; }
-.flav-total-val { font-family:'Space Mono',monospace; font-weight:700; color:var(--alem-dark); }
-
-/* ── TWO COL ── */
-.two-col { display:grid; grid-template-columns:1fr 1fr; }
-.two-col .sec:first-child { border-right:1px solid var(--border-l); }
-.eff-pill { display:inline-flex; align-items:center; gap:7px; background:var(--alem-tint); border:1px solid var(--border); padding:6px 14px; border-radius:30px; margin-bottom:14px; }
-.eff-icon { font-size:13px; }
-.eff-dir { font-family:'Nunito',sans-serif; font-style:italic; font-size:14px; font-weight:600; color:var(--alem-dark); }
-.eff-body { font-size:10px; font-weight:400; color:var(--t-mid); line-height:1.7; }
-.eff-body strong { font-weight:600; color:var(--t-body); }
-.ph-list { display:flex; flex-direction:column; gap:11px; }
-.ph-row { display:flex; gap:10px; align-items:flex-start; }
-.ph-dot { width:8px; height:8px; border-radius:50%; margin-top:4px; flex-shrink:0; }
-.ph-dot.good { background:var(--alem-accent); }
-.ph-dot.mild { background:var(--border); border:1px solid var(--alem-accent); }
-.ph-lbl { font-size:8px; font-weight:700; letter-spacing:.8px; text-transform:uppercase; color:var(--t-body); }
-.ph-note { font-size:10px; font-weight:300; color:var(--t-mid); line-height:1.45; }
-
-/* ── AUDIENCE TABS ── */
-.audience { padding:24px 28px; border-bottom:1px solid var(--border-l); }
-.tab-row { display:flex; gap:6px; margin-bottom:16px; flex-wrap:wrap; }
-.tab-btn { font-family:'Nunito',sans-serif; font-size:8px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; padding:6px 14px; border:1px solid var(--border); background:transparent; color:var(--t-light); cursor:pointer; border-radius:30px; transition:all .15s; display:flex; align-items:center; gap:5px; }
-.tab-btn.active { background:var(--alem-dark); border-color:var(--alem-dark); color:var(--white); }
-.tab-btn:hover:not(.active) { border-color:var(--alem-accent); color:var(--alem-dark); }
-.tab-icon { font-size:10px; }
-.tab-panel { display:none; }
-.tab-panel.active { display:block; }
-.ins-list { display:flex; flex-direction:column; gap:10px; }
-.ins-row { display:flex; gap:11px; align-items:flex-start; }
-.ins-arr { width:6px; height:6px; border-right:2px solid var(--alem-accent); border-bottom:2px solid var(--alem-accent); transform:rotate(-45deg); margin-top:6px; flex-shrink:0; }
-.ins-text { font-size:12px; font-weight:400; color:var(--t-body); line-height:1.65; }
-
-/* ── SAFETY ── */
-.safety-section { padding:24px 28px; border-bottom:1px solid var(--border-l); }
-.safety-section .sec-head { margin-bottom:18px; }
-.safety-panels { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-.safety-panel { border:1px solid var(--border-l); background:var(--off); }
-.sp-head { padding:10px 14px; background:var(--alem-tint); border-bottom:1px solid var(--border-l); display:flex; justify-content:space-between; align-items:center; }
-.sp-title { font-size:8px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:var(--t-mid); }
-.sp-status { font-size:8px; font-weight:700; }
-.sp-status.pass { color:var(--pass-green); }
-.sp-status.nt { color:var(--t-faint); font-style:italic; }
-.sp-body { padding:10px 14px; display:flex; flex-direction:column; gap:5px; }
-.metal-row { display:flex; align-items:center; gap:8px; }
-.metal-name { font-size:9px; color:var(--t-body); flex:1; }
-.metal-val { font-family:'Space Mono',monospace; font-size:8px; }
-.metal-val.pass { color:var(--pass-green); }
-.metal-val.warn { color:#c07850; }
-.sf-row { display:flex; align-items:center; gap:9px; padding:6px 0; border-bottom:1px solid var(--border-l); }
-.sf-row:last-child { border-bottom:none; }
-.sf-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
-.sf-dot.pass { background:var(--alem-accent); }
-.sf-dot.nt { background:#ddc8b4; border:1px solid #c8a888; }
-.sf-name { font-size:9px; font-weight:500; color:var(--t-body); flex:1; }
-.sf-val { font-family:'Space Mono',monospace; font-size:8px; color:var(--t-faint); font-style:italic; }
-.sf-val.pass { color:var(--pass-green); font-style:normal; font-weight:700; }
-.safety-summary-grid { margin-top:16px; display:grid; grid-template-columns:1fr 1fr; gap:6px; }
-.safety-note { margin-top:14px; padding:12px 14px; background:var(--warn-bg); border-left:3px solid var(--warn-bord); font-size:11px; font-weight:400; color:var(--warn-text); line-height:1.6; }
-.safety-note strong { font-weight:700; }
-.safety-pass-banner { margin-top:14px; padding:12px 14px; background:#f0faf5; border-left:3px solid var(--alem-accent); font-size:11px; color:#1a5a3a; line-height:1.6; }
-.safety-pass-banner strong { font-weight:700; color:var(--pass-green); }
-
-/* ── METHOD TABLE ── */
-.method-strip { margin-top:14px; padding:10px 14px; background:var(--off); border:1px solid var(--border-l); }
-.method-row { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border-l); font-size:9px; }
-.method-row:last-child { border-bottom:none; }
-.method-label { color:var(--t-mid); font-weight:600; }
-.method-val { font-family:'Space Mono',monospace; color:var(--t-body); font-size:8px; }
-
-/* ── LAB STRIP ── */
-.lab-strip { display:flex; justify-content:space-between; align-items:center; padding:14px 28px; background:var(--alem-tint); border-bottom:1px solid var(--border-l); }
-.lab-cell { text-align:center; }
-.lab-val { font-size:10px; font-weight:600; color:var(--alem-dark); letter-spacing:.3px; }
-.lab-lbl { font-size:7px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--t-light); margin-top:2px; display:flex; align-items:center; justify-content:center; gap:4px; }
-
-/* ── FOOTER ── */
-.footer { background:var(--alem-dark); padding:20px 28px; display:flex; justify-content:space-between; align-items:center; }
-.footer-url { font-size:8px; font-weight:300; letter-spacing:1.5px; color:rgba(255,255,255,.35); margin-top:6px; }
-.footer-tagline { font-family:'Nunito',sans-serif; font-style:italic; font-size:13px; font-weight:300; color:rgba(255,255,255,.5); text-align:right; line-height:1.6; }
-
-/* ── ACTION BUTTONS ── */
-.ractions { width:100%; max-width:620px; margin-top:14px; display:flex; gap:10px; animation:rise .55s cubic-bezier(.16,1,.3,1) .2s both; }
-.rbtn { flex:1; padding:14px 20px; font-family:'Nunito',sans-serif; font-size:8.5px; font-weight:700; letter-spacing:2px; text-transform:uppercase; cursor:pointer; transition:all .15s; border-radius:30px; text-decoration:none; display:inline-block; text-align:center; }
-.rbtn-p { background:var(--alem-dark); border:1px solid var(--alem-dark); color:var(--white); }
-.rbtn-p:hover { background:var(--alem-mid); }
-.rbtn-s { background:var(--white); border:1px solid var(--border); color:var(--t-mid); }
-.rbtn-s:hover { border-color:var(--alem-accent); color:var(--alem-dark); }
-.page-foot { margin-top:20px; font-size:8px; font-weight:500; letter-spacing:2px; text-transform:uppercase; color:var(--t-faint); text-align:center; animation:rise .55s ease .35s both; }
-.page-foot a { color:var(--alem-mid); text-decoration:none; }
-</style>
-</head>
-<body>
-
-<div class="rcard">
-
-  <!-- NAV -->
-  <div class="nav">
-    <div>
-      <img src="https://www.alem.solutions/wp-content/uploads/2024/04/Alem-Brand-Green.png"
-           alt="Alem — Beyond Healthcare Solutions"
-           style="height:52px;display:block;"
-           onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
-      <div style="display:none;color:#fff;font-family:'Nunito',sans-serif;font-weight:800;font-size:17px;letter-spacing:5px;">ALEM</div>
+  const terps = (data.top_terpenes || []).map(t => `
+    <div class="terp-row">
+      <span>${esc(t.name)}</span>
+      <span>${esc(t.value)}%</span>
     </div>
-    <div class="nav-right">
-      <div class="nav-date">${esc(chemistry.coa_report_date || "")}</div>
-      <div class="nav-schema">Schema v6.0 · ${esc(chemistry.laboratory_accreditation || "COA Report")}</div>
-    </div>
-  </div>
+  `).join("");
 
-  <!-- HERO -->
-  <div class="hero">
-    <div class="hero-top">
-      <div class="hero-left">
-        <div class="hero-eye">Certificate of Analysis · Chemical Intelligence Report</div>
-        <div class="hero-name">
-          ${esc(productName)}
-          ${chemistry.product_type ? `<span class="hero-name-sub">(${esc(chemistry.product_type)})</span>` : ""}
-        </div>
-        <div class="hero-meta">${[chemistry.product_type, chemistry.batch_number ? "Batch " + chemistry.batch_number : "", chemistry.laboratory_name].filter(Boolean).map(esc).join(" &nbsp;·&nbsp; ")}</div>
-        <div class="hero-narrative">${esc(heroNarrative)}</div>
-      </div>
-      <div class="score-block">
-        <div class="score-ring">
-          <svg width="130" height="130" viewBox="0 0 130 130">
-            <circle cx="65" cy="65" r="56" fill="none" stroke="var(--border)" stroke-width="7"/>
-            <circle cx="65" cy="65" r="56" fill="none" stroke="#8ecfb0" stroke-width="7"
-              stroke-dasharray="${ringCirc}" stroke-dashoffset="${ringOffset}"
-              stroke-linecap="round"/>
-          </svg>
-          <div class="score-inner">
-            <div class="score-n">${safeTotal}</div>
-            <div class="score-d">/100</div>
-          </div>
-        </div>
-        <div class="score-grade">${esc(safeGrade)} &nbsp; Grade</div>
-        <div class="score-tier">${esc(safeTier)}</div>
-      </div>
-    </div>
-  </div>
+  return `
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Alem Intelligence Report</title>
 
-  <!-- SCORE BREAKDOWN -->
-  <div class="score-bd">
-    ${sbRow("Potency", potencyPct >= 75 ? "f-g" : potencyPct >= 45 ? "f-o" : "f-r", potencyPct, 0.06, `${safePotency.score} / ${safePotency.max}`,
-      `Potency Score: ${safePotency.score}/${safePotency.max}`,
-      `THC Total of ${chemistry.thc_total || "N/A"} wt% (anhydrous: ${chemistry.thc_total_anhydrous || "N/A"} wt%). THCA at ${chemistry.thca || "N/A"} wt% is the primary precursor — multiply by 0.877 to estimate post-decarboxylation THC.`,
-      `Max potency score (25pts) requires THC total above 28 wt%. Score tiers: ≥28=25, ≥24=22, ≥20=18, ≥15=13, >0=8.`,
-      `Look for "Total THC" or calculate: (THCA × 0.877) + D9-THC. Two values may appear: anhydrous (moisture-corrected) and as-received.`)}
+    <style>
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        background: #0b0b0c;
+        color: #f1f1f1;
+      }
 
-    ${sbRow("Terpenes", terpPct >= 75 ? "f-g" : terpPct >= 45 ? "f-o" : "f-r", terpPct, 0.12, `${safeTerpenes.score} / ${safeTerpenes.max}`,
-      `Terpene Score: ${safeTerpenes.score}/${safeTerpenes.max}`,
-      `Total terpene content of ${chemistry.total_terpenes || "N/A"} wt% with ${terpCount} compounds above LOQ detected${blqCount > 0 ? ` and ${blqCount} at BLQ` : ""}. Score improves with both density (wt%) and breadth (number of compounds).`,
-      `Tiers: ≥3.5 wt%=22, ≥2.5=20, ≥1.8=16, ≥1.0=11. Breadth bonus: +5 for ≥10 compounds, +3 for ≥6.`,
-      `Find the "Terpene Analysis" section. The total is usually listed as "Total of all quantified terpenes".`)}
+      .container {
+        max-width: 1100px;
+        margin: auto;
+        padding: 40px 20px;
+      }
 
-    ${sbRow("Minor Cannabinoids", minorPct >= 75 ? "f-g" : minorPct >= 45 ? "f-o" : "f-r", minorPct, 0.18, `${safeMinors.score} / ${safeMinors.max}`,
-      `Minor Cannabinoid Score: ${safeMinors.score}/${safeMinors.max}`,
-      `Detected minors: ${[
-        cbna > 0 ? `CBNA: ${cbna.toFixed(4)} wt%` : "",
-        toNum(chemistry.cbg) > 0 ? `CBG: ${toNum(chemistry.cbg).toFixed(4)} wt%` : "",
-        toNum(chemistry.cbca) > 0 ? `CBCA: ${toNum(chemistry.cbca).toFixed(4)} wt%` : "",
-        toNum(chemistry.thcva) > 0 ? `THCVA: ${toNum(chemistry.thcva).toFixed(4)} wt%` : "",
-      ].filter(Boolean).join(", ") || "None beyond THCA and CBN"}. Minor cannabinoids contribute to the entourage effect.`,
-      `Score based on sum of minors (total - THC - CBD) and count. CBN ≥1% applies a 4-point degradation penalty.`,
-      `Look for all rows beyond THCA/D9-THC/CBD/CBDA in the cannabinoid table.`)}
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 40px;
+      }
 
-    ${sbRow("Safety Data", safetyPct >= 75 ? "f-g" : safetyPct >= 45 ? "f-o" : "f-r", safetyPct, 0.24, `${safeSafety.score} / ${safeSafety.max}`,
-      `Safety Score: ${safeSafety.score}/${safeSafety.max}`,
-      `Pesticides: ${contaminants.pesticides_status || "Not tested"} · Metals: ${contaminants.heavy_metals_status || "Not tested"} · Microbials: ${contaminants.microbials_status || "Not tested"} · Mycotoxins: ${contaminants.mycotoxins_status || "Not tested"}. ISO 17025: ${isoPass ? "Confirmed" : "Not confirmed"}. SCC: ${sccPass ? "Confirmed" : "Not confirmed"}.`,
-      `6pts pesticides, 5pts metals, 5pts microbials, 2pts mycotoxins. +2 ISO 17025, +2 SCC, +2 full panel bonus.`,
-      `Look for: Pesticide Analysis, Heavy Metals, Microbiological, and Mycotoxin sections. All four panels present = maximum safety score potential.`)}
+      .title {
+        font-size: 28px;
+        font-weight: 600;
+      }
 
-    ${sbRow("Data Completeness", dataPct >= 75 ? "f-g" : dataPct >= 45 ? "f-o" : "f-r", dataPct, 0.30, `${safeData.score} / ${safeData.max}`,
-      `Data Completeness: ${safeData.score}/${safeData.max}`,
-      `Checks 10 mandatory fields: THC total (2pts), total terpenes (2pts), ≥5 terpenes reported (2pts), ≥3 cannabinoids (1pt), report date (1pt), lab name (1pt), batch number (1pt).`,
-      `A complete submission scores all 10 points. Missing fields reduce completeness.`,
-      `A complete COA includes: lab name, accreditation, batch ID, report date, product type, cannabinoid table, terpene table, and method references.`)}
-  </div>
+      .subtitle {
+        font-size: 14px;
+        color: #888;
+      }
 
-  <!-- CHEMOTYPE BAND -->
-  <div class="ct-band">
-    <div class="ct-code">
-      ${esc(fingerprintId)}
-      ${infoIcon(`<span class="tooltip"><strong>Chemotype Fingerprint: ${esc(fingerprintId)}</strong><span class="tt-body">The top-3 dominant terpenes in order of concentration. This fingerprint clusters products by chemical identity.</span><span class="tt-coa"><strong>Derived from:</strong> We rank all reported terpenes by wt% and take the top 3. Each terpene is abbreviated (CAR = Trans-Caryophyllene, LIM = Limonene, FAR = Farnesene, HUM = Alpha-Humulene, etc.).</span></span>`, "tt-right")}
-    </div>
-    <div class="ct-sep"></div>
-    <div>
-      <div class="ct-lbl">Chemotype fingerprint</div>
-      <div class="ct-lin">${esc(terpIntel.lineage)}</div>
-    </div>
-    <div class="ct-right">
-      <div class="ct-effect">
-        ☀ &nbsp;${esc(terpIntel.direction)}
-        ${infoIcon(`<span class="tooltip"><strong>Effect Direction: ${esc(terpIntel.direction)}</strong><span class="tt-body">Inferred from the terpene chemotype using observational data — not from clinical trials on this specific batch. Individual responses vary significantly.</span><span class="tt-coa"><strong>Important:</strong> This is a population-level directional signal. Always consult a healthcare professional for personalised guidance.</span></span>`, "tt-right")}
-      </div>
-      <div class="ct-conf">
-        ${esc(terpIntel.lineageConfidence)} confidence
-        ${infoIcon(`<span class="tooltip"><strong>Lineage Confidence: ${esc(terpIntel.lineageConfidence)}</strong><span class="tt-body">Confidence reflects how closely this chemotype matches known genetic lineages in our reference database.</span><span class="tt-coa"><strong>How to improve it:</strong> Submit multiple COA batches from the same cultivar. Consistent chemotypes across batches increase lineage confidence.</span></span>`, "tt-right")}
-      </div>
-    </div>
-  </div>
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+        margin-bottom: 30px;
+      }
 
-  <!-- KEY METRICS -->
-  <div class="metrics">
-    <div class="m-cell">
-      <div class="m-val">${esc(chemistry.thc_total || "ND")}<span class="m-unit">${chemistry.thc_total && chemistry.thc_total !== "ND" ? "%" : ""}</span></div>
-      <div class="m-lbl">THC Total</div>
-      <div class="m-ctx">${thc >= 24 ? "↑ above avg." : thc >= 18 ? "moderate-high" : thc > 0 ? "moderate" : "not detected"}</div>
-      ${infoIcon(`<span class="tooltip"><strong>THC Total: ${esc(chemistry.thc_total || "ND")} wt% (anhydrous: ${esc(chemistry.thc_total_anhydrous || "—")} wt%)</strong><span class="tt-body">As-received value shown. Anhydrous (moisture-corrected) value: ${esc(chemistry.thc_total_anhydrous || "—")} wt%. Market average for premium dried flower is 18–22 wt%.</span><span class="tt-coa"><strong>Check on your COA:</strong> THC Total = (THCA × 0.877) + D9-THC. Anhydrous values use moisture-corrected weights.</span></span>`, "m-info")}
-    </div>
-    <div class="m-cell">
-      <div class="m-val">${esc(chemistry.thca || "ND")}<span class="m-unit">${chemistry.thca && chemistry.thca !== "ND" ? "%" : ""}</span></div>
-      <div class="m-lbl">THCA</div>
-      <div class="m-ctx">×0.877 on heat</div>
-      ${infoIcon(`<span class="tooltip"><strong>THCA: ${esc(chemistry.thca || "ND")} wt%</strong><span class="tt-body">Raw, non-psychoactive acid form. Decarboxylates to active THC when heated. Multiply THCA × 0.877 to estimate active THC produced.</span><span class="tt-coa"><strong>Check on your COA:</strong> Listed as "THCA" or "THCA-A". Typically the largest value in the cannabinoid profile for potent flower.</span></span>`, "m-info")}
-    </div>
-    <div class="m-cell">
-      <div class="m-val">${esc(chemistry.total_terpenes || "ND")}<span class="m-unit">${chemistry.total_terpenes && chemistry.total_terpenes !== "ND" ? "%" : ""}</span></div>
-      <div class="m-lbl">Terpenes</div>
-      <div class="m-ctx">${terps >= 3 ? "strong" : terps >= 2 ? "top 20%" : terps > 0 ? "moderate" : "not reported"}</div>
-      ${infoIcon(`<span class="tooltip"><strong>Total Terpenes: ${esc(chemistry.total_terpenes || "ND")} wt% · ${terpCount} compounds</strong><span class="tt-body">Total of all quantified terpenes. ${terpCount} compounds detected above LOQ${blqCount > 0 ? `, ${blqCount} at BLQ` : ""}. Above 2.0 wt% is considered aromatic and complex. Above 3.0 wt% is exceptional.</span><span class="tt-coa"><strong>Check on your COA:</strong> Look for "Total of all quantified terpenes" at the end of the terpene table.</span></span>`, "m-info")}
-    </div>
-    <div class="m-cell">
-      <div class="m-val">${esc(chemistry.cbd_total || "ND")}<span class="m-unit">${chemistry.cbd_total && chemistry.cbd_total !== "ND" ? "%" : ""}</span></div>
-      <div class="m-lbl">CBD Total</div>
-      <div class="m-ctx ${cbd < 0.5 ? "nd" : ""}">${cbd >= 0.5 ? "modulating" : "not detected"}</div>
-      ${infoIcon(`<span class="tooltip"><strong>CBD Total: ${esc(chemistry.cbd_total || "ND")} wt%</strong><span class="tt-body">CBD may modulate the intensity of THC effects when both are present. In this product, CBD is ${cbd >= 0.5 ? `present at ${chemistry.cbd_total} wt%.` : "absent — meaning no built-in CBD buffer."}</span><span class="tt-coa"><strong>Check on your COA:</strong> CBD Total = (CBDA × 0.877) + CBD. If both read ND, CBD is absent.</span></span>`, "m-info")}
-    </div>
-  </div>
+      .card {
+        background: #111;
+        border-radius: 16px;
+        padding: 20px;
+        border: 1px solid #1f1f1f;
+      }
 
-  <!-- SUMMARY -->
-  <div class="summary">
-    <div class="summary-lbl">chemical intelligence summary</div>
-    <div class="summary-body">${esc(heroNarrative)}</div>
-  </div>
+      .card h3 {
+        font-size: 13px;
+        color: #888;
+        margin-bottom: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
 
-  <!-- TERPENE FINGERPRINT -->
-  <div class="sec">
-    <div class="sec-head">
-      <div class="sec-title">terpene fingerprint ${infoIcon(`<span class="tooltip"><strong>What are Terpenes?</strong><span class="tt-body">Terpenes are aromatic compounds produced by the cannabis plant. They shape scent, flavour, and may modulate the therapeutic effects of cannabinoids via the Entourage Effect.</span><span class="tt-coa"><strong>Entourage Effect:</strong> Terpenes and cannabinoids may work synergistically — the combination produces different outcomes than either compound alone.</span></span>`, "sec-info")}</div>
-      <div class="sec-badge">${esc(chemistry.total_terpenes || "—")} wt% · ${terpCount} detected${blqCount > 0 ? ` · ${blqCount} BLQ` : ""}</div>
-    </div>
-    ${leadTerpene ? `<div class="terp-intro"><strong>${esc(leadTerpene)}-dominant.</strong> ${esc(TERPENE_EDUCATION[leadTerpene]?.aroma || terpIntel.note)}</div>` : ""}
-    <div class="terp-wrap">
-      <!-- Radar SVG -->
-      <svg width="150" height="150" viewBox="0 0 150 150" style="flex-shrink:0">
-        <defs>
-          <radialGradient id="rg${esc(options.documentId || "x")}" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stop-color="#0d2d3e" stop-opacity=".18"/>
-            <stop offset="100%" stop-color="#1a4a62" stop-opacity=".02"/>
-          </radialGradient>
-        </defs>
-        <polygon points="75,10 132,44 132,106 75,140 18,106 18,44" fill="none" stroke="var(--border-l)" stroke-width="1"/>
-        <polygon points="75,30 112,56 112,94 75,120 38,94 38,56" fill="none" stroke="var(--border-l)" stroke-width="1"/>
-        <polygon points="75,50 92,68 92,82 75,100 58,82 58,68" fill="none" stroke="var(--border-l)" stroke-width="1"/>
-        <line x1="75" y1="10" x2="75" y2="140" stroke="var(--border-l)" stroke-width=".8"/>
-        <line x1="18" y1="44" x2="132" y2="106" stroke="var(--border-l)" stroke-width=".8"/>
-        <line x1="132" y1="44" x2="18" y2="106" stroke="var(--border-l)" stroke-width=".8"/>
-        ${activeTerps.slice(0, 6).length >= 3 ? (() => {
-          const pts = activeTerps.slice(0, 6).map((t, i) => {
-            const v = toNum(t.value);
-            const frac = Math.max(0.1, Math.min(1, v / maxTerpVal));
-            const angles = [270, 30, 90, 150, 210, 330].map(a => a * Math.PI / 180);
-            const angle = angles[i] || (i * 60 * Math.PI / 180);
-            const r = 10 + frac * 55;
-            return `${(75 + r * Math.cos(angle)).toFixed(1)},${(75 + r * Math.sin(angle)).toFixed(1)}`;
-          });
-          return `<polygon points="${pts.join(" ")}" fill="url(#rg${esc(options.documentId || "x")})" stroke="var(--alem-dark)" stroke-width="1.5" stroke-linejoin="round"/>
-        ${pts.map((p, i) => `<circle cx="${p.split(",")[0]}" cy="${p.split(",")[1]}" r="${i === 0 ? 4 : 2.5}" fill="var(--alem-dark)" opacity="${(1 - i * 0.12).toFixed(2)}"/>`).join("\n        ")}`;
-        })() : ""}
-        <text x="75"  y="7"   text-anchor="middle" fill="var(--t-light)" font-size="7" font-family="Space Mono,monospace">${esc(activeTerps[0]?.name?.slice(0,4).toUpperCase() || "T1")}</text>
-        <text x="138" y="47"  text-anchor="start"  fill="var(--t-light)" font-size="7" font-family="Space Mono,monospace">${esc(activeTerps[1]?.name?.slice(0,4).toUpperCase() || "T2")}</text>
-        <text x="138" y="110" text-anchor="start"  fill="var(--t-light)" font-size="7" font-family="Space Mono,monospace">${esc(activeTerps[2]?.name?.slice(0,4).toUpperCase() || "T3")}</text>
-        <text x="75"  y="148" text-anchor="middle" fill="var(--t-light)" font-size="7" font-family="Space Mono,monospace">${esc(activeTerps[3]?.name?.slice(0,4).toUpperCase() || "T4")}</text>
-        <text x="12"  y="110" text-anchor="end"    fill="var(--t-light)" font-size="7" font-family="Space Mono,monospace">${esc(activeTerps[4]?.name?.slice(0,4).toUpperCase() || "T5")}</text>
-        <text x="12"  y="47"  text-anchor="end"    fill="var(--t-light)" font-size="7" font-family="Space Mono,monospace">${esc(activeTerps[5]?.name?.slice(0,4).toUpperCase() || "T6")}</text>
-      </svg>
-      <div class="t-bars">
-        ${terpenes.length ? terpenes.map((t, i) => terpBar(t, i)).join("") : "<div style='color:var(--t-faint);font-size:11px;'>No terpene data reported.</div>"}
-      </div>
-    </div>
-    <div class="terp-footer">
-      <span class="terp-footer-txt">Total of all quantified terpenes</span>
-      <span class="terp-footer-val">${esc(chemistry.total_terpenes || "—")} wt%</span>
-    </div>
-  </div>
+      .big {
+        font-size: 28px;
+        font-weight: 600;
+      }
 
-  <!-- CANNABINOID PROFILE -->
-  <div class="sec">
-    <div class="sec-head">
-      <div class="sec-title">cannabinoid profile ${infoIcon(`<span class="tooltip"><strong>The Entourage Effect</strong><span class="tt-body">Cannabinoids and terpenes work synergistically — producing different therapeutic outcomes together than in isolation. THC alone differs from THC alongside CBNA, and a rich terpene profile.</span><span class="tt-coa"><strong>Clinical implication:</strong> A product with multiple detected minor cannabinoids produces more nuanced effects. The breadth of minors here is a positive signal for entourage complexity.</span></span>`, "sec-info")}</div>
-      <div class="sec-badge">${esc(chemistry.total_cannabinoids || "—")} wt% total</div>
-    </div>
-    <div class="cann-grid">
-      ${cannabinoids.length ? cannabinoids.map(c => {
-        const isHL = ["CBGA"].includes(c.name) && toNum(c.value) > 0;
-        const noteMap = {
-          "THCA": "Precursor · ×0.877 on heat",
-          "D9-THC": "Active form",
-          "CBNA": "Degradation marker (acid)",
-          "CBN": "Degradation marker",
-          "CBGA": "Mother cannabinoid",
-        };
-        return cannCell(c.name, c.value, c.unit, c.notes || noteMap[c.name] || "", isHL);
-      }).join("") : "<div style='color:var(--t-faint);'>No cannabinoid data reported.</div>"}
-    </div>
-    ${chemistry.total_cannabinoids ? `<div class="cann-total"><span class="ct-lbl2">Total Cannabinoid Sum</span><span class="ct-val2">${esc(chemistry.total_cannabinoids)} wt%</span></div>` : ""}
-    ${chemistry.thc_total_anhydrous && chemistry.thc_total_anhydrous !== chemistry.thc_total ? `
-    <div class="anhydrous-note">
-      <span>⚗</span>
-      <span><strong>Anhydrous (moisture-corrected) THC Total:</strong> ${esc(chemistry.thc_total_anhydrous)} wt% · As-received: ${esc(chemistry.thc_total)} wt% · Moisture: ${esc(chemistry.moisture_content || "—")}%</span>
-    </div>` : ""}
-    <div class="entourage">
-      <span class="entourage-icon">⬡</span>
-      <div class="entourage-body">
-        <strong>Entourage Effect signal: ${cannabinoids.filter(c => toNum(c.value) > 0).length >= 5 ? "Strong" : cannabinoids.filter(c => toNum(c.value) > 0).length >= 3 ? "Moderate" : "Limited"}.</strong>
-        With ${cannabinoids.filter(c => toNum(c.value) > 0).length} quantified cannabinoids and ${terpCount} terpenes, this profile has biochemical complexity associated with full-spectrum, synergistic activity.
-        ${infoIcon(`<span class="tooltip"><strong>Why Entourage Matters</strong><span class="tt-body">The entourage effect describes how whole-plant cannabis extracts produce effects greater than the sum of their individual parts. THC embedded in a complex cannabinoid-terpene matrix behaves differently to THC in isolation.</span><span class="tt-coa"><strong>Clinical implication:</strong> Patients and clinicians should consider the full profile, not just THC%. A product with rich minor cannabinoids and terpenes will behave differently to a THC-dominant, terpene-poor product of the same potency.</span></span>`, "tt-right")}
-      </div>
-    </div>
-  </div>
+      .badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 20px;
+      }
 
-  ${hasFlavonoids ? `
-  <!-- FLAVONOIDS -->
-  <div class="sec">
-    <div class="sec-head">
-      <div class="sec-title">flavonoid profile ${infoIcon(`<span class="tooltip"><strong>Cannabis Flavonoids</strong><span class="tt-body">Flavonoids are polyphenolic compounds present in cannabis. Cannabis-specific flavonoids (Cannflavins A, B, C) are unique to the Cannabis genus and have attracted significant research interest.</span><span class="tt-coa"><strong>Significance:</strong> Cannflavin A and B have been shown to inhibit prostaglandin E2 production — potentially 30x more potent than aspirin in preclinical models. Their presence is a marker of phytochemical richness and analytical thoroughness.</span></span>`, "sec-info")}</div>
-      <div class="sec-badge">${esc(chemistry.total_flavonoids || flavonoids.length + " compounds")}</div>
-    </div>
-    <div class="flav-grid">
-      ${flavonoids.filter(f => toNum(f.value) > 0).map((f, i) => flavonoidBar(f, i)).join("")}
-    </div>
-    ${chemistry.total_flavonoids ? `<div class="flav-total"><span style="font-size:8px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t-mid);">Total Quantified Flavonoids</span><span class="flav-total-val">${esc(chemistry.total_flavonoids)} wt%</span></div>` : ""}
-  </div>` : ""}
+      .badge {
+        padding: 6px 12px;
+        border-radius: 999px;
+        font-size: 12px;
+      }
 
-  <!-- EFFECT + POST HARVEST -->
-  <div class="two-col">
-    <div class="sec" style="border-bottom:1px solid var(--border-l)">
-      <div class="sec-title" style="margin-bottom:14px">effect direction ${infoIcon(`<span class="tooltip"><strong>How Effect Direction is Inferred</strong><span class="tt-body">Direction is derived from the chemotype fingerprint using observational data correlating terpene dominance to user-reported experiences. Not based on clinical trials.</span><span class="tt-coa"><strong>Limitations:</strong> Individual responses vary widely. Tolerance, consumption method, dose, and physiology all influence the experience. This is directional, not predictive.</span></span>`, "sec-info")}</div>
-      <div class="eff-pill"><span class="eff-icon">☀</span><span class="eff-dir">${esc(terpIntel.direction)}</span></div>
-      <div class="eff-body">
-        <strong>Lead:</strong> ${esc(leadTerpene || "Not identified")}<br>
-        ${secondTerpene ? `<strong>2nd:</strong> ${esc(secondTerpene)}${thirdTerpene ? " · <strong>3rd:</strong> " + esc(thirdTerpene) : ""}<br>` : ""}
-        <br>${esc(terpIntel.note)}
-      </div>
-    </div>
-    <div class="sec" style="border-bottom:1px solid var(--border-l)">
-      <div class="sec-title" style="margin-bottom:14px">post-harvest signals</div>
-      <div class="ph-list">
-        ${phRow(terps >= 2 ? "good" : "mild", `Freshness — ${safePH.freshness.label}`, safePH.freshness.note,
-          "Freshness Signal",
-          "Inferred from total terpene content. Terpenes degrade with heat, light, and time. High terpene retention suggests good post-harvest handling.",
-          "Compare terpene content against producer's historical batches.")}
-        ${phRow(terpenes.length >= 6 ? "good" : "mild", `Curing — ${safePH.curing.label}`, safePH.curing.note,
-          "Curing Quality Signal",
-          "A broad, intact terpene spectrum suggests gentle, appropriate curing conditions.",
-          "If only low-volatility terpenes survive, it suggests aggressive drying.")}
-        ${phRow(cbn < 0.3 && cbna < 0.1 ? "good" : "mild", `Degradation — ${safePH.degradation.label}`, safePH.degradation.note,
-          "THC Oxidative Degradation (CBN/CBNA)",
-          "CBN and CBNA form when THC oxidises. They are the primary markers of cannabis age and storage quality.",
-          "Find CBN and CBNA in the cannabinoid table. Values above 0.3 wt% CBN may indicate significant age or poor storage.")}
-        ${phRow(hasMoisture || hasWaterActivity ? "good" : "mild", `Stability — ${safePH.stability.label}`, safePH.stability.note,
-          "Physical Stability Data",
-          "Moisture content and water activity measure stability against mould and microbial growth. Water activity below 0.65 aw is considered microbiologically stable.",
-          "Find 'Loss on Drying' (moisture) and 'Water Activity Analysis' in the COA. Both should be reported for complete stability characterisation.")}
-      </div>
-    </div>
-  </div>
+      .badge.positive {
+        background: #0f2;
+        color: #000;
+      }
 
-  <!-- AUDIENCE INTELLIGENCE -->
-  <div class="audience">
-    <div class="sec-head" style="margin-bottom:14px">
-      <div class="sec-title">audience intelligence</div>
-    </div>
-    <div class="tab-row">
-      <button class="tab-btn active" onclick="showTab('brand',this)"><span class="tab-icon">◈</span>Brand</button>
-      <button class="tab-btn" onclick="showTab('clinical',this)"><span class="tab-icon">✚</span>Clinical</button>
-      <button class="tab-btn" onclick="showTab('patient',this)"><span class="tab-icon">◯</span>Patient</button>
-      <button class="tab-btn" onclick="showTab('buyer',this)"><span class="tab-icon">◇</span>Buyer</button>
-    </div>
-    <div id="ap-brand" class="tab-panel active"><div class="ins-list">${audiencePanel(audiences.brand)}</div></div>
-    <div id="ap-clinical" class="tab-panel"><div class="ins-list">${audiencePanel(audiences.clinical)}</div></div>
-    <div id="ap-patient" class="tab-panel"><div class="ins-list">${audiencePanel(audiences.patient)}</div></div>
-    <div id="ap-buyer" class="tab-panel"><div class="ins-list">${audiencePanel(audiences.buyer)}</div></div>
-  </div>
+      .badge.warning {
+        background: #ffb020;
+        color: #000;
+      }
 
-  <!-- FULL QUALITY & SAFETY -->
-  <div class="safety-section">
-    <div class="sec-head">
-      <div class="sec-title">quality &amp; safety analysis ${infoIcon(`<span class="tooltip"><strong>What Safety Panels Mean</strong><span class="tt-body">A complete cannabis COA includes chemical profiling AND safety screening. The chemical profile tells you what IS in the product. Safety panels tell you what should NOT be there.</span><span class="tt-coa"><strong>Key panels:</strong> Pesticides (EP 2.8.13), Heavy Metals (Ph. Eur. 2.4.27 ICP-MS), Microbials (EP 2.6.12), Mycotoxins (Ph. Eur. 2.8.18/2.8.22). If absent, request them before prescribing or listing.</span></span>`, "sec-info")}</div>
-    </div>
+      .badge.neutral {
+        background: #333;
+      }
 
-    <div class="safety-panels">
+      .section {
+        margin-top: 40px;
+      }
 
-      <!-- PESTICIDES -->
-      <div class="safety-panel">
-        <div class="sp-head">
-          <span class="sp-title">Pesticides</span>
-          <span class="sp-status ${pestPass ? "pass" : "nt"}">${pestPass ? "✓ " + esc(contaminants.pesticides_status || "ND") : "Not tested"}</span>
-        </div>
-        <div class="sp-body" style="padding:10px 14px;">
-          <div style="font-size:9px;color:var(--t-mid);line-height:1.6;">
-            ${contaminants.pesticides_method ? `<div style="margin-bottom:6px;"><strong style="color:var(--alem-dark);">Method:</strong> ${esc(contaminants.pesticides_method)}</div>` : ""}
-            ${contaminants.pesticides_compound_count ? `<div><strong style="color:var(--alem-dark);">Compounds tested:</strong> ${esc(contaminants.pesticides_compound_count)}</div>` : ""}
-            ${contaminants.pesticides_detail ? `<div style="margin-top:6px;">${esc(contaminants.pesticides_detail)}</div>` : ""}
-            ${!contaminants.pesticides_status ? `<div style="color:var(--t-faint);font-style:italic;">Pesticide panel not found in this COA. Request from producer.</div>` : ""}
-          </div>
+      .section-title {
+        font-size: 18px;
+        margin-bottom: 15px;
+      }
+
+      .terp-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 0;
+        border-bottom: 1px solid #1f1f1f;
+      }
+
+      .summary {
+        line-height: 1.6;
+        color: #ccc;
+      }
+
+      .footer {
+        margin-top: 60px;
+        font-size: 12px;
+        color: #666;
+        text-align: center;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+
+      <!-- HEADER -->
+      <div class="header">
+        <div>
+          <div class="title">Alem Chemical Intelligence</div>
+          <div class="subtitle">COA Analysis Report</div>
         </div>
       </div>
 
-      <!-- HEAVY METALS -->
-      <div class="safety-panel">
-        <div class="sp-head">
-          <span class="sp-title">Heavy Metals</span>
-          <span class="sp-status ${metalsPass ? "pass" : "nt"}">${metalsPass ? "✓ " + esc(contaminants.heavy_metals_status || "BLQ/ND") : (contaminants.heavy_metals_status || "Not tested")}</span>
+      <!-- KPI GRID -->
+      <div class="grid">
+        <div class="card">
+          <h3>Total THC</h3>
+          <div class="big">${esc(data.total_thc)}%</div>
         </div>
-        <div class="sp-body">
-          ${contaminants.arsenic_result ? metalRow("Arsenic (As)", contaminants.arsenic_result) : ""}
-          ${contaminants.cadmium_result ? metalRow("Cadmium (Cd)", contaminants.cadmium_result) : ""}
-          ${contaminants.lead_result ? metalRow("Lead (Pb)", contaminants.lead_result) : ""}
-          ${contaminants.mercury_result ? metalRow("Mercury (Hg)", contaminants.mercury_result) : ""}
-          ${!contaminants.arsenic_result && !contaminants.cadmium_result ? `<div style="font-size:9px;color:var(--t-faint);font-style:italic;padding:4px 0;">No individual metal results captured.</div>` : ""}
-          ${contaminants.heavy_metals_method ? `<div style="font-size:8px;color:var(--t-light);margin-top:6px;border-top:1px solid var(--border-l);padding-top:6px;">${esc(contaminants.heavy_metals_method)}</div>` : ""}
-        </div>
-      </div>
 
-      <!-- MICROBIALS -->
-      <div class="safety-panel">
-        <div class="sp-head">
-          <span class="sp-title">Microbials</span>
-          <span class="sp-status ${microPass ? "pass" : "nt"}">${microPass ? "✓ " + esc(contaminants.microbials_status || "Absent") : (contaminants.microbials_status || "Not tested")}</span>
+        <div class="card">
+          <h3>Total CBD</h3>
+          <div class="big">${esc(data.total_cbd)}%</div>
         </div>
-        <div class="sp-body">
-          ${contaminants.yeast_mold ? microbialRow("Yeast & Mold", contaminants.yeast_mold) : ""}
-          ${contaminants.total_aerobic ? microbialRow("Total Aerobic", contaminants.total_aerobic) : ""}
-          ${contaminants.bile_tolerant_gram_negative ? microbialRow("Bile-Tolerant Gram-Neg", contaminants.bile_tolerant_gram_negative) : ""}
-          ${contaminants.salmonella ? microbialRow("Salmonella", contaminants.salmonella) : ""}
-          ${contaminants.s_aureus ? microbialRow("S. aureus", contaminants.s_aureus) : ""}
-          ${contaminants.p_aeruginosa ? microbialRow("P. aeruginosa", contaminants.p_aeruginosa) : ""}
-          ${contaminants.e_coli ? microbialRow("E. coli", contaminants.e_coli) : ""}
-          ${!contaminants.yeast_mold && !contaminants.salmonella ? `<div style="font-size:9px;color:var(--t-faint);font-style:italic;padding:4px 0;">No individual microbial results captured.</div>` : ""}
-          ${contaminants.microbials_method ? `<div style="font-size:8px;color:var(--t-light);margin-top:6px;border-top:1px solid var(--border-l);padding-top:6px;">${esc(contaminants.microbials_method)}</div>` : ""}
+
+        <div class="card">
+          <h3>Total Terpenes</h3>
+          <div class="big">${esc(data.total_terpenes)}%</div>
         </div>
       </div>
 
-      <!-- MYCOTOXINS -->
-      <div class="safety-panel">
-        <div class="sp-head">
-          <span class="sp-title">Mycotoxins</span>
-          <span class="sp-status ${mycoPass ? "pass" : "nt"}">${mycoPass ? "✓ " + esc(contaminants.mycotoxins_status || "ND") : (contaminants.mycotoxins_status || "Not tested")}</span>
-        </div>
-        <div class="sp-body">
-          ${contaminants.aflatoxin_b1 ? mycoRow("Aflatoxin B1", contaminants.aflatoxin_b1) : ""}
-          ${contaminants.aflatoxin_b2 ? mycoRow("Aflatoxin B2", contaminants.aflatoxin_b2) : ""}
-          ${contaminants.aflatoxin_g1 ? mycoRow("Aflatoxin G1", contaminants.aflatoxin_g1) : ""}
-          ${contaminants.aflatoxin_g2 ? mycoRow("Aflatoxin G2", contaminants.aflatoxin_g2) : ""}
-          ${contaminants.sum_aflatoxins !== undefined && contaminants.sum_aflatoxins !== "" ? mycoRow("Sum Aflatoxins", contaminants.sum_aflatoxins) : ""}
-          ${contaminants.ochratoxin_a ? mycoRow("Ochratoxin A", contaminants.ochratoxin_a) : ""}
-          ${!contaminants.aflatoxin_b1 && !contaminants.ochratoxin_a ? `<div style="font-size:9px;color:var(--t-faint);font-style:italic;padding:4px 0;">No individual mycotoxin results captured.</div>` : ""}
-          ${contaminants.mycotoxins_method ? `<div style="font-size:8px;color:var(--t-light);margin-top:6px;border-top:1px solid var(--border-l);padding-top:6px;">${esc(contaminants.mycotoxins_method)}</div>` : ""}
+      <!-- FLAGS -->
+      <div class="card">
+        <h3>Quality Signals</h3>
+        <div class="badges">
+          ${badges || "<span>No data available</span>"}
         </div>
       </div>
+
+      <!-- TERPENES -->
+      <div class="section">
+        <div class="section-title">Top Terpenes</div>
+        <div class="card">
+          ${terps || "<span>No terpene data</span>"}
+        </div>
+      </div>
+
+      <!-- SUMMARY -->
+      <div class="section">
+        <div class="section-title">Clinical & Sensorial Interpretation</div>
+        <div class="card summary">
+          ${esc(data.summary || "No summary available")}
+        </div>
+      </div>
+
+      <!-- FOOTER -->
+      <div class="footer">
+        Alem Solutions — Chemical Intelligence Platform  
+        <br/>
+        This report is for educational purposes only.
+      </div>
+
     </div>
-
-    <!-- PHYSICAL / STABILITY SUMMARY -->
-    <div class="safety-summary-grid">
-      ${sfRow("ISO 17025:2017 Accreditation", "pass", isoPass ? "✓ Confirmed" : "Not confirmed in document", isoPass)}
-      ${sfRow("SCC Accredited (Standards Council of Canada)", "pass", sccPass ? "✓ Confirmed" : "Not confirmed in document", sccPass)}
-      ${sfRow("Residual Solvents", /pass|nd/i.test(contaminants.residual_solvents_status || "") ? "pass" : "nt", /pass|nd/i.test(contaminants.residual_solvents_status || "") ? "✓ Pass" : (contaminants.residual_solvents_status || "not tested"), /pass|nd/i.test(contaminants.residual_solvents_status || ""))}
-      ${sfRow("Foreign Matter", /none detected|pass|nd/i.test(contaminants.foreign_matter_status || "") ? "pass" : "nt", esc(contaminants.foreign_matter_status || chemistry.foreign_matter || "not reported"), /none detected|pass|nd/i.test(contaminants.foreign_matter_status || chemistry.foreign_matter || ""))}
-      ${sfRow(`Moisture Content${moisture ? ": " + moisture + "%" : ""}`, hasMoisture ? "pass" : "nt", hasMoisture ? `${moisture}% (EP 2.2.32 Vacuum Oven)` : "not reported", hasMoisture)}
-      ${sfRow(`Water Activity${waterActivity ? ": " + waterActivity + " aw" : ""}`, hasWaterActivity ? "pass" : "nt", hasWaterActivity ? `${waterActivity} aw` : "not reported", hasWaterActivity)}
-    </div>
-
-    ${chemistry.hptlc_result || chemistry.macroscopic_result ? `
-    <div class="method-strip">
-      <div style="font-size:7.5px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t-light);margin-bottom:8px;">Botanical Identification Tests</div>
-      ${chemistry.hptlc_result ? `<div class="method-row"><span class="method-label">HPTLC (EP Monograph)</span><span class="method-val">${esc(chemistry.hptlc_result)}</span></div>` : ""}
-      ${chemistry.macroscopic_result ? `<div class="method-row"><span class="method-label">Macroscopic (EP 2.8.2)</span><span class="method-val">${esc(chemistry.macroscopic_result)}</span></div>` : ""}
-      ${chemistry.microscopic_result ? `<div class="method-row"><span class="method-label">Microscopic (EP 2.8.2)</span><span class="method-val">${esc(chemistry.microscopic_result)}</span></div>` : ""}
-    </div>` : ""}
-
-    ${(pestPass && metalsPass && microPass && mycoPass) ? `
-    <div class="safety-pass-banner">
-      <strong>✓ Full Compliance Panel — All Categories Clear.</strong> This COA includes a comprehensive safety screening across pesticides, heavy metals, microbials, and mycotoxins. All tested analytes are at or below reporting limits. ${isoPass ? "Testing conducted under ISO 17025:2017 accreditation." : ""} ${sccPass ? "SCC accredited." : ""}
-    </div>` : (!contaminants.pesticides_status && !contaminants.heavy_metals_status) ? `
-    <div class="safety-note"><strong>Incomplete safety panel:</strong> ${esc(contaminants.contaminant_narrative || "Contaminant panels were not captured from this COA. Request the full compliance documentation from the producer before clinical prescription or commercial listing.")}</div>` : ""}
-  </div>
-
-  <!-- LAB STRIP -->
-  <div class="lab-strip">
-    <div class="lab-cell">
-      <div class="lab-val">${esc(chemistry.laboratory_name || "—")}</div>
-      <div class="lab-lbl">Laboratory ${infoIcon(`<span class="tooltip"><strong>${esc(chemistry.laboratory_name || "Laboratory")}</strong><span class="tt-body">${esc(contaminants.lab_quality_summary || (chemistry.laboratory_accreditation ? `Accredited under ${chemistry.laboratory_accreditation}.` : "Laboratory accreditation details not captured."))} ISO 17025 is the international gold standard for testing laboratories.</span><span class="tt-coa"><strong>Why it matters:</strong> Not all cannabis labs hold ISO 17025. Accreditation means results are traceable to international measurement standards.</span></span>`, "tt-right")}</div>
-    </div>
-    <div class="lab-cell">
-      <div class="lab-val">${esc(chemistry.laboratory_method || "—")}</div>
-      <div class="lab-lbl">Method</div>
-    </div>
-    <div class="lab-cell">
-      <div class="lab-val">${esc(chemistry.coa_report_date || "—")}</div>
-      <div class="lab-lbl">Report Date</div>
-    </div>
-    <div class="lab-cell">
-      <div class="lab-val">${esc(chemistry.laboratory_accreditation || "—")}</div>
-      <div class="lab-lbl">Accreditation</div>
-    </div>
-  </div>
-
-  <!-- FOOTER -->
-  <div class="footer">
-    <div>
-      <img src="https://www.alem.solutions/wp-content/uploads/2024/04/Alem-Brand-Green.png"
-           alt="Alem" style="height:48px;display:block;"
-           onerror="this.style.display='none'">
-      <div class="footer-url">alem.solutions &nbsp;·&nbsp; Free. No account. No catch.</div>
-    </div>
-    <div class="footer-tagline">Upload your COA.<br>Understand your chemistry.</div>
-  </div>
-
-</div>
-
-<!-- ACTION BUTTONS -->
-<div class="ractions">
-  <a class="rbtn rbtn-p" href="/" onclick="return false;" style="cursor:pointer;" onclick="window.location='/'">↗ &nbsp; Analyse New COA</a>
-  ${options.documentId ? `<a class="rbtn rbtn-s" href="/pdf/${esc(options.documentId)}" target="_blank">⬇ &nbsp; Export PDF</a>` : ""}
-</div>
-<p class="page-foot">Powered by <a href="https://alem.solutions">alem.solutions</a> &nbsp;·&nbsp; Chemical Intelligence</p>
-
-<script>
-function showTab(id, btn) {
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('ap-' + id).classList.add('active');
-  btn.classList.add('active');
-}
-</script>
-</body>
-</html>`;
+  </body>
+  </html>
+  `;
 }
 
 // ─────────────────────────────────────────────
