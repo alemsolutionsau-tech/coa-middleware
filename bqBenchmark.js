@@ -14,7 +14,23 @@ const { BigQuery } = require("@google-cloud/bigquery");
 
 const PROJECT = "alem-coa-ai";
 const CLEAN   = `${PROJECT}.cannabis_coa_clean`;
-const bq      = new BigQuery({ projectId: PROJECT });
+
+// On Render (and most cloud hosts) you can't point to a key file.
+// Set BQ_CREDENTIALS_JSON to the full contents of your service account JSON.
+// Falls back to GOOGLE_APPLICATION_CREDENTIALS / ADC if not set.
+function makeBqClient() {
+  const raw = process.env.BQ_CREDENTIALS_JSON;
+  if (raw) {
+    try {
+      const credentials = JSON.parse(raw);
+      return new BigQuery({ projectId: PROJECT, credentials });
+    } catch (e) {
+      console.error("BQ_CREDENTIALS_JSON is set but failed to parse:", e.message);
+    }
+  }
+  return new BigQuery({ projectId: PROJECT });
+}
+const bq = makeBqClient();
 
 // ── 24-hour in-memory cache ───────────────────────────────────────────────
 const _cache = new Map();
