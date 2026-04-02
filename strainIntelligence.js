@@ -37,13 +37,13 @@ const _cache = new Map();
 function _get(k) { const e = _cache.get(k); if (!e || Date.now() - e.ts > 86_400_000) return undefined; return e.v; }
 function _set(k, v) { _cache.set(k, { ts: Date.now(), v }); }
 
-// ── 20 terpene columns used in all computations ───────────────────────────
+// ── 8 terpene columns that actually exist in mart_strain_profiles ─────────
+// Column access pattern: row[`avg_${col}_pct`]
+// e.g. "alpha_humulene" → row.avg_alpha_humulene_pct
 const TERPENE_COLS = [
-  "beta_myrcene", "d_limonene", "beta_caryophyllene", "alpha_pinene",
-  "beta_pinene",  "linalool",   "ocimene",            "terpinolene",
-  "humulene",     "alpha_bisabolol", "camphene",       "guaiol",
-  "valencene",    "geraniol",   "nerolidol",          "fenchol",
-  "borneol",      "sabinene",   "delta3_carene",      "cymene",
+  "beta_myrcene",       "d_limonene",      "beta_caryophyllene",
+  "alpha_pinene",       "linalool",        "terpinolene",
+  "alpha_humulene",     "alpha_bisabolol",
 ];
 
 // ── Terpene display names ─────────────────────────────────────────────────
@@ -52,22 +52,10 @@ const COL_TO_LABEL = {
   d_limonene:          "Limonene",
   beta_caryophyllene:  "Caryophyllene",
   alpha_pinene:        "Alpha-Pinene",
-  beta_pinene:         "Beta-Pinene",
   linalool:            "Linalool",
-  ocimene:             "Ocimene",
   terpinolene:         "Terpinolene",
-  humulene:            "Alpha-Humulene",
+  alpha_humulene:      "Alpha-Humulene",
   alpha_bisabolol:     "Bisabolol",
-  camphene:            "Camphene",
-  guaiol:              "Guaiol",
-  valencene:           "Valencene",
-  geraniol:            "Geraniol",
-  nerolidol:           "Nerolidol",
-  fenchol:             "Fenchol",
-  borneol:             "Borneol",
-  sabinene:            "Sabinene",
-  delta3_carene:       "Delta-3-Carene",
-  cymene:              "p-Cymene",
 };
 
 // ── Name → column (for extracting vector from GPT-4o top_terpenes) ────────
@@ -84,45 +72,26 @@ const NAME_TO_COL = {
   "α-caryophyllene":     "beta_caryophyllene",
   "alpha-pinene":        "alpha_pinene",
   "α-pinene":            "alpha_pinene",
-  "beta-pinene":         "beta_pinene",
-  "β-pinene":            "beta_pinene",
   "linalool":            "linalool",
-  "ocimene":             "ocimene",
-  "β-ocimene":           "ocimene",
   "terpinolene":         "terpinolene",
-  "alpha-humulene":      "humulene",
-  "α-humulene":          "humulene",
-  "humulene":            "humulene",
+  "alpha-humulene":      "alpha_humulene",
+  "α-humulene":          "alpha_humulene",
+  "humulene":            "alpha_humulene",
   "alpha-bisabolol":     "alpha_bisabolol",
   "α-bisabolol":         "alpha_bisabolol",
   "bisabolol":           "alpha_bisabolol",
-  "camphene":            "camphene",
-  "guaiol":              "guaiol",
-  "valencene":           "valencene",
-  "geraniol":            "geraniol",
-  "nerolidol":           "nerolidol",
-  "trans-nerolidol":     "nerolidol",
-  "fenchol":             "fenchol",
-  "borneol":             "borneol",
-  "sabinene":            "sabinene",
-  "delta-3-carene":      "delta3_carene",
-  "3-carene":            "delta3_carene",
-  "p-cymene":            "cymene",
-  "cymene":              "cymene",
 };
 
 // ── Effect clusters and complementary mappings ───────────────────────────
 const EFFECT_CLUSTERS = {
-  relaxing:  { cols: ["beta_myrcene", "linalool", "alpha_bisabolol"],          label: "Relaxing / Sedating"      },
-  uplifting: { cols: ["d_limonene", "terpinolene", "alpha_pinene", "ocimene"], label: "Uplifting / Energising"   },
-  grounding: { cols: ["beta_caryophyllene", "humulene"],                        label: "Grounding / Anti-inflam." },
-  complex:   { cols: ["valencene", "geraniol", "guaiol", "nerolidol"],          label: "Complex / Exotic"         },
+  relaxing:  { cols: ["beta_myrcene", "linalool", "alpha_bisabolol"], label: "Relaxing / Sedating"      },
+  uplifting: { cols: ["d_limonene", "terpinolene", "alpha_pinene"],   label: "Uplifting / Energising"   },
+  grounding: { cols: ["beta_caryophyllene", "alpha_humulene"],         label: "Grounding / Anti-inflam." },
 };
 const COMPLEMENTARY_MAP = {
   relaxing:  ["uplifting", "grounding"],
   uplifting: ["relaxing",  "grounding"],
   grounding: ["uplifting", "relaxing"],
-  complex:   ["uplifting", "relaxing"],
 };
 
 function getCluster(dominantCol) {
@@ -180,16 +149,10 @@ async function fetchAllStrains(formFactor) {
         strain_name, form_factor, coa_count,
         avg_total_thc_pct, avg_total_terpenes_pct,
         p10_total_thc_pct, p90_total_thc_pct,
-        avg_beta_myrcene_pct,        avg_d_limonene_pct,
-        avg_beta_caryophyllene_pct,  avg_alpha_pinene_pct,
-        avg_beta_pinene_pct,         avg_linalool_pct,
-        avg_ocimene_pct,             avg_terpinolene_pct,
-        avg_humulene_pct,            avg_alpha_bisabolol_pct,
-        avg_camphene_pct,            avg_guaiol_pct,
-        avg_valencene_pct,           avg_geraniol_pct,
-        avg_nerolidol_pct,           avg_fenchol_pct,
-        avg_borneol_pct,             avg_sabinene_pct,
-        avg_delta3_carene_pct,       avg_cymene_pct
+        avg_beta_myrcene_pct,       avg_d_limonene_pct,
+        avg_beta_caryophyllene_pct, avg_alpha_pinene_pct,
+        avg_linalool_pct,           avg_terpinolene_pct,
+        avg_alpha_humulene_pct,     avg_alpha_bisabolol_pct
       FROM \`${CLEAN}.mart_strain_profiles\`
       WHERE form_factor = @ff
         AND coa_count >= 3
