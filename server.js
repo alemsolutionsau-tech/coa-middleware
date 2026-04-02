@@ -988,6 +988,7 @@ function renderReportHTML(reportJson = {}, options = {}) {
   const contaminants = reportJson.contaminants || {};
   const scoring = reportJson.scoring || computeIntelligenceScore(chemistry, contaminants);
   const intelligence = reportJson.intelligence || {};
+  const benchmark = options.benchmark || null;
 
   const terpenes = chemistry.top_terpenes || [];
   const cannabinoids = chemistry.top_cannabinoids || [];
@@ -1484,6 +1485,31 @@ body { background:var(--alem-wash); font-family:'Nunito',sans-serif; font-size:1
 .rbtn-s:hover { border-color:var(--alem-accent); color:var(--alem-dark); }
 .page-foot { margin-top:20px; font-size:8px; font-weight:500; letter-spacing:2px; text-transform:uppercase; color:var(--t-faint); text-align:center; animation:rise .55s ease .35s both; }
 .page-foot a { color:var(--alem-mid); text-decoration:none; }
+/* ── Market Benchmark ── */
+.bm-sec { background:var(--white); border:1px solid var(--border-l); border-radius:8px; padding:18px 20px; margin-top:20px; }
+.bm-sec-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; }
+.bm-sec-title { font-size:9px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--alem-dark); }
+.bm-sec-sub { font-size:9px; color:var(--t-faint); }
+.bm-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px 28px; }
+.bm-metric { display:flex; flex-direction:column; gap:6px; }
+.bm-lbl { font-size:9px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--t-light); }
+.bm-track-row { display:flex; align-items:center; gap:8px; }
+.bm-track { flex:1; height:7px; background:var(--border-l); border-radius:4px; overflow:hidden; }
+.bm-fill { height:100%; border-radius:4px; background:var(--alem-accent); }
+.bm-fill-mid  { background:var(--gold); }
+.bm-fill-low  { background:var(--t-faint); }
+.bm-badge { font-size:9px; font-weight:700; padding:2px 7px; border-radius:20px; white-space:nowrap; }
+.bm-badge-top { background:#e0f4ec; color:#1a6645; }
+.bm-badge-mid { background:#fdf3de; color:var(--gold); }
+.bm-badge-low { background:var(--alem-tint); color:var(--t-mid); }
+.bm-compare { display:flex; align-items:baseline; gap:5px; flex-wrap:wrap; }
+.bm-val { font-size:16px; font-weight:700; color:var(--alem-dark); font-family:'Space Mono',monospace; }
+.bm-vs  { font-size:9px; color:var(--t-faint); }
+.bm-med { font-size:10px; color:var(--t-mid); }
+.bm-up  { font-size:9px; font-weight:700; color:#1a6645; }
+.bm-dn  { font-size:9px; font-weight:700; color:var(--gold); }
+.bm-footer { margin-top:12px; padding-top:10px; border-top:1px solid var(--border-l); display:flex; gap:20px; flex-wrap:wrap; font-size:9px; color:var(--t-faint); }
+.bm-footer strong { color:var(--t-mid); font-weight:600; }
 </style>
 </head>
 <body>
@@ -1630,6 +1656,67 @@ body { background:var(--alem-wash); font-family:'Nunito',sans-serif; font-size:1
     <div class="summary-lbl">chemical intelligence summary</div>
     <div class="summary-body">${esc(heroNarrative)}</div>
   </div>
+
+  <!-- MARKET BENCHMARK -->
+  ${(() => {
+    if (!benchmark) return "";
+    const { n, formFactorLabel, thcPercentile, terpPercentile, medianThc, medianTerp, p90Thc, p90Terp, supplierCount } = benchmark;
+    const thcVal  = parseFloat(chemistry.thc_total)      || 0;
+    const terpVal = parseFloat(chemistry.total_terpenes) || 0;
+    function badge(pct) {
+      const top = 100 - pct;
+      const cls = top <= 20 ? "bm-badge-top" : top <= 50 ? "bm-badge-mid" : "bm-badge-low";
+      return `<span class="bm-badge ${cls}">Top ${top}%</span>`;
+    }
+    function fillCls(pct) {
+      const top = 100 - pct;
+      return top <= 20 ? "" : top <= 50 ? "bm-fill-mid" : "bm-fill-low";
+    }
+    function delta(actual, median) {
+      if (!median || !actual) return "";
+      const d = ((actual - median) / median * 100).toFixed(1);
+      if (d > 0) return `<span class="bm-up">+${d}% above median</span>`;
+      if (d < 0) return `<span class="bm-dn">${d}% below median</span>`;
+      return "";
+    }
+    const thcMetric = `<div class="bm-metric">
+      <div class="bm-lbl">THC Potency Rank</div>
+      <div class="bm-track-row">
+        <div class="bm-track"><div class="bm-fill ${fillCls(thcPercentile)}" style="width:${thcPercentile}%"></div></div>
+        ${badge(thcPercentile)}
+      </div>
+      <div class="bm-compare">
+        <span class="bm-val">${esc(String(thcVal))}%</span>
+        <span class="bm-vs">vs</span>
+        <span class="bm-med">${medianThc != null ? medianThc + "% median" : "—"}</span>
+        ${delta(thcVal, medianThc)}
+      </div>
+    </div>`;
+    const terpMetric = terpPercentile != null ? `<div class="bm-metric">
+      <div class="bm-lbl">Terpene Richness Rank</div>
+      <div class="bm-track-row">
+        <div class="bm-track"><div class="bm-fill ${fillCls(terpPercentile)}" style="width:${terpPercentile}%"></div></div>
+        ${badge(terpPercentile)}
+      </div>
+      <div class="bm-compare">
+        <span class="bm-val">${esc(String(terpVal))}%</span>
+        <span class="bm-vs">vs</span>
+        <span class="bm-med">${medianTerp != null ? medianTerp + "% median" : "—"}</span>
+        ${delta(terpVal, medianTerp)}
+      </div>
+    </div>` : "";
+    return `<div class="bm-sec">
+      <div class="bm-sec-head">
+        <span class="bm-sec-title">Market Benchmark</span>
+        <span class="bm-sec-sub">${esc(formFactorLabel)} · ${n.toLocaleString()} COAs · last 2 years${supplierCount ? " · " + supplierCount.toLocaleString() + " suppliers" : ""}</span>
+      </div>
+      <div class="bm-grid">${thcMetric}${terpMetric}</div>
+      ${(p90Thc != null || p90Terp != null) ? `<div class="bm-footer">
+        ${p90Thc  != null ? `<span>Top 10% THC threshold: <strong>${p90Thc}%</strong></span>` : ""}
+        ${p90Terp != null ? `<span>Top 10% terpene threshold: <strong>${p90Terp}%</strong></span>` : ""}
+      </div>` : ""}
+    </div>`;
+  })()}
 
   <!-- TERPENE FINGERPRINT -->
   <div class="sec">
