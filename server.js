@@ -2096,7 +2096,7 @@ app.get("/report/:id", async (req, res) => {
   try {
     const row = await getReportById(req.params.id);
     if (!row) throw new Error("Row not found");
-    return res.send(renderReportHTMLV7(row?.report_json || {}, { documentId: row.id }));
+    return res.send(renderReportHTML(row?.report_json || {}, { documentId: row.id }));
   } catch (error) {
     console.error("ERROR /report/:id", error.message);
     return res.status(404).send(`<!DOCTYPE html>
