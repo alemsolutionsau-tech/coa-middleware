@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Alem Chemical Intelligence — Understand Your COA</title>
-<meta name="description" content="Upload your cannabis Certificate of Analysis and receive a complete chemical intelligence report. Free, instant, educational. No account required.">
+<title>Alem COA Analyzer — Understand Your Certificate of Analysis</title>
+<meta name="description" content="Upload any cannabis Certificate of Analysis. Alem COA Analyzer reads every panel — cannabinoids, terpenes, contaminants, flavonoids — and tells you what's there, what's missing, and what it means. Free, instant, no account.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=Nunito:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,300;1,400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
@@ -66,28 +66,28 @@ body {
 ═══════════════════════════════ */
 .nav {
   position: fixed; top:0; left:0; right:0; z-index:200;
-  background: rgba(7,30,42,.97);
+  background: rgba(255,255,255,.97);
   backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(142,207,176,.1);
+  border-bottom: 1px solid var(--border);
   padding: 0 48px; height: 68px;
   display: flex; align-items: center; justify-content: space-between;
   transition: background .3s;
 }
 .nav-logo { display:flex; align-items:center; }
 .nav-logo img { height:42px; display:block; }
-.nav-logo-fallback { font-family:'Nunito',sans-serif; font-weight:900; font-size:18px; letter-spacing:5px; color:var(--white); text-transform:uppercase; display:none; }
+.nav-logo-fallback { font-family:'Nunito',sans-serif; font-weight:900; font-size:18px; letter-spacing:5px; color:var(--navy); text-transform:uppercase; display:none; }
 .nav-links { display:flex; align-items:center; gap:28px; }
-.nav-links a { font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:rgba(255,255,255,.5); text-decoration:none; transition:color .2s; }
-.nav-links a:hover { color:var(--mint); }
-.nav-cta { background:var(--mint); color:var(--navy-deep); font-size:10.5px; font-weight:800; letter-spacing:2px; text-transform:uppercase; padding:9px 22px; border-radius:30px; text-decoration:none; transition:all .2s; }
-.nav-cta:hover { background:var(--mint-pale); transform:translateY(-1px); box-shadow:0 6px 24px rgba(142,207,176,.3); }
+.nav-links a { font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--t-mid); text-decoration:none; transition:color .2s; }
+.nav-links a:hover { color:var(--navy); }
+.nav-cta { background:var(--navy); color:var(--white); font-size:10.5px; font-weight:800; letter-spacing:2px; text-transform:uppercase; padding:9px 22px; border-radius:30px; text-decoration:none; transition:all .2s; }
+.nav-cta:hover { background:var(--navy-mid); transform:translateY(-1px); box-shadow:0 6px 24px rgba(13,45,62,.18); }
 
 /* ═══════════════════════════════
    HERO — SPLIT
 ═══════════════════════════════ */
 .hero {
   min-height: 100vh;
-  background: var(--navy-deep);
+  background: var(--white);
   display: flex; flex-direction:column; justify-content:center;
   padding: 104px 64px 88px;
   position: relative; overflow: hidden;
@@ -96,8 +96,8 @@ body {
 .hero-grid {
   position:absolute; inset:0;
   background-image:
-    linear-gradient(rgba(142,207,176,.042) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(142,207,176,.042) 1px, transparent 1px);
+    linear-gradient(rgba(13,45,62,.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(13,45,62,.028) 1px, transparent 1px);
   background-size: 60px 60px;
   animation: gridDrift 32s linear infinite;
 }
@@ -105,14 +105,14 @@ body {
   position:absolute; top:40%; left:18%;
   transform:translate(-50%,-50%);
   width:720px; height:720px;
-  background:radial-gradient(ellipse, rgba(142,207,176,.09) 0%, transparent 65%);
+  background:radial-gradient(ellipse, rgba(142,207,176,.07) 0%, transparent 65%);
   pointer-events:none;
 }
 .hero-glow-r {
   position:absolute; top:50%; right:-8%;
   transform:translateY(-50%);
   width:480px; height:480px;
-  background:radial-gradient(ellipse, rgba(142,207,176,.06) 0%, transparent 70%);
+  background:radial-gradient(ellipse, rgba(142,207,176,.05) 0%, transparent 70%);
   pointer-events:none;
 }
 
@@ -131,7 +131,7 @@ body {
   font-size: 13px;
   letter-spacing: 3px;
   text-transform: uppercase;
-  color: var(--mint);
+  color: var(--mint-dim);
   margin-bottom: 32px;
   opacity: 0;
   animation: fadeUp .7s ease .15s both;
@@ -141,7 +141,7 @@ body {
 .hero-eyebrow-line {
   display: inline-block;
   width: 36px; height: 1.5px;
-  background: var(--mint);
+  background: var(--mint-dim);
   opacity: .65;
   flex-shrink: 0;
 }
@@ -151,25 +151,25 @@ body {
   font-size: clamp(54px, 5.5vw, 92px);
   font-weight: 600;
   line-height: .96;
-  color: var(--white);
+  color: var(--navy);
   letter-spacing: -2px;
   margin-bottom: 30px;
   opacity: 0;
   animation: fadeUp .8s ease .3s both;
 }
-.hero-title em { font-style:italic; color:var(--mint); }
+.hero-title em { font-style:italic; color:var(--mint-dim); }
 
 .hero-subtitle {
   font-size: 18px;
   font-weight: 400;
   line-height: 1.78;
-  color: var(--white);
+  color: var(--t-body);
   max-width: 530px;
   margin-bottom: 48px;
   opacity: 0;
   animation: fadeUp .8s ease .5s both;
 }
-.hero-subtitle strong { color:var(--mint); font-weight:700; }
+.hero-subtitle strong { color:var(--navy); font-weight:700; }
 
 /* See live report + hover preview */
 .hero-preview-wrap {
@@ -180,17 +180,17 @@ body {
 }
 .btn-ghost-hero {
   background:transparent;
-  color:rgba(255,255,255,.82);
+  color:var(--t-mid);
   font-family:'Nunito',sans-serif;
   font-size:12px; font-weight:700;
   letter-spacing:2px; text-transform:uppercase;
   padding:14px 30px; border-radius:40px;
   text-decoration:none;
-  border:1px solid rgba(255,255,255,.22);
+  border:1px solid var(--border);
   transition:all .25s;
   display:inline-flex; align-items:center; gap:9px;
 }
-.btn-ghost-hero:hover { border-color:var(--mint); color:var(--mint); background:rgba(142,207,176,.06); }
+.btn-ghost-hero:hover { border-color:var(--navy); color:var(--navy); background:rgba(13,45,62,.04); }
 
 /* Preview panel */
 .preview-panel {
@@ -264,11 +264,11 @@ body {
   display:flex; align-items:center; gap:16px; flex-wrap:wrap;
   font-family:'Space Mono',monospace;
   font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase;
-  color:rgba(255,255,255,.55);
+  color:var(--t-light);
   opacity:0; animation:fadeUp .6s ease .9s both;
 }
-.hero-free span { color:var(--mint); }
-.hero-free-dot { width:4px; height:4px; border-radius:50%; background:rgba(255,255,255,.3); flex-shrink:0; }
+.hero-free span { color:var(--mint-dim); }
+.hero-free-dot { width:4px; height:4px; border-radius:50%; background:var(--border); flex-shrink:0; }
 
 /* ── Right column — Upload box ── */
 .hero-right {
@@ -376,23 +376,75 @@ body {
   display:flex; flex-direction:column; align-items:center; gap:6px;
   opacity:0; animation:fadeUp .6s ease 1.3s both;
 }
-.scroll-hint-lbl { font-family:'Space Mono',monospace; font-size:8.5px; letter-spacing:3px; text-transform:uppercase; color:rgba(255,255,255,.2); }
-.scroll-line { width:1px; height:44px; background:linear-gradient(to bottom, rgba(142,207,176,.5),transparent); animation:scrollPulse 2.2s ease-in-out infinite; }
+.scroll-hint-lbl { font-family:'Space Mono',monospace; font-size:8.5px; letter-spacing:3px; text-transform:uppercase; color:rgba(13,45,62,.2); }
+.scroll-line { width:1px; height:44px; background:linear-gradient(to bottom, rgba(13,45,62,.3),transparent); animation:scrollPulse 2.2s ease-in-out infinite; }
 
 /* ═══════════════════════════════
-   STATS BAR
+   CLARITY BAR
 ═══════════════════════════════ */
-.stats-bar {
-  background:var(--navy);
-  border-top:1px solid rgba(142,207,176,.12);
-  border-bottom:1px solid rgba(142,207,176,.12);
-  padding:30px 48px;
-  display:grid; grid-template-columns:repeat(4,1fr);
+.clarity-bar {
+  background: var(--off);
+  border-top: 1px solid var(--border-l);
+  border-bottom: 1px solid var(--border);
+  padding: 64px 64px;
 }
-.stat-cell { text-align:center; border-right:1px solid rgba(142,207,176,.1); padding:0 20px; }
-.stat-cell:last-child { border-right:none; }
-.stat-num { font-family:'EB Garamond',serif; font-size:46px; font-weight:600; color:var(--mint); line-height:1; display:block; }
-.stat-label { font-size:10px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:rgba(255,255,255,.38); margin-top:7px; }
+.clarity-inner {
+  max-width: 1140px; margin: 0 auto;
+  display: grid; grid-template-columns: 1.1fr 1fr; gap: 80px; align-items: start;
+}
+.clarity-kicker {
+  font-family: 'Space Mono', monospace;
+  font-size: 10px; letter-spacing: 3px; text-transform: uppercase;
+  color: var(--mint-dim); margin-bottom: 14px;
+  display: flex; align-items: center; gap: 12px;
+}
+.clarity-kicker::before { content:''; display:inline-block; width:24px; height:1px; background:var(--mint-dim); opacity:.6; }
+.clarity-heading {
+  font-family: 'EB Garamond', serif;
+  font-size: 28px; font-weight: 600; color: var(--navy);
+  margin-bottom: 12px; line-height: 1.15;
+}
+.clarity-text {
+  font-size: 15px; color: var(--t-mid); line-height: 1.75; margin-bottom: 28px;
+}
+.clarity-text strong { color: var(--navy); font-weight: 700; }
+.clarity-panels {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+}
+.cp-item {
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: 4px; padding: 16px 14px;
+  transition: border-color .2s, box-shadow .2s;
+}
+.cp-item:hover { border-color: var(--mint-pale); box-shadow: 0 4px 16px var(--sh); }
+.cp-icon { font-size: 20px; display: block; margin-bottom: 8px; }
+.cp-label { font-size: 13px; font-weight: 700; color: var(--navy); margin-bottom: 4px; }
+.cp-note { font-size: 11px; color: var(--t-light); line-height: 1.5; }
+.cs-title {
+  font-family: 'EB Garamond', serif;
+  font-size: 24px; font-weight: 600; color: var(--navy);
+  margin-bottom: 10px;
+}
+.cs-body {
+  font-size: 14px; color: var(--t-mid); line-height: 1.72; margin-bottom: 22px;
+}
+.cs-dims { display: flex; flex-direction: column; gap: 10px; }
+.cs-dim {
+  display: flex; align-items: flex-start; gap: 14px;
+  padding: 12px 14px; background: var(--white); border: 1px solid var(--border-l); border-radius: 4px;
+}
+.cs-dim-pts {
+  font-family: 'Space Mono', monospace;
+  font-size: 11px; font-weight: 700; color: var(--mint-dim);
+  background: var(--teal-tint); border: 1px solid rgba(90,171,136,.2);
+  padding: 2px 8px; border-radius: 3px; white-space: nowrap; flex-shrink: 0; margin-top: 1px;
+}
+.cs-dim-lbl { font-size: 13px; color: var(--t-body); line-height: 1.5; }
+@media (max-width:900px) {
+  .clarity-inner { grid-template-columns: 1fr; gap: 44px; }
+  .clarity-panels { grid-template-columns: repeat(2,1fr); }
+  .clarity-bar { padding: 48px 28px; }
+}
 
 /* ═══════════════════════════════
    SHARED SECTION STYLES
@@ -746,20 +798,20 @@ body {
     <div class="hero-left">
       <div class="hero-eyebrow">
         <span class="hero-eyebrow-line"></span>
-        Alem Chemical Intelligence &nbsp;·&nbsp; Beyond Healthcare Solutions
+        Alem COA Analyzer &nbsp;·&nbsp; by Alem Solutions
       </div>
 
       <h1 class="hero-title">
-        Your cannabis<br>
-        COA finally<br>
-        <em>makes sense.</em>
+        Upload your COA.<br>
+        Know what's<br>
+        <em>inside it.</em>
       </h1>
 
       <p class="hero-subtitle">
-        Upload any Certificate of Analysis and receive a
-        <strong>complete chemical intelligence report</strong> — terpene fingerprint,
-        entourage effect analysis, compound-by-compound education, and a plain-English
-        summary. Built for patients, clinicians, brands, and buyers.
+        Alem COA Analyzer reads every panel in your Certificate of Analysis —
+        cannabinoids, terpenes, contaminants, flavonoids — and tells you exactly
+        <strong>what was tested, what's missing, and what it means.</strong>
+        Free, instant, no account required.
       </p>
 
       <!-- See live report with full hover preview -->
@@ -837,8 +889,8 @@ body {
     <div class="hero-right">
       <div class="hub">
         <div class="hub-head">
-          <div class="hub-title">Analyse your COA</div>
-          <div class="hub-badge">Always free</div>
+          <div class="hub-title">Alem COA Analyzer</div>
+          <div class="hub-badge">Free · No account</div>
         </div>
         <div class="hub-body">
           <!-- Drop zone — file input sits invisibly over the entire area -->
@@ -913,33 +965,92 @@ body {
   </div>
 </section>
 
-<!-- ── STATS BAR ── -->
-<div class="stats-bar">
-  <div class="stat-cell">
-    <span class="stat-num">5</span>
-    <div class="stat-label">Intelligence Dimensions Scored</div>
+<!-- ── CLARITY BAR ── -->
+<section class="clarity-bar">
+  <div class="clarity-inner">
+
+    <div class="clarity-main">
+      <div class="clarity-kicker">What Alem COA Analyzer actually does</div>
+      <h2 class="clarity-heading">Chemistry clarity — not a product rating.</h2>
+      <p class="clarity-text">
+        We read your Certificate of Analysis and show you what panels were tested, what the numbers mean, and what is missing.
+        <strong>We do not score whether a product is good.</strong> We score how complete and transparent the document is — so you can make an informed decision.
+      </p>
+      <div class="clarity-panels">
+        <div class="cp-item">
+          <span class="cp-icon">🧪</span>
+          <div class="cp-label">Cannabinoids</div>
+          <div class="cp-note">Full potency panel — THC, CBD, THCA, minors, and acids</div>
+        </div>
+        <div class="cp-item">
+          <span class="cp-icon">🌿</span>
+          <div class="cp-label">Terpenes</div>
+          <div class="cp-note">Every compound identified, quantified, and explained</div>
+        </div>
+        <div class="cp-item">
+          <span class="cp-icon">🛡️</span>
+          <div class="cp-label">Contaminants</div>
+          <div class="cp-note">Pesticides, heavy metals, microbials, mycotoxins</div>
+        </div>
+        <div class="cp-item">
+          <span class="cp-icon">🌸</span>
+          <div class="cp-label">Flavonoids</div>
+          <div class="cp-note">Rare panel — flagged when present in the COA</div>
+        </div>
+        <div class="cp-item">
+          <span class="cp-icon">💧</span>
+          <div class="cp-label">Physical data</div>
+          <div class="cp-note">Moisture content and water activity when reported</div>
+        </div>
+        <div class="cp-item">
+          <span class="cp-icon">⚠️</span>
+          <div class="cp-label">Missing panels</div>
+          <div class="cp-note">Not Tested ≠ Safe. We flag what's absent, clearly.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="clarity-score">
+      <div class="cs-title">How the 0–100 score works</div>
+      <p class="cs-body">
+        The score measures how much chemistry data is present and how rich it is.
+        A high score means the COA is comprehensive. A low score means data is missing or thin.
+        It is not a judgment of the product — it is a measure of the document.
+      </p>
+      <div class="cs-dims">
+        <div class="cs-dim">
+          <span class="cs-dim-pts">25 pts</span>
+          <span class="cs-dim-lbl">Potency — THC/CBD levels relative to product type (flower, concentrate, CBD)</span>
+        </div>
+        <div class="cs-dim">
+          <span class="cs-dim-pts">25 pts</span>
+          <span class="cs-dim-lbl">Terpenes — total terpene content and number of compounds identified</span>
+        </div>
+        <div class="cs-dim">
+          <span class="cs-dim-pts">20 pts</span>
+          <span class="cs-dim-lbl">Minor cannabinoids — breadth of the full cannabinoid panel beyond THC/CBD</span>
+        </div>
+        <div class="cs-dim">
+          <span class="cs-dim-pts">20 pts</span>
+          <span class="cs-dim-lbl">Safety — which contaminant panels are tested and whether they passed</span>
+        </div>
+        <div class="cs-dim">
+          <span class="cs-dim-pts">10 pts</span>
+          <span class="cs-dim-lbl">Data completeness — key fields present: batch, lab, date, accreditation</span>
+        </div>
+      </div>
+    </div>
+
   </div>
-  <div class="stat-cell">
-    <span class="stat-num">12+</span>
-    <div class="stat-label">Terpenes Identified &amp; Explained</div>
-  </div>
-  <div class="stat-cell">
-    <span class="stat-num">4</span>
-    <div class="stat-label">Audience Intelligence Profiles</div>
-  </div>
-  <div class="stat-cell">
-    <span class="stat-num">0</span>
-    <div class="stat-label">Cost. Always. Forever.</div>
-  </div>
-</div>
+</section>
 
 <!-- ── PROBLEM ── -->
 <section class="section problem" id="problem">
   <div class="section-inner">
     <div class="reveal">
       <span class="section-label">The problem</span>
-      <h2 class="section-title">A COA without context<br>is just <em>noise.</em></h2>
-      <p class="section-body">A Certificate of Analysis is one of the most important documents in cannabis healthcare — and most people holding one have no idea what it means. Numbers like "THCA 26.39 wt%" or "TPN-MYR-OCI" sit on a page with no interpretation, no context, no guidance. That's a problem for patients making healthcare decisions. It's a problem that shouldn't exist.</p>
+      <h2 class="section-title">A COA without context<br>is just <em>numbers.</em></h2>
+      <p class="section-body">Your lab report is full of precise, rigorous chemistry — and almost no one can read it. Numbers like "THCA 26.39 wt%" or "TPN-MYR-OCI" mean nothing without context. Chemistry this important deserves a translation.</p>
     </div>
 
     <div class="problem-layout">
@@ -1007,8 +1118,8 @@ body {
   <div class="section-inner">
     <div class="reveal">
       <span class="section-label">How it works</span>
-      <h2 class="section-title">Three steps.<br><em>One complete intelligence report.</em></h2>
-      <p class="section-body">Upload any cannabis COA — PDF, image, or scan. Our system reads every compound, scores the chemistry across five dimensions, and returns a permanent report with plain-English education built into every single data point.</p>
+      <h2 class="section-title">Three steps.<br><em>Complete chemistry clarity.</em></h2>
+      <p class="section-body">Upload any COA — PDF, image, or scan. We read every compound, check every panel, and return a permanent report with plain-English explanations built into every data point.</p>
     </div>
 
     <div class="how-steps">
@@ -1022,13 +1133,13 @@ body {
         <div class="how-step-num">2</div>
         <span class="how-step-icon">🧪</span>
         <div class="how-step-title">We extract &amp; analyse</div>
-        <div class="how-step-body">Our dual-pass AI engine reads and extracts every cannabinoid and terpene value, applies our proprietary 5-dimension scoring model, generates your chemotype fingerprint, identifies lineage cluster, and calculates entourage effect signal — all in under 15 seconds.</div>
+        <div class="how-step-body">Our AI engine reads every cannabinoid, terpene, and contaminant value. It checks which panels are present, which are missing, and generates your full chemistry report — in under 15 seconds.</div>
       </div>
       <div class="how-step reveal rd3">
         <div class="how-step-num">3</div>
         <span class="how-step-icon">📊</span>
         <div class="how-step-title">Receive your report</div>
-        <div class="how-step-body">A permanent, shareable URL with your full intelligence report. Every compound has a hover tooltip explaining its science. Four audience views. Score breakdown. Post-harvest analysis. Entourage effect signal. PDF export. Free forever.</div>
+        <div class="how-step-body">A permanent, shareable URL with your full report. Every compound has a hover tooltip explaining the science. Score breakdown. Post-harvest signals. PDF export. Free, always.</div>
       </div>
     </div>
   </div>
@@ -1039,8 +1150,8 @@ body {
   <div class="section-inner">
     <div class="reveal">
       <span class="section-label">What you get</span>
-      <h2 class="section-title">Everything your COA<br><em>should have told you.</em></h2>
-      <p class="section-body">Not just a summary — a full chemical intelligence report with hover-to-learn annotations on every compound, every metric, every score. 50+ interactive data points. All free.</p>
+      <h2 class="section-title">Everything in your COA,<br><em>explained.</em></h2>
+      <p class="section-body">A complete chemistry report with hover-to-learn annotations on every compound, every metric, every score. Over 50 interactive data points. Free, always.</p>
     </div>
 
     <div class="features-grid">
@@ -1299,12 +1410,11 @@ body {
       <span class="section-label" style="justify-content:center">Our belief</span>
     </div>
     <h2 class="advocacy-title reveal">
-      Chemistry transparency<br>
-      is <em>not a luxury.</em><br>
-      It is a right.
+      Understanding your chemistry<br>
+      is <em>not optional.</em>
     </h2>
     <p class="advocacy-body reveal">
-      <strong>Patients are making healthcare decisions</strong> with documents they cannot read. Clinicians are prescribing products without the full chemical picture. Buyers are listing products without understanding what they're selling. We built Alem Chemical Intelligence because <strong>the data exists — it just needs to speak.</strong>
+      <strong>The chemistry in your COA tells a precise, complete story</strong> — about potency, safety, terpene character, and product integrity. That story deserves to be read. Alem COA Analyzer exists because <strong>chemistry this important should be accessible to everyone holding the document.</strong>
     </p>
 
     <div class="pillars">
@@ -1339,7 +1449,7 @@ body {
         <div class="reveal">
           <div class="free-badge">✓ &nbsp; 100% Free · Always</div>
           <span class="section-label">Start now</span>
-          <h2 class="section-title">Your COA is waiting<br>to <em>tell its story.</em></h2>
+          <h2 class="section-title">Your COA has a story.<br><em>Read it now.</em></h2>
         </div>
         <div class="free-checks reveal rd1">
           <div class="free-check">
@@ -1428,7 +1538,7 @@ body {
            alt="Alem Solutions"
            onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
       <div class="footer-brand-fb">ALEM</div>
-      <p>Medicinal cannabis procurement &amp; product development specialists. NSW, Australia. Helping patients, clinicians, and the industry access better chemistry intelligence — for free.</p>
+      <p>Alem COA Analyzer — free chemistry analysis for every Certificate of Analysis. Built by Alem Solutions, NSW Australia. Helping patients, clinicians, brands, and buyers understand what their chemistry actually says.</p>
     </div>
     <div>
       <div class="footer-col-title">Chemical Intelligence</div>
@@ -1453,7 +1563,7 @@ body {
     </div>
   </div>
   <div class="footer-bottom">
-    <div class="footer-copy">© 2025 Alem Solutions Pty Ltd · NSW Australia · All rights reserved</div>
+    <div class="footer-copy">© 2025 Alem Solutions Pty Ltd · NSW Australia · All rights reserved · Alem COA Analyzer</div>
     <div class="footer-legal">This platform is for Healthcare Professionals and individuals over 18. Medicinal cannabis is a regulated treatment option in Australia, approved by the TGA for specific conditions under the guidance of healthcare professionals only. This is not medical advice.</div>
   </div>
 </footer>
@@ -1738,7 +1848,7 @@ if (mock) mockObs.observe(mock);
 // ── Nav darken on scroll ───────────────────────────────────
 var nav = document.querySelector('.nav');
 window.addEventListener('scroll', function () {
-  nav.style.background = window.scrollY > 50 ? 'rgba(5,20,30,.99)' : 'rgba(7,30,42,.97)';
+  nav.style.background = window.scrollY > 50 ? 'rgba(255,255,255,1)' : 'rgba(255,255,255,.97)';
 }, { passive: true });
 
 // ── Smooth anchor scroll ───────────────────────────────────
