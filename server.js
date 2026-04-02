@@ -3,6 +3,7 @@ require("dotenv").config();
 const path = require("path");
 const express = require("express");
 const cors = require("cors");
+const rateLimit = require("express-rate-limit");
 const multer = require("multer");
 const puppeteer = require("puppeteer");
 const axios = require("axios");
@@ -32,7 +33,37 @@ const upload = multer({
   },
 });
 
-app.use(cors());
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim()).filter(Boolean)
+  : [];
+
+app.use(cors({
+  origin: (origin, cb) => {
+    // Allow same-origin / server-side requests (no Origin header)
+    if (!origin) return cb(null, true);
+    if (ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    cb(new Error(`CORS: origin ${origin} not allowed`));
+  },
+}));
+
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 1000,       // 1 minute window
+  max: Number(process.env.UPLOAD_RATE_LIMIT || 10),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: "Too many requests — please wait before uploading again." },
+});
+
+function requireApiKey(req, res, next) {
+  const apiKey = process.env.UPLOAD_API_KEY;
+  if (!apiKey) return next(); // no key configured → open (dev mode)
+  const provided = req.headers["x-api-key"] || req.query.api_key;
+  if (provided !== apiKey) {
+    return res.status(401).json({ success: false, error: "Invalid or missing API key." });
+  }
+  next();
+}
+
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -637,22 +668,31 @@ function detectMimeType(url = "", headerContentType = "") {
 // ─────────────────────────────────────────────
 
 async function callOpenAI(systemPrompt, userText, maxTokens = 2400) {
-  const response = await Promise.race([
-    openai.chat.completions.create({
-      model: OPENAI_MODEL,
-      max_tokens: maxTokens,
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userText },
-      ],
-    }),
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`OpenAI timeout after ${OPENAI_TIMEOUT_MS}ms`)), OPENAI_TIMEOUT_MS)
-    ),
-  ]);
-  return response.choices?.[0]?.message?.content || "";
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS);
+  try {
+    const response = await openai.chat.completions.create(
+      {
+        model: OPENAI_MODEL,
+        max_tokens: maxTokens,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userText },
+        ],
+      },
+      { signal: controller.signal }
+    );
+    return response.choices?.[0]?.message?.content || "";
+  } catch (err) {
+    if (err.name === "AbortError" || controller.signal.aborted) {
+      throw new Error(`OpenAI timeout after ${OPENAI_TIMEOUT_MS}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function extractJSON(text = "") {
@@ -729,6 +769,7 @@ function normalizeChemistry(data = {}) {
     cbg: s(data.cbg),
     cbga: s(data.cbga),
     cbca: s(data.cbca),
+    cbc: s(data.cbc),
     thcva: s(data.thcva),
     d8thc: s(data.d8thc),
     total_terpenes: totalTerpenes,
@@ -1874,7 +1915,7 @@ body { background:var(--alem-wash); font-family:'Nunito',sans-serif; font-size:1
 
 <!-- ACTION BUTTONS -->
 <div class="ractions">
-  <a class="rbtn rbtn-p" href="/" onclick="return false;" style="cursor:pointer;" onclick="window.location='/'">↗ &nbsp; Analyse New COA</a>
+  <a class="rbtn rbtn-p" href="/" onclick="window.location='/'; return false;" style="cursor:pointer;">↗ &nbsp; Analyse New COA</a>
   ${options.documentId ? `<a class="rbtn rbtn-s" href="/pdf/${esc(options.documentId)}" target="_blank">⬇ &nbsp; Export PDF</a>` : ""}
 </div>
 <p class="page-foot">Powered by <a href="https://alem.solutions">alem.solutions</a> &nbsp;·&nbsp; Chemical Intelligence</p>
@@ -1907,7 +1948,7 @@ app.get("/health", async (req, res) => {
 // MULTI-FILE UPLOAD ROUTE
 // ─────────────────────────────────────────────
 
-app.post("/upload-coa-multi", upload.array("files", 10), async (req, res) => {
+app.post("/upload-coa-multi", requireApiKey, uploadLimiter, upload.array("files", 10), async (req, res) => {
   try {
     console.log(`📥 Multi-file COA upload: ${(req.files || []).length} file(s)`);
     if (!req.files || req.files.length === 0) {
@@ -1915,16 +1956,22 @@ app.post("/upload-coa-multi", upload.array("files", 10), async (req, res) => {
     }
 
     // Upload to Supabase for storage, but OCR from buffer directly
-    const uploadResults = await Promise.all(
-      req.files.map((file, idx) =>
-        uploadBufferToSupabase({
-          buffer: file.buffer,
-          originalName: file.originalname || `upload-${Date.now()}-${idx}`,
-          mimeType: file.mimetype,
-          folder: "raw_documents",
-        })
-      )
-    );
+    let uploadResults = [];
+    try {
+      uploadResults = await Promise.all(
+        req.files.map((file, idx) =>
+          uploadBufferToSupabase({
+            buffer: file.buffer,
+            originalName: file.originalname || `upload-${Date.now()}-${idx}`,
+            mimeType: file.mimetype,
+            folder: "raw_documents",
+          })
+        )
+      );
+    } catch (uploadErr) {
+      console.error("❌ Supabase upload failed:", uploadErr.message);
+      return res.status(500).json({ success: false, error: "Storage upload failed: " + uploadErr.message });
+    }
     console.log(`☁️  Stored ${uploadResults.length} file(s)`);
 
     // Send buffers DIRECTLY to Azure — avoids partial reads from URL fetching
@@ -1985,11 +2032,20 @@ app.post("/upload-coa-multi", upload.array("files", 10), async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Multi-upload pipeline error:", error.message);
+    // Clean up any files already uploaded to Supabase before the failure
+    if (uploadResults && uploadResults.length > 0) {
+      const paths = uploadResults.map(r => r.storagePath).filter(Boolean);
+      if (paths.length > 0) {
+        supabase.storage.from(SUPABASE_BUCKET).remove(paths).catch(e =>
+          console.warn("⚠️  Supabase cleanup failed:", e.message)
+        );
+      }
+    }
     return res.status(500).json({ success: false, error: error.message || "Upload pipeline failed" });
   }
 });
 
-app.post("/upload-coa", upload.single("file"), async (req, res) => {
+app.post("/upload-coa", requireApiKey, uploadLimiter, upload.single("file"), async (req, res) => {
   try {
     console.log("📥 COA upload received");
     if (!req.file) return res.status(400).json({ success: false, error: "No file uploaded" });
@@ -2126,10 +2182,9 @@ process.on("unhandledRejection", (reason, promise) => {
 
 process.on("uncaughtException", (err) => {
   console.error("⚠️  Uncaught Exception:", err.message);
-  // Only exit for truly fatal errors that corrupt state
-  // For rendering/route errors, log and continue
+  process.exit(1);
 });
 
 app.listen(PORT, () => {
-  console.log(`🌿 Alem Chemical Intelligence v6 running on port ${PORT}`);
+  console.log(`🌿 Alem Chemical Intelligence v7 running on port ${PORT}`);
 });
