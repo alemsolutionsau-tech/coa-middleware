@@ -22,8 +22,9 @@ function makeBqClient() {
   const raw = process.env.BQ_CREDENTIALS_JSON;
   if (raw) {
     try {
-      const cleaned = raw.slice(raw.indexOf("{"));
-      const credentials = JSON.parse(cleaned);
+      const start = raw.indexOf("{");
+      const end   = raw.lastIndexOf("}");
+      const credentials = JSON.parse(raw.slice(start, end + 1));
       return new BigQuery({ projectId: PROJECT, credentials });
     } catch (e) {
       console.error("BQ_CREDENTIALS_JSON is set but failed to parse:", e.message);
