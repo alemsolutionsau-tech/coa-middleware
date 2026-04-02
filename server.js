@@ -1,5 +1,8 @@
 require("dotenv").config();
 
+const renderReportHTMLV7  = require('./renderReportHTML');
+const renderReportPDFDoc  = require('./renderReportPDF');
+
 const path = require("path");
 const express = require("express");
 const cors = require("cors");
@@ -2093,7 +2096,7 @@ app.get("/report/:id", async (req, res) => {
   try {
     const row = await getReportById(req.params.id);
     if (!row) throw new Error("Row not found");
-    return res.send(renderReportHTML(row?.report_json || {}, { documentId: row.id }));
+    return res.send(renderReportHTMLV7(row?.report_json || {}, { documentId: row.id }));
   } catch (error) {
     console.error("ERROR /report/:id", error.message);
     return res.status(404).send(`<!DOCTYPE html>
@@ -2132,7 +2135,7 @@ app.get("/pdf/:id", async (req, res) => {
   let browser;
   try {
     const row = await getReportById(req.params.id);
-    const html = renderReportHTML(row?.report_json || {}, { documentId: row.id });
+    const html = renderReportPDFDoc(row?.report_json || {}, { documentId: row.id });
 
     browser = await puppeteer.launch({ headless: true, args: ["--no-sandbox", "--disable-setuid-sandbox"] });
     const page = await browser.newPage();
