@@ -2,7 +2,8 @@ require("dotenv").config();
 
 const renderReportHTMLV7  = require('./renderReportHTML');
 const renderReportPDFDoc  = require('./renderReportPDF');
-const { fetchBenchmark }  = require('./bqBenchmark');
+const { fetchBenchmark }        = require('./bqBenchmark');
+const { fetchStrainIntelligence } = require('./strainIntelligence');
 
 const path = require("path");
 const express = require("express");
@@ -988,7 +989,8 @@ function renderReportHTML(reportJson = {}, options = {}) {
   const contaminants = reportJson.contaminants || {};
   const scoring = reportJson.scoring || computeIntelligenceScore(chemistry, contaminants);
   const intelligence = reportJson.intelligence || {};
-  const benchmark = options.benchmark || null;
+  const benchmark   = options.benchmark   || null;
+  const strainIntel = options.strainIntel || intelligence.strainIntel || null;
 
   const terpenes = chemistry.top_terpenes || [];
   const cannabinoids = chemistry.top_cannabinoids || [];
@@ -1510,6 +1512,33 @@ body { background:var(--alem-wash); font-family:'Nunito',sans-serif; font-size:1
 .bm-dn  { font-size:9px; font-weight:700; color:var(--gold); }
 .bm-footer { margin-top:12px; padding-top:10px; border-top:1px solid var(--border-l); display:flex; gap:20px; flex-wrap:wrap; font-size:9px; color:var(--t-faint); }
 .bm-footer strong { color:var(--t-mid); font-weight:600; }
+/* ── Strain Intelligence ── */
+.si-sec { background:var(--white); border:1px solid var(--border-l); border-radius:8px; padding:18px 20px; margin-top:20px; }
+.si-header { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; }
+.si-title { font-size:9px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--alem-dark); }
+.si-sub { font-size:9px; color:var(--t-faint); }
+/* Match card */
+.si-match-card { display:flex; align-items:flex-start; gap:16px; padding:14px 16px; background:var(--alem-tint); border-radius:6px; border:1px solid var(--border); }
+.si-match-score { flex-shrink:0; text-align:center; }
+.si-match-pct { font-size:28px; font-weight:900; color:var(--alem-dark); font-family:'Space Mono',monospace; line-height:1; }
+.si-match-lbl { font-size:8px; letter-spacing:2px; text-transform:uppercase; color:var(--t-light); margin-top:2px; }
+.si-match-body { flex:1; }
+.si-match-name { font-size:15px; font-weight:700; color:var(--alem-dark); margin-bottom:4px; }
+.si-match-meta { display:flex; gap:12px; flex-wrap:wrap; font-size:10px; color:var(--t-mid); }
+.si-match-meta span { display:flex; align-items:center; gap:4px; }
+.si-cluster-pill { display:inline-block; font-size:8px; font-weight:700; letter-spacing:1px; text-transform:uppercase; padding:2px 8px; border-radius:20px; background:var(--alem-mid); color:#fff; margin-top:6px; }
+/* Strain rows (substitutes + complementary) */
+.si-rows { display:flex; flex-direction:column; gap:8px; }
+.si-row { display:flex; align-items:center; gap:10px; padding:9px 12px; background:var(--off); border-radius:6px; border:1px solid var(--border-l); }
+.si-row-name { flex:1; font-size:12px; font-weight:600; color:var(--alem-dark); }
+.si-row-pct { flex-shrink:0; font-size:11px; font-weight:700; font-family:'Space Mono',monospace; color:var(--alem-mid); width:42px; text-align:right; }
+.si-row-bar-wrap { width:80px; flex-shrink:0; }
+.si-row-bar { height:5px; background:var(--border-l); border-radius:3px; overflow:hidden; }
+.si-row-bar-fill { height:100%; border-radius:3px; background:var(--alem-accent); }
+.si-row-meta { flex-shrink:0; font-size:9px; color:var(--t-mid); text-align:right; min-width:90px; }
+.si-row-cluster { flex-shrink:0; font-size:8px; font-weight:700; letter-spacing:1px; text-transform:uppercase; padding:2px 7px; border-radius:20px; background:var(--alem-tint); color:var(--alem-mid); }
+.si-divider { border:none; border-top:1px solid var(--border-l); margin:14px 0; }
+.si-empty { font-size:10px; color:var(--t-faint); text-align:center; padding:12px; }
 </style>
 </head>
 <body>
@@ -1716,6 +1745,86 @@ body { background:var(--alem-wash); font-family:'Nunito',sans-serif; font-size:1
         ${p90Terp != null ? `<span>Top 10% terpene threshold: <strong>${p90Terp}%</strong></span>` : ""}
       </div>` : ""}
     </div>`;
+  })()}
+
+  <!-- STRAIN INTELLIGENCE -->
+  ${(() => {
+    if (!strainIntel) return "";
+    const { match, substitutes = [], complementary = [], totalStrains, inputClusterLabel, formFactor } = strainIntel;
+
+    function simColor(pct) {
+      if (pct >= 80) return "background:#e0f4ec;color:#1a6645;";
+      if (pct >= 60) return "background:#fdf3de;color:var(--gold);";
+      return "background:var(--alem-tint);color:var(--t-mid);";
+    }
+
+    // ── SECTION 1: STRAIN MATCH ──────────────────────────────────────
+    const matchHtml = !match ? `<div class="si-empty">No close strain match found in database.</div>` : `
+      <div class="si-match-card">
+        <div class="si-match-score">
+          <div class="si-match-pct">${match.similarity}%</div>
+          <div class="si-match-lbl">Match</div>
+        </div>
+        <div class="si-match-body">
+          <div class="si-match-name">${esc(match.strain_name)}</div>
+          <div class="si-match-meta">
+            <span>★ ${match.coa_count.toLocaleString()} COAs</span>
+            <span>Avg THC ${esc(match.avg_thc)}%</span>
+            ${match.p10_thc && match.p90_thc ? `<span>Range ${esc(match.p10_thc)}–${esc(match.p90_thc)}%</span>` : ""}
+            <span>${esc(match.avg_terpenes)}% terpenes</span>
+          </div>
+          ${match.clusterLabel ? `<span class="si-cluster-pill">${esc(match.clusterLabel)}</span>` : ""}
+        </div>
+      </div>`;
+
+    // ── SECTION 2: SUBSTITUTES ───────────────────────────────────────
+    const subsHtml = substitutes.length === 0
+      ? `<div class="si-empty">No substitute strains with ≥55% similarity found.</div>`
+      : substitutes.map(s => `
+          <div class="si-row">
+            <div class="si-row-name">${esc(s.strain_name)}</div>
+            <div class="si-row-bar-wrap">
+              <div class="si-row-bar"><div class="si-row-bar-fill" style="width:${s.similarity}%"></div></div>
+            </div>
+            <div class="si-row-pct" style="${simColor(s.similarity)};padding:1px 6px;border-radius:10px;">${s.similarity}%</div>
+            <div class="si-row-meta">${esc(s.avg_thc)}% THC · ${s.coa_count.toLocaleString()} COAs</div>
+          </div>`).join("");
+
+    // ── SECTION 3: COMPLEMENTARY ─────────────────────────────────────
+    const compHtml = complementary.length === 0
+      ? `<div class="si-empty">No complementary strains identified.</div>`
+      : complementary.map(s => `
+          <div class="si-row">
+            <div class="si-row-name">${esc(s.strain_name)}</div>
+            ${s.clusterLabel ? `<span class="si-row-cluster">${esc(s.clusterLabel)}</span>` : ""}
+            <div style="flex:1"></div>
+            <div class="si-row-meta">${esc(s.avg_thc)}% THC · ${esc(s.dominantLabel || "")}−dominant · ${s.coa_count.toLocaleString()} COAs</div>
+          </div>`).join("");
+
+    return `
+      <div class="si-sec">
+        <div class="si-header">
+          <span class="si-title">Strain Match</span>
+          <span class="si-sub">${totalStrains.toLocaleString()} ${esc(formFactor)} strains in database${inputClusterLabel ? " · " + esc(inputClusterLabel) + " profile" : ""}</span>
+        </div>
+        ${matchHtml}
+      </div>
+
+      <div class="si-sec">
+        <div class="si-header">
+          <span class="si-title">Substitute Strains</span>
+          <span class="si-sub">Similar terpene fingerprint · could replace this product</span>
+        </div>
+        <div class="si-rows">${subsHtml}</div>
+      </div>
+
+      <div class="si-sec">
+        <div class="si-header">
+          <span class="si-title">Complementary Strains</span>
+          <span class="si-sub">Different profile · therapeutically compatible</span>
+        </div>
+        <div class="si-rows">${compHtml}</div>
+      </div>`;
   })()}
 
   <!-- TERPENE FINGERPRINT -->
@@ -2097,6 +2206,10 @@ app.post("/upload-coa-multi", requireApiKey, uploadLimiter, upload.array("files"
     const postHarvest   = buildPostHarvestIntel(chemistry, contaminants);
     const intelligence  = { fingerprintId, effectDirection: terpIntel.direction, lineageCluster: terpIntel.lineage, lineageConfidence: terpIntel.lineageConfidence, audiences, postHarvest };
 
+    const strainIntel = await fetchStrainIntelligence(chemistry).catch(() => null);
+    if (strainIntel) intelligence.strainIntel = strainIntel;
+    if (strainIntel) console.log(`✅ Strain match: ${strainIntel.match?.strain_name} (${strainIntel.match?.similarity}%)`);
+
     const primaryFilename = req.files[0].originalname || `multi-upload-${Date.now()}`;
     const insertedRow = await insertCOAReport({
       chemistry, contaminants, scoring, intelligence,
@@ -2184,8 +2297,14 @@ app.get("/report/:id", async (req, res) => {
   try {
     const row = await getReportById(req.params.id);
     if (!row) throw new Error("Row not found");
-    const benchmark = await fetchBenchmark(row.report_json?.chemistry || {}).catch(() => null);
-    return res.send(renderReportHTML(row?.report_json || {}, { documentId: row.id, benchmark }));
+    const chemistry   = row.report_json?.chemistry || {};
+    const [benchmark, strainIntel] = await Promise.all([
+      fetchBenchmark(chemistry).catch(() => null),
+      row.report_json?.intelligence?.strainIntel
+        ? Promise.resolve(row.report_json.intelligence.strainIntel)
+        : fetchStrainIntelligence(chemistry).catch(() => null),
+    ]);
+    return res.send(renderReportHTML(row?.report_json || {}, { documentId: row.id, benchmark, strainIntel }));
   } catch (error) {
     console.error("ERROR /report/:id", error.message);
     return res.status(404).send(`<!DOCTYPE html>
