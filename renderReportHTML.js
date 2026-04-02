@@ -80,6 +80,7 @@ module.exports = function renderReportHTML(reportJson = {}, options = {}) {
   const contaminants = reportJson.contaminants || {};
   const scoring      = reportJson.scoring      || { total: 0, grade: "—", tier: "—", breakdown: {} };
   const intelligence = reportJson.intelligence || {};
+  const benchmark    = options.benchmark       || null;
 
   const terpenes    = chemistry.top_terpenes    || [];
   const cannabinoids = chemistry.top_cannabinoids || [];
@@ -1062,6 +1063,74 @@ body {
 
 /* ── Animation trigger (JS fallback: bars animate on load) ── */
 @keyframes barGrow { from { width: 0 } to { width: var(--w, 100%) } }
+
+/* ═══════════════════════════════════════════════════════════════════
+   MARKET BENCHMARK SECTION
+══════════════════════════════════════════════════════════════════ */
+.bm-card { padding: 20px 24px; }
+.bm-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px 32px;
+}
+@media (max-width: 560px) { .bm-grid { grid-template-columns: 1fr; } }
+.bm-metric { display: flex; flex-direction: column; gap: 8px; }
+.bm-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.bm-track-row { display: flex; align-items: center; gap: 10px; }
+.bm-track {
+  flex: 1;
+  height: 8px;
+  background: #ececec;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.bm-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--green);
+  transition: width 0.6s ease;
+}
+.bm-fill-amber { background: var(--amber); }
+.bm-fill-grey  { background: #bbb; }
+.bm-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.bm-badge-top    { background: var(--green-light);  color: var(--green); }
+.bm-badge-mid    { background: #fff8e7;              color: var(--amber); }
+.bm-badge-low    { background: #f3f3f3;              color: #888; }
+.bm-compare {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-muted);
+  flex-wrap: wrap;
+}
+.bm-this-val  { font-size: 18px; font-weight: 700; color: var(--ink); font-family: 'DM Mono', monospace; }
+.bm-vs        { font-size: 10px; color: var(--ink-faint); }
+.bm-median    { font-size: 12px; color: var(--ink-muted); }
+.bm-delta-up  { font-size: 11px; font-weight: 600; color: var(--green); }
+.bm-delta-dn  { font-size: 11px; font-weight: 600; color: var(--amber); }
+.bm-divider   { border: none; border-top: 1px solid #eee; margin: 16px 0; }
+.bm-context-row {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+.bm-context-item strong { color: var(--ink-muted); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -1134,6 +1203,88 @@ body {
   )}
 </div>
 </div>
+
+${(() => {
+  if (!benchmark) return "";
+  const {
+    n, formFactorLabel,
+    thcPercentile, terpPercentile,
+    medianThc, medianTerp,
+    p90Thc, p90Terp,
+    supplierCount,
+  } = benchmark;
+
+  const thcVal  = parseFloat(chemistry.thc_total)      || 0;
+  const terpVal = parseFloat(chemistry.total_terpenes) || 0;
+
+  function pctBadge(pct) {
+    const top = 100 - pct;
+    const cls = top <= 20 ? "bm-badge-top" : top <= 50 ? "bm-badge-mid" : "bm-badge-low";
+    return `<span class="bm-badge ${cls}">Top ${top}%</span>`;
+  }
+  function fillCls(pct) {
+    const top = 100 - pct;
+    return top <= 20 ? "" : top <= 50 ? "bm-fill-amber" : "bm-fill-grey";
+  }
+  function delta(actual, median) {
+    if (!median || !actual) return "";
+    const d = ((actual - median) / median * 100).toFixed(1);
+    if (d > 0)  return `<span class="bm-delta-up">+${d}% above median</span>`;
+    if (d < 0)  return `<span class="bm-delta-dn">${d}% below median</span>`;
+    return "";
+  }
+
+  const thcMetric = `
+    <div class="bm-metric">
+      <div class="bm-label">THC Potency Rank</div>
+      <div class="bm-track-row">
+        <div class="bm-track"><div class="bm-fill ${fillCls(thcPercentile)}" style="width:${thcPercentile}%"></div></div>
+        ${pctBadge(thcPercentile)}
+      </div>
+      <div class="bm-compare">
+        <span class="bm-this-val">${esc(String(thcVal))} wt%</span>
+        <span class="bm-vs">vs</span>
+        <span class="bm-median">${medianThc != null ? medianThc + " wt% median" : "—"}</span>
+        ${delta(thcVal, medianThc)}
+      </div>
+    </div>`;
+
+  const terpMetric = terpPercentile != null ? `
+    <div class="bm-metric">
+      <div class="bm-label">Terpene Richness Rank</div>
+      <div class="bm-track-row">
+        <div class="bm-track"><div class="bm-fill ${fillCls(terpPercentile)}" style="width:${terpPercentile}%"></div></div>
+        ${pctBadge(terpPercentile)}
+      </div>
+      <div class="bm-compare">
+        <span class="bm-this-val">${esc(String(terpVal))} wt%</span>
+        <span class="bm-vs">vs</span>
+        <span class="bm-median">${medianTerp != null ? medianTerp + " wt% median" : "—"}</span>
+        ${delta(terpVal, medianTerp)}
+      </div>
+    </div>` : "";
+
+  return `
+<!-- ═══════════════════════════════════════════════════════════════
+     3b. MARKET BENCHMARK
+════════════════════════════════════════════════════════════════ -->
+<div class="report-section">
+<div class="section-heading">Market Benchmark</div>
+<div class="section-sub">${esc(formFactorLabel)} · ${n.toLocaleString()} COAs · last 2 years${supplierCount ? " · " + supplierCount.toLocaleString() + " suppliers" : ""}</div>
+<div class="card bm-card">
+  <div class="bm-grid">
+    ${thcMetric}
+    ${terpMetric}
+  </div>
+  ${(p90Thc != null || p90Terp != null) ? `
+  <hr class="bm-divider">
+  <div class="bm-context-row">
+    ${p90Thc  != null ? `<span class="bm-context-item">Top 10% THC threshold: <strong>${p90Thc} wt%</strong></span>`  : ""}
+    ${p90Terp != null ? `<span class="bm-context-item">Top 10% terpene threshold: <strong>${p90Terp} wt%</strong></span>` : ""}
+  </div>` : ""}
+</div>
+</div>`;
+})()}
 
 <!-- ═══════════════════════════════════════════════════════════════
      4. CHEMOTYPE FINGERPRINT BAND
