@@ -73,9 +73,11 @@ body {
   display: flex; align-items: center; justify-content: space-between;
   transition: background .3s;
 }
-.nav-logo { display:flex; align-items:center; }
-.nav-logo img { height:42px; display:block; }
+.nav-logo { display:flex; align-items:center; gap:12px; }
+.nav-logo img { height:48px; display:block; }
 .nav-logo-fallback { font-family:'Nunito',sans-serif; font-weight:900; font-size:18px; letter-spacing:5px; color:var(--navy); text-transform:uppercase; display:none; }
+.nav-product-name { font-family:'Nunito',sans-serif; font-weight:800; font-size:15px; color:var(--navy); letter-spacing:.3px; padding-left:12px; border-left:1px solid var(--border); line-height:1.2; }
+.nav-product-name span { display:block; font-size:10px; font-weight:600; color:var(--t-light); letter-spacing:1px; text-transform:uppercase; }
 .nav-links { display:flex; align-items:center; gap:28px; }
 .nav-links a { font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--t-mid); text-decoration:none; transition:color .2s; }
 .nav-links a:hover { color:var(--navy); }
@@ -127,22 +129,23 @@ body {
 .hero-left { }
 
 .hero-eyebrow {
-  font-family: 'Space Mono', monospace;
-  font-size: 13px;
-  letter-spacing: 3px;
-  text-transform: uppercase;
-  color: var(--mint-dim);
+  font-family: 'Nunito', sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  color: var(--navy-mid);
   margin-bottom: 32px;
   opacity: 0;
   animation: fadeUp .7s ease .15s both;
   display: flex; align-items: center; gap: 14px;
   line-height: 1.5;
 }
+.hero-eyebrow em { font-style:normal; color:var(--mint-dim); font-size:14px; font-weight:600; }
 .hero-eyebrow-line {
   display: inline-block;
-  width: 36px; height: 1.5px;
+  width: 36px; height: 2px;
   background: var(--mint-dim);
-  opacity: .65;
+  opacity: .8;
   flex-shrink: 0;
 }
 
@@ -772,9 +775,13 @@ body {
 <nav class="nav" id="top">
   <div class="nav-logo">
     <img src="https://www.alem.solutions/wp-content/uploads/2024/04/Alem-Brand-Green.png"
-         alt="Alem — Beyond Healthcare Solutions"
+         alt="Alem Solutions"
          onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
     <div class="nav-logo-fallback">ALEM</div>
+    <div class="nav-product-name">
+      COA Analyzer
+      <span>by Alem Solutions</span>
+    </div>
   </div>
   <div class="nav-links">
     <a href="#how">How it works</a>
@@ -798,7 +805,7 @@ body {
     <div class="hero-left">
       <div class="hero-eyebrow">
         <span class="hero-eyebrow-line"></span>
-        Alem COA Analyzer &nbsp;·&nbsp; by Alem Solutions
+        Alem COA Analyzer &nbsp;<em>· by Alem Solutions</em>
       </div>
 
       <h1 class="hero-title">
