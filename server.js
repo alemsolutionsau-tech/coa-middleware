@@ -2467,17 +2467,28 @@ app.get("/report/:id", async (req, res) => {
     let scientificEvidence = storedIntel.scientificEvidence || null;
     let sciLoading = false;
     if (!scientificEvidence) {
+      const totalTerps = parseFloat(chemistry.total_terpenes) || 0;
+      const topTerps   = (chemistry.top_terpenes || []).length;
+      console.log(`🔬 [sci] report ${req.params.id} — totalTerps=${totalTerps} topTerps=${topTerps} thc=${chemistry.thc_total}`);
       const sciTimeout = new Promise(r => setTimeout(() => r("timeout"), 10_000));
       const result = await Promise.race([
-        buildScientificEvidence({ chemistry, intelligence: storedIntel }).catch(() => null),
+        buildScientificEvidence({ chemistry, intelligence: storedIntel }).catch(err => {
+          console.error("🔬 [sci] buildScientificEvidence threw:", err.message);
+          return null;
+        }),
         sciTimeout,
       ]);
       if (result === "timeout") {
         sciLoading = true;
-        console.warn("⚠️  Scientific evidence timed out on /report/:id");
+        console.warn("🔬 [sci] timed out after 10s — rendering without citations");
+      } else if (!result) {
+        console.warn("🔬 [sci] returned null — no evidence rendered");
       } else {
         scientificEvidence = result;
+        console.log(`🔬 [sci] ${result.totalArticles} articles in ${result.executionMs}ms — insufficient=${result.insufficient||false}`);
       }
+    } else {
+      console.log(`🔬 [sci] using stored evidence: ${scientificEvidence.totalArticles} articles`);
     }
 
     return res.send(renderReportHTML(row?.report_json || {}, { documentId: row.id, benchmark, strainIntel, scientificEvidence, sciLoading }));
