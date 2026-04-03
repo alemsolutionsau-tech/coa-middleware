@@ -109,13 +109,11 @@ const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
 
 app.use(cors({
   origin: (origin, cb) => {
-    // Allow server-side / same-origin requests (no Origin header)
+    // No Origin header = server-side / curl / same-origin — always allow
     if (!origin) return cb(null, true);
-    // If no allowlist configured, deny all cross-origin requests in production
-    if (ALLOWED_ORIGINS.length === 0) {
-      if (process.env.NODE_ENV === "production") return cb(new Error("CORS: no ALLOWED_ORIGINS configured"));
-      return cb(null, true); // open in dev
-    }
+    // No allowlist configured = allow all origins (upload is public, rate-limited)
+    if (ALLOWED_ORIGINS.length === 0) return cb(null, true);
+    // Allowlist configured = enforce it
     if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
     cb(new Error(`CORS: origin ${origin} not allowed`));
   },
