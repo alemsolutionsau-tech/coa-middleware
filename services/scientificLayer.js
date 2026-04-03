@@ -23,7 +23,7 @@
 
 const { searchAndFetch } = require("./pubmedClient");
 
-const TIMEOUT_MS = Number(process.env.SCIENTIFIC_LAYER_TIMEOUT_MS || 8000);
+const TIMEOUT_MS = Number(process.env.SCIENTIFIC_LAYER_TIMEOUT_MS || 22000);
 
 // ── Evidence quality detection ────────────────────────────────────────────
 // Inspects title keywords to assign a quality tier (higher = more reputable)
@@ -232,8 +232,7 @@ function trimSort(arts, n = 3) {
 async function buildScientificEvidence(coaData) {
   const start     = Date.now();
   const chemistry = coaData.chemistry || coaData;
-  const intel     = coaData.intelligence || {};
-  const strainIntel = intel.strainIntel || null;
+  const intel = coaData.intelligence || {};
 
   const thc = toNum(chemistry.thc_total);
   const cbd = toNum(chemistry.cbd_total);
@@ -244,37 +243,29 @@ async function buildScientificEvidence(coaData) {
   // Build all jobs
   const jobs = [];
 
-  // Priority 1 — Terpene queries (mechanism + clinical, 2-3 queries each)
-  for (const { col } of dominantTerps) {
+  // Priority 1 — Terpene queries (1 best query per terpene, top 3 terpenes max)
+  // Keeping to 1 query each to stay within the serial rate-limit budget
+  for (const { col } of dominantTerps.slice(0, 3)) {
     const profile = TERPENE_PROFILES[col];
     if (!profile) continue;
-    for (const q of profile.queries) {
-      jobs.push({ query: q, section: "terpene", col, therapeuticArea: profile.therapeuticAreas[0], hint: profile.label });
-    }
+    jobs.push({ query: profile.queries[0], section: "terpene", col, therapeuticArea: profile.therapeuticAreas[0], hint: profile.label });
   }
 
-  // Priority 2 — Cannabinoid ratio + entourage
-  for (const j of buildCannabinoidQueries(thc, cbd)) {
+  // Priority 2 — Cannabinoid ratio + entourage (2 queries)
+  const cannJobs = buildCannabinoidQueries(thc, cbd).slice(0, 2);
+  for (const j of cannJobs) {
     jobs.push({ query: j.query, section: "cannabinoid", therapeuticArea: "Cannabinoid Interactions", hint: j.hint });
   }
 
-  // Priority 3 — Effect archetype
+  // Priority 3 — Effect archetype (1 query)
   const archetype = intel.effectDirection || intel.lineageCluster || "";
   const archetypeMap = ARCHETYPE_THERAPEUTIC[archetype] || ARCHETYPE_THERAPEUTIC[archetype.toLowerCase()] || null;
   if (archetypeMap) {
     jobs.push({ query: archetypeMap.query, section: "archetype", therapeuticArea: archetypeMap.area, hint: archetype });
-    // Second clinical query for the same area
-    jobs.push({ query: archetypeMap.query + " meta-analysis", section: "archetype", therapeuticArea: archetypeMap.area, hint: `${archetype} (meta-analysis)` });
   }
 
-  // Priority 4 — Strain family
-  const match = strainIntel?.match;
-  if (match?.strain_name && match.similarity >= 70) {
-    jobs.push({ query: `${match.strain_name} cannabis terpene therapeutic`, section: "strain", therapeuticArea: "Strain Research", hint: match.strain_name });
-  }
-
-  // Priority 5 — Safety (always)
-  for (const j of SAFETY_QUERIES) {
+  // Priority 4 — Safety (2 most important queries)
+  for (const j of SAFETY_QUERIES.slice(0, 2)) {
     jobs.push({ query: j.query, section: "safety", therapeuticArea: "Safety & Tolerability", hint: j.hint });
   }
 

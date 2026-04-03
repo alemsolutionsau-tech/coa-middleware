@@ -77,7 +77,7 @@ async function _ncbiGet(endpoint, params) {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const res = await _enqueue(() =>
-        axios.get(url, { timeout: 8000, headers: { "User-Agent": USER_AGENT } })
+        axios.get(url, { timeout: 5000, headers: { "User-Agent": USER_AGENT } })
       );
       return res.data;
     } catch (err) {
