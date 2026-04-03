@@ -1516,6 +1516,8 @@ body { background:var(--alem-wash); font-family:'Nunito',sans-serif; font-size:1
 .bm-dn  { font-size:9px; font-weight:700; color:var(--gold); }
 .bm-footer { margin-top:12px; padding-top:10px; border-top:1px solid var(--border-l); display:flex; gap:20px; flex-wrap:wrap; font-size:9px; color:var(--t-faint); }
 .bm-footer strong { color:var(--t-mid); font-weight:600; }
+.bm-filter-tag { font-size:9px; color:var(--t-mid); background:var(--alem-tint); border-radius:4px; padding:5px 10px; margin-bottom:14px; }
+.bm-filter-tag strong { color:var(--alem-dark); font-weight:700; }
 /* ── Strain Intelligence ── */
 .si-sec { background:var(--white); border:1px solid var(--border-l); border-radius:8px; padding:18px 20px; margin-top:20px; }
 .si-header { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; }
@@ -1552,6 +1554,8 @@ body { background:var(--alem-wash); font-family:'Nunito',sans-serif; font-size:1
 .sci-masthead-right { text-align:right; flex-shrink:0; }
 .sci-masthead-count { font-family:'Space Mono',monospace; font-size:22px; font-weight:700; color:#fff; line-height:1; }
 .sci-masthead-count-label { font-size:8px; letter-spacing:1.5px; text-transform:uppercase; color:rgba(255,255,255,0.4); margin-top:2px; }
+.sci-plain-english { background:#f4f8fb; border:1px solid #dce8f0; border-top:none; padding:16px 20px; font-size:11px; color:var(--alem-dark); line-height:1.75; }
+.sci-pe-title { font-size:9px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:var(--t-mid); margin-bottom:10px; }
 .sci-body { border:1px solid #e0ddd6; border-top:none; border-radius:0 0 8px 8px; background:var(--white); overflow:hidden; }
 /* Accordion panels */
 .sci-panel { border-bottom:1px solid #f0ece6; }
@@ -1742,7 +1746,14 @@ details.sci-panel[open] .sci-panel-chevron { transform:rotate(90deg); }
     if (!benchmark) return "";
     const { n, formFactorLabel, thcPercentile, terpPercentile, medianThc, medianTerp, p90Thc, p90Terp, supplierCount } = benchmark;
     const thcVal  = parseFloat(chemistry.thc_total)      || 0;
+    const cbdVal  = parseFloat(chemistry.cbd_total)       || 0;
     const terpVal = parseFloat(chemistry.total_terpenes) || 0;
+
+    // Build human-readable product class for the comparison filter label
+    const thcTier  = thcVal >= 28 ? "Very High THC" : thcVal >= 22 ? "High THC" : thcVal >= 15 ? "Mid THC" : "Low THC";
+    const cbdTier  = cbdVal >= 5  ? "High CBD" : cbdVal >= 1 ? "CBD-Present" : "Low CBD";
+    const productClass = `${esc(formFactorLabel)}, ${thcTier}, ${cbdTier}`;
+
     function badge(pct) {
       const top = 100 - pct;
       const cls = top <= 20 ? "bm-badge-top" : top <= 50 ? "bm-badge-mid" : "bm-badge-low";
@@ -1788,8 +1799,9 @@ details.sci-panel[open] .sci-panel-chevron { transform:rotate(90deg); }
     return `<div class="bm-sec">
       <div class="bm-sec-head">
         <span class="bm-sec-title">Market Benchmark</span>
-        <span class="bm-sec-sub">${esc(formFactorLabel)} · ${n.toLocaleString()} COAs · last 2 years${supplierCount ? " · " + supplierCount.toLocaleString() + " suppliers" : ""}</span>
+        <span class="bm-sec-sub">Benchmarked against 600K+ COAs · last 2 years${supplierCount ? " · " + supplierCount.toLocaleString() + " suppliers" : ""}</span>
       </div>
+      <div class="bm-filter-tag">Comparing similar products only: <strong>${productClass}</strong> &nbsp;·&nbsp; ${n.toLocaleString()} matching COAs</div>
       <div class="bm-grid">${thcMetric}${terpMetric}</div>
       ${(p90Thc != null || p90Terp != null) ? `<div class="bm-footer">
         ${p90Thc  != null ? `<span>Top 10% THC threshold: <strong>${p90Thc}%</strong></span>` : ""}
@@ -1871,6 +1883,38 @@ details.sci-panel[open] .sci-panel-chevron { transform:rotate(90deg); }
     ];
     const highQuality = allArts.filter(a => (a.quality?.tier||0) >= 3).length;
 
+    // ── Plain-English summary ─────────────────────────────────────────────
+    const activeTerpGroups = terpeneStudies.filter(g => g.articles.length > 0);
+    const terpNames  = activeTerpGroups.map(g => g.terpene).join(", ");
+    const allAreas   = [...new Set(activeTerpGroups.flatMap(g => g.therapeuticAreas || []))].slice(0, 4);
+    const areasText  = allAreas.length
+      ? allAreas.slice(0, -1).join(", ") + (allAreas.length > 1 ? " and " + allAreas[allAreas.length - 1] : allAreas[0])
+      : "multiple therapeutic areas";
+
+    const thcNum = parseFloat(chemistry.thc_total) || 0;
+    const cbdNum = parseFloat(chemistry.cbd_total)  || 0;
+    let cannabSummary;
+    if (cbdNum >= 5) {
+      cannabSummary = `The high CBD content (${cbdNum}%) may moderate psychoactive effects and independently contributes analgesic and anti-inflammatory activity, as supported by cannabinoid interaction studies below.`;
+    } else if (cbdNum >= 1) {
+      cannabSummary = `The THC:CBD ratio of approximately ${(thcNum / cbdNum).toFixed(0)}:1 suggests a balanced profile where CBD may soften the intensity of THC while extending the therapeutic window (see Entourage Effect research below).`;
+    } else {
+      cannabSummary = `At ${thcNum}% THC with minimal CBD, the effects are largely driven by THC and the terpene matrix — the combination of these compounds is studied as the "entourage effect."`;
+    }
+
+    let terpSummary = "";
+    if (activeTerpGroups.length > 0) {
+      const mechNotes = activeTerpGroups.filter(g => g.mechanismNote).map(g => `<strong>${g.terpene}</strong> — ${g.mechanismNote}`).join(" ");
+      terpSummary = `<p style="margin:0 0 8px;">The dominant terpenes in this profile — <strong>${terpNames}</strong> — have been independently studied for their roles in <strong>${areasText}</strong>. ${mechNotes}</p>`;
+    }
+
+    const plainEnglish = `
+    <div class="sci-plain-english">
+      <div class="sci-pe-title">What the research says about this product</div>
+      ${terpSummary}
+      <p style="margin:0">${cannabSummary} The ${totalArticles} studies below are automatically matched to this specific chemical fingerprint — expand each section to read the full citations.</p>
+    </div>`;
+
     return `
     <div class="sci-wrap">
       <div class="sci-masthead">
@@ -1883,6 +1927,7 @@ details.sci-panel[open] .sci-panel-chevron { transform:rotate(90deg); }
           <div class="sci-masthead-count-label">citations${highQuality > 0 ? `\n${highQuality} clinical/review` : ""}</div>
         </div>
       </div>
+      ${plainEnglish}
       <div class="sci-body">
         ${allPanels}
         <div class="sci-disclaimer">Evidence summaries are provided for informational purposes only and do not constitute medical advice. Citations are automatically retrieved and matched based on chemical profile similarity. Study quality indicators (Meta-Analysis, Systematic Review, Clinical Trial, Preclinical) are inferred from publication titles. Always consult current clinical guidelines and a qualified healthcare professional.</div>
