@@ -1,19 +1,21 @@
 require("dotenv").config();
 
-const renderReportHTMLV7  = require('./renderReportHTML');
 const renderReportPDFDoc  = require('./renderReportPDF');
 const { fetchBenchmark }        = require('./bqBenchmark');
 const { fetchStrainIntelligence }  = require('./strainIntelligence');
 const { buildScientificEvidence }  = require('./services/scientificLayer');
 
-const path = require("path");
+const crypto  = require("crypto");
+const path    = require("path");
 const express = require("express");
-const cors = require("cors");
+const cors    = require("cors");
+const helmet  = require("helmet");
 const rateLimit = require("express-rate-limit");
-const multer = require("multer");
+const multer  = require("multer");
 const puppeteer = require("puppeteer");
-const axios = require("axios");
-const OpenAI = require("openai");
+const axios   = require("axios");
+const { z }   = require("zod");
+const OpenAI  = require("openai");
 const {
   DocumentAnalysisClient,
   AzureKeyCredential,
@@ -23,6 +25,67 @@ const supabase = require("./supabase");
 
 const app = express();
 app.set("trust proxy", 1); // Render.com sits behind a proxy — needed for rate-limit IP detection
+
+// ── Security headers ──────────────────────────────────────────────────────
+// Reports use inline <style> and <script> (template renderer), so unsafe-inline
+// is required for those directives. Everything else is locked down.
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc:  ["'self'"],
+      scriptSrc:   ["'self'", "'unsafe-inline'"],   // inline showTab() in report HTML
+      styleSrc:    ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc:     ["'self'", "https://fonts.gstatic.com", "data:"],
+      imgSrc:      ["'self'", "data:", "https:"],
+      connectSrc:  ["'self'"],
+      frameSrc:    ["'none'"],
+      frameAncestors: ["'none'"],
+      objectSrc:   ["'none'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false, // required for Google Fonts to load
+}));
+
+// ── Report access token (HMAC-signed, deterministic per report ID) ─────────
+// Set REPORT_SECRET in env (any long random string).
+// Set REPORT_AUTH_REQUIRED=true to enforce tokens on /report and /pdf routes.
+// Existing shareable links without tokens will get a 401 once enabled.
+const REPORT_SECRET       = process.env.REPORT_SECRET || "alem-report-change-this-secret";
+const REPORT_AUTH_ENABLED = process.env.REPORT_AUTH_REQUIRED === "true";
+
+function generateReportToken(id) {
+  return crypto.createHmac("sha256", REPORT_SECRET).update(id).digest("hex").slice(0, 32);
+}
+
+function validateReportToken(id, token) {
+  if (!token) return false;
+  const expected = generateReportToken(id);
+  // Use timingSafeEqual to prevent timing attacks
+  try {
+    return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected));
+  } catch {
+    return false;
+  }
+}
+
+// ── UUID format guard ─────────────────────────────────────────────────────
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isValidUUID(v) { return UUID_RE.test(String(v || "")); }
+
+// ── Zod schemas for API input validation ──────────────────────────────────
+const UploadQuerySchema = z.object({
+  dry_run: z.enum(["true", "false"]).optional(),
+}).passthrough();
+
+// ── requireReportToken middleware ─────────────────────────────────────────
+function requireReportToken(req, res, next) {
+  if (!REPORT_AUTH_ENABLED) return next();
+  const token = req.query.t || req.headers["x-report-token"];
+  if (!validateReportToken(req.params.id, token)) {
+    return res.status(401).json({ error: "Invalid or missing report token.", code: "INVALID_REPORT_TOKEN", status: 401 });
+  }
+  next();
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -46,9 +109,14 @@ const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
 
 app.use(cors({
   origin: (origin, cb) => {
-    // Allow same-origin / server-side requests (no Origin header)
+    // Allow server-side / same-origin requests (no Origin header)
     if (!origin) return cb(null, true);
-    if (ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    // If no allowlist configured, deny all cross-origin requests in production
+    if (ALLOWED_ORIGINS.length === 0) {
+      if (process.env.NODE_ENV === "production") return cb(new Error("CORS: no ALLOWED_ORIGINS configured"));
+      return cb(null, true); // open in dev
+    }
+    if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
     cb(new Error(`CORS: origin ${origin} not allowed`));
   },
 }));
@@ -63,10 +131,16 @@ const uploadLimiter = rateLimit({
 
 function requireApiKey(req, res, next) {
   const apiKey = process.env.UPLOAD_API_KEY;
-  if (!apiKey) return next(); // no key configured → open (dev mode)
+  // Fail closed: if UPLOAD_API_KEY is not set in prod, block all uploads.
+  if (!apiKey) {
+    if (process.env.NODE_ENV === "production") {
+      return res.status(503).json({ error: "Upload endpoint not configured.", code: "UPLOAD_NOT_CONFIGURED", status: 503 });
+    }
+    return next(); // open only in dev
+  }
   const provided = req.headers["x-api-key"] || req.query.api_key;
   if (provided !== apiKey) {
-    return res.status(401).json({ success: false, error: "Invalid or missing API key." });
+    return res.status(401).json({ error: "Invalid or missing API key.", code: "INVALID_API_KEY", status: 401 });
   }
   next();
 }
@@ -965,11 +1039,52 @@ async function uploadBufferToSupabase({ buffer, originalName, mimeType, folder =
   return { storagePath, publicUrl: publicData.publicUrl };
 }
 
+async function findDuplicateCOA(chemistry) {
+  // 3-key deduplication rule: batch_number + laboratory_name + coa_report_date
+  // Only check when all three keys are present and non-empty
+  const batch = chemistry.batch_number?.trim();
+  const lab   = chemistry.laboratory_name?.trim();
+  const date  = chemistry.coa_report_date?.trim();
+  if (!batch || !lab || !date) return null;
+
+  const { data } = await supabase
+    .from("coa_ai_reports")
+    .select("id, created_at")
+    .filter("report_json->>chemistry", "neq", "null")
+    .limit(200); // scan recent rows — full JSON filter not supported in PostgREST
+
+  if (!data) return null;
+  // Filter in JS since PostgREST can't deep-filter JSONB sub-keys easily
+  return data.find(row => {
+    const c = row.report_json?.chemistry || {};
+    return c.batch_number?.trim() === batch &&
+           c.laboratory_name?.trim() === lab &&
+           c.coa_report_date?.trim() === date;
+  }) || null;
+}
+
 async function insertCOAReport({ chemistry, contaminants, scoring, intelligence, sourceUrl, storagePath, originalFilename, mimeType }) {
+  // Deduplication: warn on duplicate, still insert (don't silently drop data)
+  const existing = await findDuplicateCOA(chemistry).catch(() => null);
+  if (existing) {
+    console.warn(`⚠️  [dedup] Duplicate COA detected — existing id=${existing.id} (batch=${chemistry.batch_number}, lab=${chemistry.laboratory_name}, date=${chemistry.coa_report_date}). Inserting new record.`);
+  }
+
   const payload = {
-    report_json: { chemistry, contaminants, scoring, intelligence, _meta: { source_url: sourceUrl || "", storage_path: storagePath || "", original_filename: originalFilename || "", mime_type: mimeType || "", saved_at: new Date().toISOString(), schema_version: "6.0" } },
-    overall_score: scoring.total, report_confidence_score: (scoring.breakdown?.dataCompleteness?.score) ?? 0,
-    chemotype_identity: intelligence.fingerprintId, chemotype_descriptor: intelligence.effectDirection, fingerprint_id: intelligence.fingerprintId,
+    report_json: {
+      chemistry, contaminants, scoring, intelligence,
+      _meta: {
+        source_url: sourceUrl || "", storage_path: storagePath || "",
+        original_filename: originalFilename || "", mime_type: mimeType || "",
+        saved_at: new Date().toISOString(), schema_version: "6.0",
+        duplicate_of: existing?.id || null,
+      },
+    },
+    overall_score: scoring.total,
+    report_confidence_score: (scoring.breakdown?.dataCompleteness?.score) ?? 0,
+    chemotype_identity: intelligence.fingerprintId,
+    chemotype_descriptor: intelligence.effectDirection,
+    fingerprint_id: intelligence.fingerprintId,
   };
   const { data, error } = await supabase.from("coa_ai_reports").insert([payload]).select().single();
   if (error) throw new Error(`Supabase insert failed: ${error.message}`);
@@ -2360,12 +2475,50 @@ function showTab(id, btn) {
 // EXPRESS ROUTES
 // ─────────────────────────────────────────────
 
-app.get("/", (req, res) => {
+app.get("/", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-app.get("/health", async (req, res) => {
-  return res.json({ success: true, message: "Alem v6 running", schema: "6.0" });
+app.get("/health", async (_req, res) => {
+  const checks = {};
+
+  // Supabase connectivity
+  try {
+    const { error } = await supabase.from("coa_ai_reports").select("id").limit(1);
+    checks.supabase = error ? { ok: false, error: error.message } : { ok: true };
+  } catch (e) {
+    checks.supabase = { ok: false, error: e.message };
+  }
+
+  // BigQuery credentials present
+  checks.bigquery = process.env.BQ_CREDENTIALS_JSON
+    ? { ok: true, note: "credentials env set" }
+    : { ok: false, error: "BQ_CREDENTIALS_JSON not set" };
+
+  // Azure credentials present
+  checks.azure = (process.env.AZURE_DOC_INTELLIGENCE_ENDPOINT && process.env.AZURE_DOC_INTELLIGENCE_KEY)
+    ? { ok: true }
+    : { ok: false, error: "Azure env vars missing" };
+
+  // OpenAI credentials present
+  checks.openai = process.env.OPENAI_API_KEY
+    ? { ok: true }
+    : { ok: false, error: "OPENAI_API_KEY not set" };
+
+  // Report auth configuration
+  checks.report_auth = {
+    ok: true,
+    enabled: REPORT_AUTH_ENABLED,
+    secret_set: process.env.REPORT_SECRET ? true : false,
+  };
+
+  const allOk = Object.values(checks).every(c => c.ok);
+  return res.status(allOk ? 200 : 503).json({
+    ok: allOk,
+    version: "6.0",
+    ts: new Date().toISOString(),
+    checks,
+  });
 });
 
 // ─────────────────────────────────────────────
@@ -2374,9 +2527,13 @@ app.get("/health", async (req, res) => {
 
 app.post("/upload-coa-multi", requireApiKey, uploadLimiter, upload.array("files", 10), async (req, res) => {
   try {
+    // Validate query params
+    const qParse = UploadQuerySchema.safeParse(req.query);
+    if (!qParse.success) return res.status(400).json({ error: qParse.error.message, code: "INVALID_PARAMS", status: 400 });
+
     console.log(`📥 Multi-file COA upload: ${(req.files || []).length} file(s)`);
     if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ success: false, error: "No files uploaded" });
+      return res.status(400).json({ error: "No files uploaded.", code: "NO_FILES", status: 400 });
     }
 
     // Upload to Supabase for storage, but OCR from buffer directly
@@ -2459,21 +2616,22 @@ app.post("/upload-coa-multi", requireApiKey, uploadLimiter, upload.array("files"
 
     const proto = req.headers["x-forwarded-proto"] || req.protocol || "https";
     const base  = `${proto}://${req.get("host")}`;
+    const token = generateReportToken(insertedRow.id);
 
     return res.json({
-      success:      true,
-      id:           insertedRow.id,
-      score:        scoring.total,
-      grade:        scoring.grade,
-      tier:         scoring.tier,
-      fingerprint_id: fingerprintId,
+      success:         true,
+      id:              insertedRow.id,
+      score:           scoring.total,
+      grade:           scoring.grade,
+      tier:            scoring.tier,
+      fingerprint_id:  fingerprintId,
       files_processed: req.files.length,
-      report_url:   `${base}/report/${insertedRow.id}`,
-      pdf_url:      `${base}/pdf/${insertedRow.id}`,
+      report_token:    token,
+      report_url:      `${base}/report/${insertedRow.id}?t=${token}`,
+      pdf_url:         `${base}/pdf/${insertedRow.id}?t=${token}`,
     });
   } catch (error) {
     console.error("❌ Multi-upload pipeline error:", error.message);
-    // Clean up any files already uploaded to Supabase before the failure
     if (uploadResults && uploadResults.length > 0) {
       const paths = uploadResults.map(r => r.storagePath).filter(Boolean);
       if (paths.length > 0) {
@@ -2482,14 +2640,17 @@ app.post("/upload-coa-multi", requireApiKey, uploadLimiter, upload.array("files"
         );
       }
     }
-    return res.status(500).json({ success: false, error: error.message || "Upload pipeline failed" });
+    return res.status(500).json({ error: error.message || "Upload pipeline failed.", code: "PIPELINE_ERROR", status: 500 });
   }
 });
 
 app.post("/upload-coa", requireApiKey, uploadLimiter, upload.single("file"), async (req, res) => {
   try {
+    const qParse = UploadQuerySchema.safeParse(req.query);
+    if (!qParse.success) return res.status(400).json({ error: qParse.error.message, code: "INVALID_PARAMS", status: 400 });
+
     console.log("📥 COA upload received");
-    if (!req.file) return res.status(400).json({ success: false, error: "No file uploaded" });
+    if (!req.file) return res.status(400).json({ error: "No file uploaded.", code: "NO_FILE", status: 400 });
 
     const originalFilename = req.file.originalname || `upload-${Date.now()}.pdf`;
     const mimeType = req.file.mimetype || "application/octet-stream";
@@ -2497,7 +2658,6 @@ app.post("/upload-coa", requireApiKey, uploadLimiter, upload.single("file"), asy
     const { publicUrl, storagePath } = await uploadBufferToSupabase({ buffer: req.file.buffer, originalName: originalFilename, mimeType, folder: "raw_documents" });
     console.log("☁️  Stored:", storagePath);
 
-    // Send buffer DIRECTLY to Azure — avoids partial reads from URL fetching
     console.log("🔍 Azure OCR (direct buffer)...");
     const extracted = await extractDocumentFromBuffer(req.file.buffer, mimeType);
     console.log(`✅ OCR: ${extracted.plain_text.length} chars, ${extracted.page_count} pages`);
@@ -2509,29 +2669,36 @@ app.post("/upload-coa", requireApiKey, uploadLimiter, upload.single("file"), asy
     console.log(`✅ Score: ${scoring.total}/100 (${scoring.grade})`);
 
     const fingerprintId = generateFingerprintId(chemistry.top_terpenes);
-    const leadTerpene = chemistry.top_terpenes?.[0]?.name || "";
-    const terpIntel = getTerpeneIntel(leadTerpene);
-    const audiences = buildAudienceNarratives(chemistry, contaminants, scoring);
-    const postHarvest = buildPostHarvestIntel(chemistry, contaminants);
-
-    const intelligence = { fingerprintId, effectDirection: terpIntel.direction, lineageCluster: terpIntel.lineage, lineageConfidence: terpIntel.lineageConfidence, audiences, postHarvest };
+    const leadTerpene   = chemistry.top_terpenes?.[0]?.name || "";
+    const terpIntel     = getTerpeneIntel(leadTerpene);
+    const audiences     = buildAudienceNarratives(chemistry, contaminants, scoring);
+    const postHarvest   = buildPostHarvestIntel(chemistry, contaminants);
+    const intelligence  = { fingerprintId, effectDirection: terpIntel.direction, lineageCluster: terpIntel.lineage, lineageConfidence: terpIntel.lineageConfidence, audiences, postHarvest };
     console.log(`✅ Intelligence: fingerprint=${fingerprintId}, direction=${terpIntel.direction}`);
 
     const insertedRow = await insertCOAReport({ chemistry, contaminants, scoring, intelligence, sourceUrl: publicUrl, storagePath, originalFilename, mimeType: extracted.mimeType || mimeType });
     console.log(`✅ Stored report ID: ${insertedRow.id}`);
 
     const proto = req.headers["x-forwarded-proto"] || req.protocol || "https";
-    const base = `${proto}://${req.get("host")}`;
+    const base  = `${proto}://${req.get("host")}`;
+    const token = generateReportToken(insertedRow.id);
 
-    return res.json({ success: true, id: insertedRow.id, score: scoring.total, grade: scoring.grade, tier: scoring.tier, fingerprint_id: fingerprintId, report_url: `${base}/report/${insertedRow.id}`, pdf_url: `${base}/pdf/${insertedRow.id}` });
+    return res.json({
+      success: true, id: insertedRow.id, score: scoring.total, grade: scoring.grade,
+      tier: scoring.tier, fingerprint_id: fingerprintId,
+      report_token: token,
+      report_url: `${base}/report/${insertedRow.id}?t=${token}`,
+      pdf_url:    `${base}/pdf/${insertedRow.id}?t=${token}`,
+    });
   } catch (error) {
     console.error("❌ Upload pipeline error:", error.message);
-    return res.status(500).json({ success: false, error: error.message || "Upload pipeline failed" });
+    return res.status(500).json({ error: error.message || "Upload pipeline failed.", code: "PIPELINE_ERROR", status: 500 });
   }
 });
 
-app.get("/report/:id", async (req, res) => {
+app.get("/report/:id", requireReportToken, async (req, res) => {
   try {
+    if (!isValidUUID(req.params.id)) return res.status(404).send("Not found.");
     const row = await getReportById(req.params.id);
     if (!row) throw new Error("Row not found");
     const chemistry   = row.report_json?.chemistry || {};
@@ -2547,7 +2714,10 @@ app.get("/report/:id", async (req, res) => {
     console.log(`🌿 [strain] result: ${strainIntel ? `match=${strainIntel.match?.strain_name} ${strainIntel.match?.similarity}% totalStrains=${strainIntel.totalStrains}` : "null"}`);
     console.log(`🧪 [chemistry] product_type="${chemistry.product_type}" thc_total="${chemistry.thc_total}" total_terpenes="${chemistry.total_terpenes}" top_terpenes_count=${(chemistry.top_terpenes||[]).length}`);
 
-    // Scientific evidence: use stored copy, or fetch with 10s timeout
+    // ── strainIntel writeback: if freshly fetched, persist it so next load is instant ──
+    const needsStrainWriteback = strainIntel && !storedIntel.strainIntel;
+
+    // Scientific evidence: use stored copy, or fetch with 25s timeout
     let scientificEvidence = storedIntel.scientificEvidence || null;
     let sciLoading = false;
     if (!scientificEvidence) {
@@ -2556,7 +2726,7 @@ app.get("/report/:id", async (req, res) => {
       console.log(`🔬 [sci] report ${req.params.id} — totalTerps=${totalTerps} topTerps=${topTerps} thc=${chemistry.thc_total}`);
       const sciTimeout = new Promise(r => setTimeout(() => r("timeout"), 25_000));
       const result = await Promise.race([
-        buildScientificEvidence({ chemistry, intelligence: storedIntel }).catch(err => {
+        buildScientificEvidence({ chemistry, intelligence: { ...storedIntel, strainIntel } }).catch(err => {
           console.error("🔬 [sci] buildScientificEvidence threw:", err.message);
           return null;
         }),
@@ -2564,7 +2734,7 @@ app.get("/report/:id", async (req, res) => {
       ]);
       if (result === "timeout") {
         sciLoading = true;
-        console.warn("🔬 [sci] timed out after 10s — rendering without citations");
+        console.warn("🔬 [sci] timed out after 25s — rendering without citations");
       } else if (!result) {
         console.warn("🔬 [sci] returned null — no evidence rendered");
       } else {
@@ -2573,6 +2743,22 @@ app.get("/report/:id", async (req, res) => {
       }
     } else {
       console.log(`🔬 [sci] using stored evidence: ${scientificEvidence.totalArticles} articles`);
+    }
+
+    // ── Writeback: persist freshly fetched intelligence into report_json ──────
+    // Fire-and-forget — never delays the response
+    const needsSciWriteback = scientificEvidence && !storedIntel.scientificEvidence;
+    if (needsStrainWriteback || needsSciWriteback) {
+      const updatedIntel = {
+        ...storedIntel,
+        ...(needsStrainWriteback ? { strainIntel } : {}),
+        ...(needsSciWriteback    ? { scientificEvidence } : {}),
+      };
+      supabase.from("coa_ai_reports")
+        .update({ report_json: { ...row.report_json, intelligence: updatedIntel } })
+        .eq("id", row.id)
+        .then(() => console.log(`💾 [writeback] strainIntel=${needsStrainWriteback} sci=${needsSciWriteback}`))
+        .catch(e  => console.warn("⚠️  [writeback] failed:", e.message));
     }
 
     return res.send(renderReportHTML(row?.report_json || {}, { documentId: row.id, benchmark, strainIntel, scientificEvidence, sciLoading }));
@@ -2610,9 +2796,10 @@ app.get("/report/:id", async (req, res) => {
   }
 });
 
-app.get("/pdf/:id", async (req, res) => {
+app.get("/pdf/:id", requireReportToken, async (req, res) => {
   let browser;
   try {
+    if (!isValidUUID(req.params.id)) return res.status(404).json({ error: "Not found.", code: "NOT_FOUND", status: 404 });
     const row = await getReportById(req.params.id);
     const benchmark = await fetchBenchmark(row?.report_json?.chemistry || {}).catch(() => null);
     const html = renderReportPDFDoc(row?.report_json || {}, { documentId: row.id, benchmark });
@@ -2628,7 +2815,7 @@ app.get("/pdf/:id", async (req, res) => {
     return res.send(pdfBuffer);
   } catch (error) {
     console.error("ERROR /pdf/:id", error.message);
-    return res.status(500).json({ success: false, error: error.message });
+    return res.status(500).json({ error: error.message, code: "PDF_ERROR", status: 500 });
   } finally {
     if (browser) { try { await browser.close(); } catch (_) {} }
   }
@@ -2638,27 +2825,27 @@ app.get("/pdf/:id", async (req, res) => {
 // CATCH-ALL 404 + GLOBAL ERROR MIDDLEWARE
 // ─────────────────────────────────────────────
 
-app.use((req, res) => {
-  res.status(404).json({ success: false, error: "Route not found" });
+app.use((_req, res) => {
+  res.status(404).json({ error: "Route not found.", code: "NOT_FOUND", status: 404 });
 });
 
-// eslint-disable-next-line no-unused-vars
-app.use((err, req, res, next) => {
+// Express requires all 4 params to recognise this as an error handler
+app.use((err, _req, res, _next) => {
   console.error("❌ Express error middleware:", err.message);
   if (err.type === "entity.too.large") {
-    return res.status(413).json({ success: false, error: "File too large. Maximum size is 20MB." });
+    return res.status(413).json({ error: "File too large. Maximum size is 20MB.", code: "FILE_TOO_LARGE", status: 413 });
   }
   if (err.message && err.message.includes("Only PDF")) {
-    return res.status(415).json({ success: false, error: err.message });
+    return res.status(415).json({ error: err.message, code: "UNSUPPORTED_MEDIA_TYPE", status: 415 });
   }
-  return res.status(500).json({ success: false, error: err.message || "Internal server error" });
+  return res.status(500).json({ error: err.message || "Internal server error.", code: "INTERNAL_ERROR", status: 500 });
 });
 
 // ─────────────────────────────────────────────
 // GLOBAL ERROR SAFETY NET
 // ─────────────────────────────────────────────
 
-process.on("unhandledRejection", (reason, promise) => {
+process.on("unhandledRejection", (reason) => {
   console.error("⚠️  Unhandled Promise Rejection:", reason?.message || reason);
   // Do NOT exit — keep the server alive for other requests
 });
