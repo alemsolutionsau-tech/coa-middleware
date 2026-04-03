@@ -1491,33 +1491,50 @@ body { background:var(--alem-wash); font-family:'Nunito',sans-serif; font-size:1
 .rbtn-s:hover { border-color:var(--alem-accent); color:var(--alem-dark); }
 .page-foot { margin-top:20px; font-size:8px; font-weight:500; letter-spacing:2px; text-transform:uppercase; color:var(--t-faint); text-align:center; animation:rise .55s ease .35s both; }
 .page-foot a { color:var(--alem-mid); text-decoration:none; }
-/* ── Market Benchmark ── */
-.bm-sec { background:var(--white); border:1px solid var(--border-l); border-radius:8px; padding:18px 20px; margin-top:20px; }
-.bm-sec-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; }
-.bm-sec-title { font-size:9px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--alem-dark); }
-.bm-sec-sub { font-size:9px; color:var(--t-faint); }
-.bm-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px 28px; }
-.bm-metric { display:flex; flex-direction:column; gap:6px; }
-.bm-lbl { font-size:9px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--t-light); }
-.bm-track-row { display:flex; align-items:center; gap:8px; }
-.bm-track { flex:1; height:7px; background:var(--border-l); border-radius:4px; overflow:hidden; }
-.bm-fill { height:100%; border-radius:4px; background:var(--alem-accent); }
-.bm-fill-mid  { background:var(--gold); }
-.bm-fill-low  { background:var(--t-faint); }
-.bm-badge { font-size:9px; font-weight:700; padding:2px 7px; border-radius:20px; white-space:nowrap; }
-.bm-badge-top { background:#e0f4ec; color:#1a6645; }
-.bm-badge-mid { background:#fdf3de; color:var(--gold); }
-.bm-badge-low { background:var(--alem-tint); color:var(--t-mid); }
-.bm-compare { display:flex; align-items:baseline; gap:5px; flex-wrap:wrap; }
-.bm-val { font-size:16px; font-weight:700; color:var(--alem-dark); font-family:'Space Mono',monospace; }
-.bm-vs  { font-size:9px; color:var(--t-faint); }
-.bm-med { font-size:10px; color:var(--t-mid); }
-.bm-up  { font-size:9px; font-weight:700; color:#1a6645; }
-.bm-dn  { font-size:9px; font-weight:700; color:var(--gold); }
-.bm-footer { margin-top:12px; padding-top:10px; border-top:1px solid var(--border-l); display:flex; gap:20px; flex-wrap:wrap; font-size:9px; color:var(--t-faint); }
-.bm-footer strong { color:var(--t-mid); font-weight:600; }
-.bm-filter-tag { font-size:9px; color:var(--t-mid); background:var(--alem-tint); border-radius:4px; padding:5px 10px; margin-bottom:14px; }
-.bm-filter-tag strong { color:var(--alem-dark); font-weight:700; }
+/* ── Market Intelligence (Benchmark) ── */
+.bm-wrap { margin-top:20px; border-radius:8px; overflow:hidden; border:1px solid #c8dce8; }
+.bm-head { background:linear-gradient(135deg,#0d2d3e 0%,#14425e 100%); padding:14px 20px; display:flex; justify-content:space-between; align-items:flex-start; }
+.bm-head-left {}
+.bm-head-title { font-size:9px; font-weight:700; letter-spacing:3px; text-transform:uppercase; color:#8ecfb0; }
+.bm-head-sub { font-size:10px; color:rgba(255,255,255,0.5); margin-top:2px; }
+.bm-head-right { text-align:right; flex-shrink:0; }
+.bm-head-lib { font-family:'Space Mono',monospace; font-size:16px; font-weight:700; color:#fff; line-height:1; }
+.bm-head-lib-label { font-size:8px; letter-spacing:1.5px; text-transform:uppercase; color:rgba(255,255,255,0.4); margin-top:2px; }
+.bm-filter-strip { background:#f0f6fa; border-bottom:1px solid #dce8f0; padding:7px 20px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.bm-filter-label { font-size:8px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:var(--t-faint); }
+.bm-filter-pill { font-size:9px; font-weight:700; background:#0d2d3e; color:#fff; border-radius:20px; padding:2px 9px; }
+.bm-filter-count { font-size:9px; color:var(--t-mid); margin-left:auto; }
+.bm-stats { display:grid; grid-template-columns:1fr 1fr; background:#fff; }
+.bm-stat { padding:16px 20px; }
+.bm-stat + .bm-stat { border-left:1px solid var(--border-l); }
+.bm-stat-lbl { font-size:8px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:var(--t-faint); margin-bottom:6px; }
+.bm-stat-num { font-family:'Space Mono',monospace; font-size:22px; font-weight:700; color:var(--alem-dark); line-height:1; }
+.bm-stat-num-unit { font-size:11px; font-weight:400; }
+.bm-track-row { display:flex; align-items:center; gap:8px; margin:8px 0; }
+.bm-track { flex:1; height:6px; background:#eef3f6; border-radius:4px; overflow:hidden; }
+.bm-fill { height:100%; border-radius:4px; background:#2a8a60; }
+.bm-fill-mid { background:var(--gold); }
+.bm-fill-low { background:#c8d8e4; }
+.bm-rank-pill { font-size:9px; font-weight:700; padding:2px 8px; border-radius:20px; white-space:nowrap; }
+.bm-rank-top { background:#e0f4ec; color:#1a6645; }
+.bm-rank-mid { background:#fdf3de; color:#8a6100; }
+.bm-rank-low { background:#f0f4f6; color:var(--t-mid); }
+.bm-stat-vs { font-size:9px; color:var(--t-faint); display:flex; align-items:baseline; gap:4px; flex-wrap:wrap; }
+.bm-stat-med { font-weight:600; color:var(--t-mid); }
+.bm-stat-up { color:#1a6645; font-weight:700; }
+.bm-stat-dn { color:#8a6100; font-weight:700; }
+.bm-diff-head { padding:12px 20px 6px; background:#fafaf8; border-top:1px solid var(--border-l); display:flex; align-items:center; gap:8px; }
+.bm-diff-head-title { font-size:8px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--t-faint); }
+.bm-diff-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(155px,1fr)); gap:0; background:#fafaf8; }
+.bm-diff-card { padding:12px 16px 14px; border-top:1px solid var(--border-l); border-right:1px solid var(--border-l); }
+.bm-diff-card:last-child { border-right:none; }
+.bm-diff-icon { font-size:15px; margin-bottom:5px; }
+.bm-diff-name { font-size:10px; font-weight:700; color:var(--alem-dark); margin-bottom:2px; }
+.bm-diff-badge { display:inline-block; font-size:8px; font-weight:700; padding:1px 6px; border-radius:10px; margin-bottom:4px; }
+.bm-diff-note { font-size:9px; color:var(--t-mid); line-height:1.5; }
+.bm-diff-empty { padding:14px 20px; font-size:10px; color:var(--t-faint); font-style:italic; background:#fafaf8; border-top:1px solid var(--border-l); }
+.bm-thresholds { background:#fff; border-top:1px solid var(--border-l); padding:10px 20px; display:flex; gap:20px; flex-wrap:wrap; font-size:9px; color:var(--t-faint); }
+.bm-thresholds strong { color:var(--t-mid); }
 /* ── Strain Intelligence ── */
 .si-sec { background:var(--white); border:1px solid var(--border-l); border-radius:8px; padding:18px 20px; margin-top:20px; }
 .si-header { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; }
@@ -1748,64 +1765,163 @@ details.sci-panel[open] .sci-panel-chevron { transform:rotate(90deg); }
     const thcVal  = parseFloat(chemistry.thc_total)      || 0;
     const cbdVal  = parseFloat(chemistry.cbd_total)       || 0;
     const terpVal = parseFloat(chemistry.total_terpenes) || 0;
+    const thcTier = thcVal >= 28 ? "Very High THC" : thcVal >= 22 ? "High THC" : thcVal >= 15 ? "Mid THC" : "Low THC";
+    const cbdTier = cbdVal >= 5  ? "High CBD" : cbdVal >= 1 ? "CBD-Present" : "Low CBD";
 
-    // Build human-readable product class for the comparison filter label
-    const thcTier  = thcVal >= 28 ? "Very High THC" : thcVal >= 22 ? "High THC" : thcVal >= 15 ? "Mid THC" : "Low THC";
-    const cbdTier  = cbdVal >= 5  ? "High CBD" : cbdVal >= 1 ? "CBD-Present" : "Low CBD";
-    const productClass = `${esc(formFactorLabel)}, ${thcTier}, ${cbdTier}`;
-
-    function badge(pct) {
-      const top = 100 - pct;
-      const cls = top <= 20 ? "bm-badge-top" : top <= 50 ? "bm-badge-mid" : "bm-badge-low";
-      return `<span class="bm-badge ${cls}">Top ${top}%</span>`;
+    // ── Percentile helpers ────────────────────────────────────────────────
+    function rankPill(pct) {
+      const top = Math.max(1, 100 - pct);
+      const cls = top <= 20 ? "bm-rank-top" : top <= 50 ? "bm-rank-mid" : "bm-rank-low";
+      return `<span class="bm-rank-pill ${cls}">Top ${top}%</span>`;
     }
     function fillCls(pct) {
       const top = 100 - pct;
       return top <= 20 ? "" : top <= 50 ? "bm-fill-mid" : "bm-fill-low";
     }
-    function delta(actual, median) {
+    function deltaHtml(actual, median) {
       if (!median || !actual) return "";
       const d = ((actual - median) / median * 100).toFixed(1);
-      if (d > 0) return `<span class="bm-up">+${d}% above median</span>`;
-      if (d < 0) return `<span class="bm-dn">${d}% below median</span>`;
+      if (d > 0) return `<span class="bm-stat-up">↑${d}% vs median</span>`;
+      if (d < 0) return `<span class="bm-stat-dn">↓${Math.abs(d)}% vs median</span>`;
       return "";
     }
-    const thcMetric = `<div class="bm-metric">
-      <div class="bm-lbl">THC Potency Rank</div>
-      <div class="bm-track-row">
-        <div class="bm-track"><div class="bm-fill ${fillCls(thcPercentile)}" style="width:${thcPercentile}%"></div></div>
-        ${badge(thcPercentile)}
+
+    // ── Rare terpene detection ────────────────────────────────────────────
+    const RARE_TERPS = {
+      "alpha-bisabolol":{"label":"α-Bisabolol","note":"Anti-inflammatory & skin-penetrating — found in <15% of COAs"},
+      "bisabolol":      {"label":"α-Bisabolol","note":"Anti-inflammatory & skin-penetrating — found in <15% of COAs"},
+      "terpinolene":    {"label":"Terpinolene","note":"Jack Herer lineage marker — uplifting, antifungal, found in ~20% of COAs"},
+      "ocimene":        {"label":"Ocimene","note":"Sweet & herbaceous — antiviral properties, found in <20% of COAs"},
+      "nerolidol":      {"label":"Nerolidol","note":"Deep sedative terpene — enhances transdermal absorption, found in <12% of COAs"},
+      "guaiol":         {"label":"Guaiol","note":"Piney, woody — anti-inflammatory, found in <10% of COAs"},
+      "geraniol":       {"label":"Geraniol","note":"Rose-like floral — neuroprotective, found in <10% of COAs"},
+      "valencene":      {"label":"Valencene","note":"Sweet citrus — extremely rare in cannabis, found in <5% of COAs"},
+      "sabinene":       {"label":"Sabinene","note":"Spicy & woody — antioxidant, found in <12% of COAs"},
+      "eucalyptol":     {"label":"Eucalyptol","note":"Minty & cooling — bronchodilatory, found in <10% of COAs"},
+      "1,8-cineole":    {"label":"Eucalyptol","note":"Minty & cooling — bronchodilatory, found in <10% of COAs"},
+      "camphene":       {"label":"Camphene","note":"Earthy & musky — antioxidant, found in <15% of COAs"},
+      "delta-3-carene": {"label":"δ-3-Carene","note":"Sweet & earthy — bone metabolism research, found in <15% of COAs"},
+      "phytol":         {"label":"Phytol","note":"Sedating terpene alcohol — antioxidant, found in <15% of COAs"},
+      "fenchol":        {"label":"Fenchol","note":"Pine & lime — antimicrobial, found in <12% of COAs"},
+    };
+    const rareTerpsFound = (chemistry.top_terpenes || [])
+      .filter(t => parseFloat(t.value) >= 0.05 && RARE_TERPS[String(t.name||"").toLowerCase().trim()])
+      .map(t => ({ ...RARE_TERPS[String(t.name||"").toLowerCase().trim()], pct: parseFloat(t.value).toFixed(3) }))
+      .slice(0, 2);
+
+    // ── Minor cannabinoid detection ───────────────────────────────────────
+    const MINOR_CANN = {
+      cbg:  {label:"CBG",name:"Cannabigerol",note:"The 'Mother Cannabinoid'",sub:"Neuroprotective · Antibacterial · Anti-inflammatory",bg:"#e0f4ec",fg:"#1a6645"},
+      cbga: {label:"CBGA",name:"Cannabigerolic Acid",note:"CBG precursor — converts on heat",sub:"Neuroprotective precursor",bg:"#e8f4ee",fg:"#1a6645"},
+      cbc:  {label:"CBC",name:"Cannabichromene",note:"Third-most studied cannabinoid",sub:"Neurogenesis · Mood · Anti-inflammatory",bg:"#edf2fc",fg:"#2c52b0"},
+      cbca: {label:"CBCA",name:"Cannabichromenic Acid",note:"CBC precursor",sub:"Anti-inflammatory precursor",bg:"#edf2fc",fg:"#2c52b0"},
+      cbn:  {label:"CBN",name:"Cannabinol",note:"Craft curing indicator — THC oxidation product",sub:"Sedating · Analgesic · Appetite",bg:"#fdf3de",fg:"#8a6100"},
+      cbna: {label:"CBNA",name:"Cannabinolic Acid",note:"CBN precursor",sub:"Sedating precursor",bg:"#fdf3de",fg:"#8a6100"},
+      thcv: {label:"THCV",name:"Tetrahydrocannabivarin",note:"The 'Sports Car' cannabinoid — rare",sub:"Fast-acting · Appetite suppressant · Energising",bg:"#f5e8fc",fg:"#6b1a8a"},
+      thcva:{label:"THCVA",name:"THCV Acid",note:"THCV precursor",sub:"Rare — converts on heat",bg:"#f5e8fc",fg:"#6b1a8a"},
+    };
+    const minorCanns = Object.entries(MINOR_CANN)
+      .map(([key, info]) => {
+        const v = parseFloat(chemistry[key]) || 0;
+        return v >= 0.05 ? { ...info, pct: v.toFixed(3) } : null;
+      })
+      .filter(Boolean)
+      .slice(0, 2);
+
+    // ── Terpene complexity ────────────────────────────────────────────────
+    const terpCount2 = (chemistry.top_terpenes || []).filter(t => parseFloat(t.value) >= 0.05).length;
+    const complexityLabel = terpCount2 >= 20 ? ["Exceptional","Top 3% for complexity","#e0f4ec","#1a6645"]
+                          : terpCount2 >= 15 ? ["High Complexity","Top 10% for profile depth","#edf2fc","#2c52b0"]
+                          : terpCount2 >= 10 ? ["Rich Profile","Above-average diversity","#fdf3de","#8a6100"]
+                          : ["Standard Profile","Typical terpene diversity","#f0f4f6","#5a7080"];
+
+    // ── Flavonoids ────────────────────────────────────────────────────────
+    const flavsDetected = (chemistry.flavonoids || []).filter(f => f.value && String(f.value) !== "ND" && parseFloat(f.value) > 0).length;
+
+    // ── Differentiator cards ──────────────────────────────────────────────
+    const diffCards = [];
+    for (const rt of rareTerpsFound) {
+      diffCards.push(`<div class="bm-diff-card">
+        <div class="bm-diff-icon">✦</div>
+        <div class="bm-diff-name">${esc(rt.label)}</div>
+        <div><span class="bm-diff-badge" style="background:#fdf3de;color:#8a6100;">Rare Terpene · ${rt.pct}%</span></div>
+        <div class="bm-diff-note">${esc(rt.note)}</div>
+      </div>`);
+    }
+    for (const mc of minorCanns) {
+      diffCards.push(`<div class="bm-diff-card">
+        <div class="bm-diff-icon">◆</div>
+        <div class="bm-diff-name">${esc(mc.label)} <span style="font-weight:400;font-size:9px;color:var(--t-mid)">${mc.pct}%</span></div>
+        <div><span class="bm-diff-badge" style="background:${mc.bg};color:${mc.fg};">${esc(mc.name)}</span></div>
+        <div class="bm-diff-note">${esc(mc.note)}<br><span style="font-size:8px;color:var(--t-faint)">${esc(mc.sub)}</span></div>
+      </div>`);
+    }
+    diffCards.push(`<div class="bm-diff-card">
+      <div class="bm-diff-icon">◈</div>
+      <div class="bm-diff-name">${terpCount2} Terpenes Detected</div>
+      <div><span class="bm-diff-badge" style="background:${complexityLabel[2]};color:${complexityLabel[3]};">${esc(complexityLabel[0])}</span></div>
+      <div class="bm-diff-note">${esc(complexityLabel[1])}</div>
+    </div>`);
+    if (flavsDetected > 0) {
+      diffCards.push(`<div class="bm-diff-card">
+        <div class="bm-diff-icon">❋</div>
+        <div class="bm-diff-name">${flavsDetected} Flavonoid${flavsDetected > 1 ? "s" : ""} Detected</div>
+        <div><span class="bm-diff-badge" style="background:#fce8f0;color:#8a1a4a;">Flavonoids Present</span></div>
+        <div class="bm-diff-note">Cannaflavins &amp; plant polyphenols — anti-inflammatory, potentiate cannabinoid activity</div>
+      </div>`);
+    }
+
+    return `<div class="bm-wrap">
+      <div class="bm-head">
+        <div class="bm-head-left">
+          <div class="bm-head-title">Market Intelligence</div>
+          <div class="bm-head-sub">Benchmarked against our 600K+ COA library · last 2 years${supplierCount ? " · " + supplierCount.toLocaleString() + " licensed suppliers" : ""}</div>
+        </div>
+        <div class="bm-head-right">
+          <div class="bm-head-lib">600K<span style="font-size:11px;font-weight:400">+</span></div>
+          <div class="bm-head-lib-label">COAs analysed</div>
+        </div>
       </div>
-      <div class="bm-compare">
-        <span class="bm-val">${esc(String(thcVal))}%</span>
-        <span class="bm-vs">vs</span>
-        <span class="bm-med">${medianThc != null ? medianThc + "% median" : "—"}</span>
-        ${delta(thcVal, medianThc)}
+      <div class="bm-filter-strip">
+        <span class="bm-filter-label">Peer group</span>
+        <span class="bm-filter-pill">${esc(formFactorLabel)}</span>
+        <span class="bm-filter-pill">${thcTier}</span>
+        <span class="bm-filter-pill">${cbdTier}</span>
+        <span class="bm-filter-count">${n.toLocaleString()} matching COAs</span>
       </div>
-    </div>`;
-    const terpMetric = terpPercentile != null ? `<div class="bm-metric">
-      <div class="bm-lbl">Terpene Richness Rank</div>
-      <div class="bm-track-row">
-        <div class="bm-track"><div class="bm-fill ${fillCls(terpPercentile)}" style="width:${terpPercentile}%"></div></div>
-        ${badge(terpPercentile)}
+      <div class="bm-stats">
+        <div class="bm-stat">
+          <div class="bm-stat-lbl">THC Potency Rank</div>
+          <div class="bm-stat-num">${esc(String(thcVal))}<span class="bm-stat-num-unit">%</span></div>
+          <div class="bm-track-row">
+            <div class="bm-track"><div class="bm-fill ${fillCls(thcPercentile)}" style="width:${thcPercentile}%"></div></div>
+            ${rankPill(thcPercentile)}
+          </div>
+          <div class="bm-stat-vs">
+            <span class="bm-stat-med">${medianThc != null ? medianThc + "% market median" : "—"}</span>
+            ${deltaHtml(thcVal, medianThc)}
+          </div>
+        </div>
+        ${terpPercentile != null ? `<div class="bm-stat">
+          <div class="bm-stat-lbl">Terpene Richness Rank</div>
+          <div class="bm-stat-num">${esc(String(terpVal))}<span class="bm-stat-num-unit">%</span></div>
+          <div class="bm-track-row">
+            <div class="bm-track"><div class="bm-fill ${fillCls(terpPercentile)}" style="width:${terpPercentile}%"></div></div>
+            ${rankPill(terpPercentile)}
+          </div>
+          <div class="bm-stat-vs">
+            <span class="bm-stat-med">${medianTerp != null ? medianTerp + "% market median" : "—"}</span>
+            ${deltaHtml(terpVal, medianTerp)}
+          </div>
+        </div>` : ""}
       </div>
-      <div class="bm-compare">
-        <span class="bm-val">${esc(String(terpVal))}%</span>
-        <span class="bm-vs">vs</span>
-        <span class="bm-med">${medianTerp != null ? medianTerp + "% median" : "—"}</span>
-        ${delta(terpVal, medianTerp)}
+      <div class="bm-diff-head">
+        <div class="bm-diff-head-title">What makes this product stand out</div>
       </div>
-    </div>` : "";
-    return `<div class="bm-sec">
-      <div class="bm-sec-head">
-        <span class="bm-sec-title">Market Benchmark</span>
-        <span class="bm-sec-sub">Benchmarked against 600K+ COAs · last 2 years${supplierCount ? " · " + supplierCount.toLocaleString() + " suppliers" : ""}</span>
-      </div>
-      <div class="bm-filter-tag">Comparing similar products only: <strong>${productClass}</strong> &nbsp;·&nbsp; ${n.toLocaleString()} matching COAs</div>
-      <div class="bm-grid">${thcMetric}${terpMetric}</div>
-      ${(p90Thc != null || p90Terp != null) ? `<div class="bm-footer">
-        ${p90Thc  != null ? `<span>Top 10% THC threshold: <strong>${p90Thc}%</strong></span>` : ""}
-        ${p90Terp != null ? `<span>Top 10% terpene threshold: <strong>${p90Terp}%</strong></span>` : ""}
+      <div class="bm-diff-grid">${diffCards.join("")}</div>
+      ${(p90Thc != null || p90Terp != null) ? `<div class="bm-thresholds">
+        ${p90Thc  != null ? `<span>Top 10% THC: <strong>≥${p90Thc}%</strong></span>` : ""}
+        ${p90Terp != null ? `<span>Top 10% terpenes: <strong>≥${p90Terp}%</strong></span>` : ""}
       </div>` : ""}
     </div>`;
   })()}
