@@ -22,6 +22,7 @@ const {
 const supabase = require("./supabase");
 
 const app = express();
+app.set("trust proxy", 1); // Render.com sits behind a proxy — needed for rate-limit IP detection
 
 const upload = multer({
   storage: multer.memoryStorage(),
