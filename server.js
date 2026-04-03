@@ -2457,11 +2457,14 @@ app.get("/report/:id", async (req, res) => {
     const storedIntel = row.report_json?.intelligence || {};
 
     const [benchmark, strainIntel] = await Promise.all([
-      fetchBenchmark(chemistry).catch(() => null),
+      fetchBenchmark(chemistry).catch(err => { console.error("📊 [benchmark] threw:", err.message); return null; }),
       storedIntel.strainIntel
         ? Promise.resolve(storedIntel.strainIntel)
-        : fetchStrainIntelligence(chemistry).catch(() => null),
+        : fetchStrainIntelligence(chemistry).catch(err => { console.error("🌿 [strain] threw:", err.message); return null; }),
     ]);
+    console.log(`📊 [benchmark] result: ${benchmark ? `thc=${benchmark.thcPercentile}th pct, n=${benchmark.n}` : "null"}`);
+    console.log(`🌿 [strain] result: ${strainIntel ? `match=${strainIntel.match?.strain_name} ${strainIntel.match?.similarity}% totalStrains=${strainIntel.totalStrains}` : "null"}`);
+    console.log(`🧪 [chemistry] product_type="${chemistry.product_type}" thc_total="${chemistry.thc_total}" total_terpenes="${chemistry.total_terpenes}" top_terpenes_count=${(chemistry.top_terpenes||[]).length}`);
 
     // Scientific evidence: use stored copy, or fetch with 10s timeout
     let scientificEvidence = storedIntel.scientificEvidence || null;
