@@ -1543,28 +1543,52 @@ body { background:var(--alem-wash); font-family:'Nunito',sans-serif; font-size:1
 .si-divider { border:none; border-top:1px solid var(--border-l); margin:14px 0; }
 .si-empty { font-size:10px; color:var(--t-faint); text-align:center; padding:12px; }
 /* ── Scientific Evidence ── */
-.sci-sec { margin-top:20px; }
-.sci-header { margin-bottom:10px; }
-.sci-title { font-size:9px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--alem-dark); }
-.sci-source { font-size:9px; color:var(--t-faint); margin-top:2px; }
-.sci-details { border:1px solid #e8e4da; border-radius:6px; margin-bottom:8px; overflow:hidden; background:var(--white); }
-.sci-details[open] > summary { border-bottom:1px solid #e8e4da; }
-.sci-summary { padding:12px 16px; cursor:pointer; font-size:13px; font-weight:600; color:var(--alem-dark); list-style:none; display:flex; justify-content:space-between; align-items:center; }
-.sci-summary::-webkit-details-marker { display:none; }
-.sci-summary::after { content:"›"; font-size:16px; color:var(--t-faint); transition:transform .2s; }
-.sci-details[open] .sci-summary::after { transform:rotate(90deg); }
-.sci-summary-count { font-size:10px; font-weight:400; color:var(--t-mid); margin-left:8px; }
-.sci-card { padding:12px 16px; border-bottom:1px solid #f0ece4; }
-.sci-card:last-child { border-bottom:none; }
-.sci-card-title a { color:#16855c; text-decoration:none; font-size:12px; font-weight:600; line-height:1.4; }
-.sci-card-title a:hover { text-decoration:underline; }
-.sci-card-meta { font-family:'Space Mono',monospace; font-size:9px; color:var(--t-light); margin-top:4px; }
-.sci-card-footer { display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap; }
-.sci-tag { background:#eef7f3; color:#16855c; font-family:'Space Mono',monospace; font-size:10px; padding:2px 8px; border-radius:4px; }
-.sci-pmid { font-family:'Space Mono',monospace; font-size:9px; color:#aaa9a3; }
-.sci-empty-state { padding:14px 16px; font-size:10px; color:var(--t-faint); font-style:italic; }
-.sci-footer { margin-top:10px; font-size:9px; color:var(--t-faint); font-style:italic; line-height:1.5; }
-.sci-loading { background:var(--white); border:1px solid #e8e4da; border-radius:6px; padding:16px; font-size:10px; color:var(--t-faint); text-align:center; }
+.sci-wrap { margin-top:20px; }
+.sci-masthead { background:var(--alem-dark); border-radius:8px 8px 0 0; padding:16px 20px; display:flex; justify-content:space-between; align-items:flex-start; }
+.sci-masthead-left {}
+.sci-masthead-title { font-size:11px; font-weight:700; letter-spacing:2.5px; text-transform:uppercase; color:#8ecfb0; }
+.sci-masthead-sub { font-size:10px; color:rgba(255,255,255,0.5); margin-top:3px; line-height:1.5; }
+.sci-masthead-right { text-align:right; flex-shrink:0; }
+.sci-masthead-count { font-family:'Space Mono',monospace; font-size:22px; font-weight:700; color:#fff; line-height:1; }
+.sci-masthead-count-label { font-size:8px; letter-spacing:1.5px; text-transform:uppercase; color:rgba(255,255,255,0.4); margin-top:2px; }
+.sci-body { border:1px solid #e0ddd6; border-top:none; border-radius:0 0 8px 8px; background:var(--white); overflow:hidden; }
+/* Accordion panels */
+.sci-panel { border-bottom:1px solid #f0ece6; }
+.sci-panel:last-child { border-bottom:none; }
+.sci-panel-summary { padding:13px 18px; cursor:pointer; list-style:none; display:flex; align-items:center; gap:10px; user-select:none; }
+.sci-panel-summary::-webkit-details-marker { display:none; }
+.sci-panel-icon { font-size:14px; flex-shrink:0; }
+.sci-panel-name { flex:1; font-size:12px; font-weight:600; color:var(--alem-dark); }
+.sci-panel-areas { display:flex; gap:4px; flex-wrap:wrap; }
+.sci-area-tag { font-size:8px; font-weight:600; letter-spacing:0.8px; text-transform:uppercase; padding:2px 6px; border-radius:3px; background:var(--alem-tint); color:var(--alem-mid); }
+.sci-panel-chevron { font-size:11px; color:var(--t-faint); flex-shrink:0; transition:transform .2s; }
+details.sci-panel[open] .sci-panel-chevron { transform:rotate(90deg); }
+/* Mechanism note */
+.sci-mechanism { background:#f7f9fb; border-left:3px solid var(--alem-accent); padding:9px 14px; margin:0 18px 12px; border-radius:0 4px 4px 0; font-size:10px; color:var(--t-mid); line-height:1.6; font-style:italic; }
+/* Article cards */
+.sci-articles { padding:0 18px 14px; display:flex; flex-direction:column; gap:10px; }
+.sci-card { background:var(--off); border:1px solid #eceae4; border-radius:6px; padding:12px 14px; }
+.sci-card-top { display:flex; align-items:flex-start; gap:10px; }
+.sci-card-badge { flex-shrink:0; margin-top:2px; }
+.sci-badge { font-size:8px; font-weight:700; letter-spacing:0.8px; text-transform:uppercase; padding:2px 7px; border-radius:3px; white-space:nowrap; }
+.sci-badge-gold    { background:#fef3c7; color:#92400e; }
+.sci-badge-green   { background:#d1fae5; color:#065f46; }
+.sci-badge-blue    { background:#dbeafe; color:#1e3a8a; }
+.sci-badge-grey    { background:#f3f4f6; color:#374151; }
+.sci-badge-faint   { background:#f9fafb; color:#9ca3af; }
+.sci-badge-default { background:var(--alem-tint); color:var(--alem-mid); }
+.sci-card-body { flex:1; min-width:0; }
+.sci-card-title { font-size:12px; font-weight:600; line-height:1.45; margin-bottom:4px; }
+.sci-card-title a { color:var(--alem-mid); text-decoration:none; }
+.sci-card-title a:hover { color:#16855c; text-decoration:underline; }
+.sci-card-meta { font-family:'Space Mono',monospace; font-size:9px; color:var(--t-light); line-height:1.6; }
+.sci-card-footer { display:flex; align-items:center; gap:8px; margin-top:7px; flex-wrap:wrap; }
+.sci-rel-tag { background:#eef7f3; color:#1a6645; font-family:'Space Mono',monospace; font-size:9px; padding:2px 7px; border-radius:3px; }
+.sci-pmid { font-family:'Space Mono',monospace; font-size:8px; color:#c4c0b8; }
+/* Empty + footer */
+.sci-empty { padding:12px 18px 14px; font-size:10px; color:var(--t-faint); font-style:italic; }
+.sci-disclaimer { padding:12px 18px; border-top:1px solid #f0ece6; font-size:9px; color:var(--t-faint); line-height:1.6; font-style:italic; }
+.sci-loading { background:var(--white); border:1px solid #e8e4da; border-radius:8px; padding:18px; font-size:10px; color:var(--t-faint); text-align:center; }
 </style>
 </head>
 <body>
@@ -2141,60 +2165,94 @@ body { background:var(--alem-wash); font-family:'Nunito',sans-serif; font-size:1
 
 <!-- SCIENTIFIC EVIDENCE -->
   ${(() => {
-    if (sciLoading) return `
-      <div class="sci-loading">
-        Scientific context is loading. Refresh to view citations.
-      </div>`;
-
+    if (sciLoading) return `<div class="sci-loading">⏳ Scientific context is loading — refresh in a moment to view citations.</div>`;
     if (!scientificEvidence || scientificEvidence.totalArticles === 0) return "";
 
-    const { terpeneStudies = [], cannabinoidStudies = [], indicationStudies = [], strainFamilyStudies = [], safetyStudies = [] } = scientificEvidence;
+    const { terpeneStudies=[], cannabinoidStudies=[], indicationStudies=[], strainFamilyStudies=[], safetyStudies=[], totalArticles=0, queriesRun=0 } = scientificEvidence;
+
+    const BADGE_CLASS = { gold:"sci-badge-gold", green:"sci-badge-green", blue:"sci-badge-blue", grey:"sci-badge-grey", faint:"sci-badge-faint", default:"sci-badge-default" };
+    const PANEL_ICONS = { terpene:"🧪", cannabinoid:"⚗️", indication:"🏥", strain:"🌿", safety:"🛡️" };
+
+    function qualityBadge(a) {
+      const q = a.quality || { label:"Research Article", color:"default" };
+      return `<span class="sci-badge ${BADGE_CLASS[q.color]||'sci-badge-default'}">${esc(q.label)}</span>`;
+    }
 
     function articleCard(a) {
-      const authors = esc(a.authors || "");
-      const journal = esc(a.journal || "");
-      const year    = esc(a.year    || "");
-      const tag     = esc(a.relevanceHint || "");
-      return `<div class="sci-card">
-        <div class="sci-card-title"><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title)}</a></div>
-        <div class="sci-card-meta">${[authors, journal, year].filter(Boolean).join(" · ")}</div>
-        <div class="sci-card-footer">
-          ${tag ? `<span class="sci-tag">${tag}</span>` : ""}
-          <span class="sci-pmid">PMID ${esc(a.pmid)}</span>
+      const meta = [a.authors, a.journal, a.year].filter(Boolean).map(esc).join(" · ");
+      return `
+      <div class="sci-card">
+        <div class="sci-card-top">
+          <div class="sci-card-badge">${qualityBadge(a)}</div>
+          <div class="sci-card-body">
+            <div class="sci-card-title"><a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a></div>
+            <div class="sci-card-meta">${meta}</div>
+            <div class="sci-card-footer">
+              ${a.relevanceHint ? `<span class="sci-rel-tag">${esc(a.relevanceHint)}</span>` : ""}
+              <span class="sci-pmid">PMID&nbsp;${esc(a.pmid)}</span>
+            </div>
+          </div>
         </div>
       </div>`;
     }
 
-    function panel(title, articles, emptyMsg) {
+    function panel(icon, title, articles, mechanismNote, therapeuticAreas=[], openByDefault=false) {
       const count = articles.length;
-      return `<details class="sci-details">
-        <summary class="sci-summary">${esc(title)}<span class="sci-summary-count">${count} ${count === 1 ? "study" : "studies"}</span></summary>
-        ${count > 0 ? articles.map(articleCard).join("") : `<div class="sci-empty-state">${esc(emptyMsg)}</div>`}
+      const areaHtml = therapeuticAreas.map(a => `<span class="sci-area-tag">${esc(a)}</span>`).join("");
+      return `
+      <details class="sci-panel"${openByDefault ? " open" : ""}>
+        <summary class="sci-panel-summary">
+          <span class="sci-panel-icon">${icon}</span>
+          <span class="sci-panel-name">${esc(title)} <span style="font-weight:400;color:var(--t-mid);font-size:10px;">(${count} ${count===1?"study":"studies"})</span></span>
+          <span class="sci-panel-areas">${areaHtml}</span>
+          <span class="sci-panel-chevron">›</span>
+        </summary>
+        ${mechanismNote ? `<div class="sci-mechanism">${esc(mechanismNote)}</div>` : ""}
+        ${count > 0
+          ? `<div class="sci-articles">${articles.map(articleCard).join("")}</div>`
+          : `<div class="sci-empty">No high-quality studies retrieved for this query. This may reflect limited research on this specific compound combination.</div>`
+        }
       </details>`;
     }
 
     const terpPanels = terpeneStudies
       .filter(g => g.articles.length > 0)
-      .map(g => panel(`${g.terpene} research`, g.articles, "No studies retrieved."))
+      .map((g, i) => panel(PANEL_ICONS.terpene, `${g.terpene} — Pharmacology & Clinical Evidence`, g.articles, g.mechanismNote, g.therapeuticAreas || [], i === 0))
       .join("");
 
     const allPanels = [
       terpPanels,
-      cannabinoidStudies.length  ? panel("Cannabinoid studies",   cannabinoidStudies,  "No cannabinoid studies retrieved.")  : "",
-      indicationStudies.length   ? panel("Indication evidence",   indicationStudies,   "No indication studies retrieved.")   : "",
-      strainFamilyStudies.length ? panel("Strain family research",strainFamilyStudies, "No strain studies retrieved.")       : "",
-      safetyStudies.length       ? panel("Safety considerations", safetyStudies,       "No safety studies retrieved.")       : "",
+      cannabinoidStudies.length  ? panel(PANEL_ICONS.cannabinoid, "Cannabinoid Interactions & Entourage Effect", cannabinoidStudies, null, ["Cannabinoid Science"])  : "",
+      indicationStudies.length   ? panel(PANEL_ICONS.indication,  "Therapeutic Indication Research",            indicationStudies,  null, ["Clinical Evidence"])    : "",
+      strainFamilyStudies.length ? panel(PANEL_ICONS.strain,      "Strain Family Research",                     strainFamilyStudies,null, ["Strain Science"])        : "",
+      safetyStudies.length       ? panel(PANEL_ICONS.safety,      "Safety, Tolerability & Drug Interactions",   safetyStudies,      null, ["Safety"])                : "",
     ].filter(Boolean).join("");
 
     if (!allPanels) return "";
 
-    return `<div class="sci-sec">
-      <div class="sci-header">
-        <div class="sci-title">Scientific context</div>
-        <div class="sci-source">Peer-reviewed literature relevant to this chemical profile · Source: PubMed / NCBI</div>
+    // Count high-quality studies for the header stat
+    const allArts = [
+      ...terpeneStudies.flatMap(g=>g.articles),
+      ...cannabinoidStudies, ...indicationStudies, ...strainFamilyStudies, ...safetyStudies,
+    ];
+    const highQuality = allArts.filter(a => (a.quality?.tier||0) >= 3).length;
+
+    return `
+    <div class="sci-wrap">
+      <div class="sci-masthead">
+        <div class="sci-masthead-left">
+          <div class="sci-masthead-title">Scientific Evidence Layer</div>
+          <div class="sci-masthead-sub">Peer-reviewed literature auto-matched to this chemical profile<br>Source: PubMed / NCBI National Library of Medicine · ${queriesRun} queries executed</div>
+        </div>
+        <div class="sci-masthead-right">
+          <div class="sci-masthead-count">${totalArticles}</div>
+          <div class="sci-masthead-count-label">citations${highQuality > 0 ? `\n${highQuality} clinical/review` : ""}</div>
+        </div>
       </div>
-      ${allPanels}
-      <div class="sci-footer">Evidence summaries are for informational purposes only and do not constitute medical advice. Citations are automatically retrieved based on chemical profile. Always consult current clinical guidelines.</div>
+      <div class="sci-body">
+        ${allPanels}
+        <div class="sci-disclaimer">Evidence summaries are provided for informational purposes only and do not constitute medical advice. Citations are automatically retrieved and matched based on chemical profile similarity. Study quality indicators (Meta-Analysis, Systematic Review, Clinical Trial, Preclinical) are inferred from publication titles. Always consult current clinical guidelines and a qualified healthcare professional.</div>
+      </div>
     </div>`;
   })()}
 
