@@ -2525,7 +2525,7 @@ app.get("/health", async (_req, res) => {
 // MULTI-FILE UPLOAD ROUTE
 // ─────────────────────────────────────────────
 
-app.post("/upload-coa-multi", requireApiKey, uploadLimiter, upload.array("files", 10), async (req, res) => {
+app.post("/upload-coa-multi", uploadLimiter, upload.array("files", 10), async (req, res) => {
   try {
     // Validate query params
     const qParse = UploadQuerySchema.safeParse(req.query);
@@ -2644,7 +2644,7 @@ app.post("/upload-coa-multi", requireApiKey, uploadLimiter, upload.array("files"
   }
 });
 
-app.post("/upload-coa", requireApiKey, uploadLimiter, upload.single("file"), async (req, res) => {
+app.post("/upload-coa", uploadLimiter, upload.single("file"), async (req, res) => {
   try {
     const qParse = UploadQuerySchema.safeParse(req.query);
     if (!qParse.success) return res.status(400).json({ error: qParse.error.message, code: "INVALID_PARAMS", status: 400 });
