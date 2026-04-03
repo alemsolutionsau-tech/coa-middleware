@@ -3,7 +3,8 @@ require("dotenv").config();
 const renderReportHTMLV7  = require('./renderReportHTML');
 const renderReportPDFDoc  = require('./renderReportPDF');
 const { fetchBenchmark }        = require('./bqBenchmark');
-const { fetchStrainIntelligence } = require('./strainIntelligence');
+const { fetchStrainIntelligence }  = require('./strainIntelligence');
+const { buildScientificEvidence }  = require('./services/scientificLayer');
 
 const path = require("path");
 const express = require("express");
@@ -989,8 +990,10 @@ function renderReportHTML(reportJson = {}, options = {}) {
   const contaminants = reportJson.contaminants || {};
   const scoring = reportJson.scoring || computeIntelligenceScore(chemistry, contaminants);
   const intelligence = reportJson.intelligence || {};
-  const benchmark   = options.benchmark   || null;
-  const strainIntel = options.strainIntel || intelligence.strainIntel || null;
+  const benchmark          = options.benchmark          || null;
+  const strainIntel        = options.strainIntel        || intelligence.strainIntel        || null;
+  const scientificEvidence = options.scientificEvidence || intelligence.scientificEvidence || null;
+  const sciLoading         = options.sciLoading         || false;
 
   const terpenes = chemistry.top_terpenes || [];
   const cannabinoids = chemistry.top_cannabinoids || [];
@@ -1539,6 +1542,29 @@ body { background:var(--alem-wash); font-family:'Nunito',sans-serif; font-size:1
 .si-row-cluster { flex-shrink:0; font-size:8px; font-weight:700; letter-spacing:1px; text-transform:uppercase; padding:2px 7px; border-radius:20px; background:var(--alem-tint); color:var(--alem-mid); }
 .si-divider { border:none; border-top:1px solid var(--border-l); margin:14px 0; }
 .si-empty { font-size:10px; color:var(--t-faint); text-align:center; padding:12px; }
+/* ── Scientific Evidence ── */
+.sci-sec { margin-top:20px; }
+.sci-header { margin-bottom:10px; }
+.sci-title { font-size:9px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--alem-dark); }
+.sci-source { font-size:9px; color:var(--t-faint); margin-top:2px; }
+.sci-details { border:1px solid #e8e4da; border-radius:6px; margin-bottom:8px; overflow:hidden; background:var(--white); }
+.sci-details[open] > summary { border-bottom:1px solid #e8e4da; }
+.sci-summary { padding:12px 16px; cursor:pointer; font-size:13px; font-weight:600; color:var(--alem-dark); list-style:none; display:flex; justify-content:space-between; align-items:center; }
+.sci-summary::-webkit-details-marker { display:none; }
+.sci-summary::after { content:"›"; font-size:16px; color:var(--t-faint); transition:transform .2s; }
+.sci-details[open] .sci-summary::after { transform:rotate(90deg); }
+.sci-summary-count { font-size:10px; font-weight:400; color:var(--t-mid); margin-left:8px; }
+.sci-card { padding:12px 16px; border-bottom:1px solid #f0ece4; }
+.sci-card:last-child { border-bottom:none; }
+.sci-card-title a { color:#16855c; text-decoration:none; font-size:12px; font-weight:600; line-height:1.4; }
+.sci-card-title a:hover { text-decoration:underline; }
+.sci-card-meta { font-family:'Space Mono',monospace; font-size:9px; color:var(--t-light); margin-top:4px; }
+.sci-card-footer { display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap; }
+.sci-tag { background:#eef7f3; color:#16855c; font-family:'Space Mono',monospace; font-size:10px; padding:2px 8px; border-radius:4px; }
+.sci-pmid { font-family:'Space Mono',monospace; font-size:9px; color:#aaa9a3; }
+.sci-empty-state { padding:14px 16px; font-size:10px; color:var(--t-faint); font-style:italic; }
+.sci-footer { margin-top:10px; font-size:9px; color:var(--t-faint); font-style:italic; line-height:1.5; }
+.sci-loading { background:var(--white); border:1px solid #e8e4da; border-radius:6px; padding:16px; font-size:10px; color:var(--t-faint); text-align:center; }
 </style>
 </head>
 <body>
@@ -2113,6 +2139,65 @@ body { background:var(--alem-wash); font-family:'Nunito',sans-serif; font-size:1
 
 </div>
 
+<!-- SCIENTIFIC EVIDENCE -->
+  ${(() => {
+    if (sciLoading) return `
+      <div class="sci-loading">
+        Scientific context is loading. Refresh to view citations.
+      </div>`;
+
+    if (!scientificEvidence || scientificEvidence.totalArticles === 0) return "";
+
+    const { terpeneStudies = [], cannabinoidStudies = [], indicationStudies = [], strainFamilyStudies = [], safetyStudies = [] } = scientificEvidence;
+
+    function articleCard(a) {
+      const authors = esc(a.authors || "");
+      const journal = esc(a.journal || "");
+      const year    = esc(a.year    || "");
+      const tag     = esc(a.relevanceHint || "");
+      return `<div class="sci-card">
+        <div class="sci-card-title"><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title)}</a></div>
+        <div class="sci-card-meta">${[authors, journal, year].filter(Boolean).join(" · ")}</div>
+        <div class="sci-card-footer">
+          ${tag ? `<span class="sci-tag">${tag}</span>` : ""}
+          <span class="sci-pmid">PMID ${esc(a.pmid)}</span>
+        </div>
+      </div>`;
+    }
+
+    function panel(title, articles, emptyMsg) {
+      const count = articles.length;
+      return `<details class="sci-details">
+        <summary class="sci-summary">${esc(title)}<span class="sci-summary-count">${count} ${count === 1 ? "study" : "studies"}</span></summary>
+        ${count > 0 ? articles.map(articleCard).join("") : `<div class="sci-empty-state">${esc(emptyMsg)}</div>`}
+      </details>`;
+    }
+
+    const terpPanels = terpeneStudies
+      .filter(g => g.articles.length > 0)
+      .map(g => panel(`${g.terpene} research`, g.articles, "No studies retrieved."))
+      .join("");
+
+    const allPanels = [
+      terpPanels,
+      cannabinoidStudies.length  ? panel("Cannabinoid studies",   cannabinoidStudies,  "No cannabinoid studies retrieved.")  : "",
+      indicationStudies.length   ? panel("Indication evidence",   indicationStudies,   "No indication studies retrieved.")   : "",
+      strainFamilyStudies.length ? panel("Strain family research",strainFamilyStudies, "No strain studies retrieved.")       : "",
+      safetyStudies.length       ? panel("Safety considerations", safetyStudies,       "No safety studies retrieved.")       : "",
+    ].filter(Boolean).join("");
+
+    if (!allPanels) return "";
+
+    return `<div class="sci-sec">
+      <div class="sci-header">
+        <div class="sci-title">Scientific context</div>
+        <div class="sci-source">Peer-reviewed literature relevant to this chemical profile · Source: PubMed / NCBI</div>
+      </div>
+      ${allPanels}
+      <div class="sci-footer">Evidence summaries are for informational purposes only and do not constitute medical advice. Citations are automatically retrieved based on chemical profile. Always consult current clinical guidelines.</div>
+    </div>`;
+  })()}
+
 <!-- ACTION BUTTONS -->
 <div class="ractions">
   <a class="rbtn rbtn-p" href="/" onclick="window.location='/'; return false;" style="cursor:pointer;">↗ &nbsp; Analyse New COA</a>
@@ -2206,9 +2291,22 @@ app.post("/upload-coa-multi", requireApiKey, uploadLimiter, upload.array("files"
     const postHarvest   = buildPostHarvestIntel(chemistry, contaminants);
     const intelligence  = { fingerprintId, effectDirection: terpIntel.direction, lineageCluster: terpIntel.lineage, lineageConfidence: terpIntel.lineageConfidence, audiences, postHarvest };
 
+    // Start scientific evidence fetch early (non-blocking)
+    const sciPromise = buildScientificEvidence({ chemistry, contaminants, intelligence }).catch(() => null);
+
     const strainIntel = await fetchStrainIntelligence(chemistry).catch(() => null);
     if (strainIntel) intelligence.strainIntel = strainIntel;
     if (strainIntel) console.log(`✅ Strain match: ${strainIntel.match?.strain_name} (${strainIntel.match?.similarity}%)`);
+
+    // Await scientific evidence with 10s hard timeout
+    const sciTimeout = new Promise(r => setTimeout(() => r(null), 10_000));
+    const scientificEvidence = await Promise.race([sciPromise, sciTimeout]);
+    if (scientificEvidence?.totalArticles > 0) {
+      intelligence.scientificEvidence = scientificEvidence;
+      console.log(`✅ Scientific evidence: ${scientificEvidence.totalArticles} articles in ${scientificEvidence.executionMs}ms`);
+    } else {
+      console.warn("⚠️  Scientific evidence timed out or returned empty — report rendered without citations");
+    }
 
     const primaryFilename = req.files[0].originalname || `multi-upload-${Date.now()}`;
     const insertedRow = await insertCOAReport({
@@ -2298,13 +2396,33 @@ app.get("/report/:id", async (req, res) => {
     const row = await getReportById(req.params.id);
     if (!row) throw new Error("Row not found");
     const chemistry   = row.report_json?.chemistry || {};
+    const storedIntel = row.report_json?.intelligence || {};
+
     const [benchmark, strainIntel] = await Promise.all([
       fetchBenchmark(chemistry).catch(() => null),
-      row.report_json?.intelligence?.strainIntel
-        ? Promise.resolve(row.report_json.intelligence.strainIntel)
+      storedIntel.strainIntel
+        ? Promise.resolve(storedIntel.strainIntel)
         : fetchStrainIntelligence(chemistry).catch(() => null),
     ]);
-    return res.send(renderReportHTML(row?.report_json || {}, { documentId: row.id, benchmark, strainIntel }));
+
+    // Scientific evidence: use stored copy, or fetch with 10s timeout
+    let scientificEvidence = storedIntel.scientificEvidence || null;
+    let sciLoading = false;
+    if (!scientificEvidence) {
+      const sciTimeout = new Promise(r => setTimeout(() => r("timeout"), 10_000));
+      const result = await Promise.race([
+        buildScientificEvidence({ chemistry, intelligence: storedIntel }).catch(() => null),
+        sciTimeout,
+      ]);
+      if (result === "timeout") {
+        sciLoading = true;
+        console.warn("⚠️  Scientific evidence timed out on /report/:id");
+      } else {
+        scientificEvidence = result;
+      }
+    }
+
+    return res.send(renderReportHTML(row?.report_json || {}, { documentId: row.id, benchmark, strainIntel, scientificEvidence, sciLoading }));
   } catch (error) {
     console.error("ERROR /report/:id", error.message);
     return res.status(404).send(`<!DOCTYPE html>
