@@ -184,12 +184,13 @@ function getDominantTerpenes(chemistry) {
     "alpha-humulene":"alpha_humulene","humulene":"alpha_humulene",
     "alpha-bisabolol":"alpha_bisabolol","bisabolol":"alpha_bisabolol",
   };
-  return top
+  const mapped = top
     .map(t => ({ col: NAME_TO_COL[String(t.name||"").toLowerCase().trim()], val: toNum(t.value), name: t.name }))
     .filter(t => t.col && t.val > 0 && TERPENE_PROFILES[t.col])
-    .map(t => ({ ...t, fraction: t.val / totalTerps }))
-    .filter(t => t.fraction > 0.08)
-    .slice(0, 3);
+    .map(t => ({ ...t, fraction: t.val / totalTerps }));
+  // Use 5% threshold but always include at least the top 2 if they map to known profiles
+  const aboveThreshold = mapped.filter(t => t.fraction > 0.05);
+  return (aboveThreshold.length > 0 ? aboveThreshold : mapped.slice(0, 2)).slice(0, 3);
 }
 
 function tagArticles(articles, therapeuticArea, relevanceHint) {
@@ -234,18 +235,10 @@ async function buildScientificEvidence(coaData) {
   const intel     = coaData.intelligence || {};
   const strainIntel = intel.strainIntel || null;
 
-  const totalTerps = toNum(chemistry.total_terpenes);
-  const thc        = toNum(chemistry.thc_total);
-  const cbd        = toNum(chemistry.cbd_total);
+  const thc = toNum(chemistry.thc_total);
+  const cbd = toNum(chemistry.cbd_total);
 
-  if (totalTerps < 0.1) {
-    return {
-      terpeneStudies:[], cannabinoidStudies:[], strainFamilyStudies:[],
-      indicationStudies:[], safetyStudies:[],
-      queriesRun:0, totalArticles:0, executionMs:Date.now()-start, insufficient:true,
-    };
-  }
-
+  // Still run cannabinoid + safety queries even if terpenes are low/absent
   const dominantTerps = getDominantTerpenes(chemistry);
 
   // Build all jobs

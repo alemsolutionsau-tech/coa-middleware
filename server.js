@@ -1797,84 +1797,96 @@ details.sci-panel[open] .sci-panel-chevron { transform:rotate(90deg); }
     </div>`;
   })()}
 
-  <!-- STRAIN INTELLIGENCE -->
+  <!-- SCIENTIFIC EVIDENCE (moved above terpene fingerprint) -->
   ${(() => {
-    if (!strainIntel) return "";
-    const { match, substitutes = [], complementary = [], totalStrains, inputClusterLabel, formFactor } = strainIntel;
+    if (sciLoading) return `<div class="sci-loading">⏳ Scientific context is loading — refresh in a moment to view citations.</div>`;
+    if (!scientificEvidence) return "";
 
-    function simColor(pct) {
-      if (pct >= 80) return "background:#e0f4ec;color:#1a6645;";
-      if (pct >= 60) return "background:#fdf3de;color:var(--gold);";
-      return "background:var(--alem-tint);color:var(--t-mid);";
+    const { terpeneStudies=[], cannabinoidStudies=[], indicationStudies=[], strainFamilyStudies=[], safetyStudies=[], totalArticles=0, queriesRun=0 } = scientificEvidence;
+
+    const BADGE_CLASS = { gold:"sci-badge-gold", green:"sci-badge-green", blue:"sci-badge-blue", grey:"sci-badge-grey", faint:"sci-badge-faint", default:"sci-badge-default" };
+    const PANEL_ICONS = { terpene:"🧪", cannabinoid:"⚗️", indication:"🏥", strain:"🌿", safety:"🛡️" };
+
+    function qualityBadge(a) {
+      const q = a.quality || { label:"Research Article", color:"default" };
+      return `<span class="sci-badge ${BADGE_CLASS[q.color]||'sci-badge-default'}">${esc(q.label)}</span>`;
     }
 
-    // ── SECTION 1: STRAIN MATCH ──────────────────────────────────────
-    const matchHtml = !match ? `<div class="si-empty">No close strain match found in database.</div>` : `
-      <div class="si-match-card">
-        <div class="si-match-score">
-          <div class="si-match-pct">${match.similarity}%</div>
-          <div class="si-match-lbl">Match</div>
-        </div>
-        <div class="si-match-body">
-          <div class="si-match-name">${esc(match.strain_name)}</div>
-          <div class="si-match-meta">
-            <span>★ ${match.coa_count.toLocaleString()} COAs</span>
-            <span>Avg THC ${esc(match.avg_thc)}%</span>
-            ${match.p10_thc && match.p90_thc ? `<span>Range ${esc(match.p10_thc)}–${esc(match.p90_thc)}%</span>` : ""}
-            <span>${esc(match.avg_terpenes)}% terpenes</span>
+    function articleCard(a) {
+      const meta = [a.authors, a.journal, a.year].filter(Boolean).map(esc).join(" · ");
+      return `
+      <div class="sci-card">
+        <div class="sci-card-top">
+          <div class="sci-card-badge">${qualityBadge(a)}</div>
+          <div class="sci-card-body">
+            <div class="sci-card-title"><a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a></div>
+            <div class="sci-card-meta">${meta}</div>
+            <div class="sci-card-footer">
+              ${a.relevanceHint ? `<span class="sci-rel-tag">${esc(a.relevanceHint)}</span>` : ""}
+              <span class="sci-pmid">PMID&nbsp;${esc(a.pmid)}</span>
+            </div>
           </div>
-          ${match.clusterLabel ? `<span class="si-cluster-pill">${esc(match.clusterLabel)}</span>` : ""}
         </div>
       </div>`;
+    }
 
-    // ── SECTION 2: SUBSTITUTES ───────────────────────────────────────
-    const subsHtml = substitutes.length === 0
-      ? `<div class="si-empty">No substitute strains with ≥55% similarity found.</div>`
-      : substitutes.map(s => `
-          <div class="si-row">
-            <div class="si-row-name">${esc(s.strain_name)}</div>
-            <div class="si-row-bar-wrap">
-              <div class="si-row-bar"><div class="si-row-bar-fill" style="width:${s.similarity}%"></div></div>
-            </div>
-            <div class="si-row-pct" style="${simColor(s.similarity)};padding:1px 6px;border-radius:10px;">${s.similarity}%</div>
-            <div class="si-row-meta">${esc(s.avg_thc)}% THC · ${s.coa_count.toLocaleString()} COAs</div>
-          </div>`).join("");
+    function panel(icon, title, articles, mechanismNote, therapeuticAreas=[], openByDefault=false) {
+      const count = articles.length;
+      const areaHtml = therapeuticAreas.map(a => `<span class="sci-area-tag">${esc(a)}</span>`).join("");
+      return `
+      <details class="sci-panel"${openByDefault ? " open" : ""}>
+        <summary class="sci-panel-summary">
+          <span class="sci-panel-icon">${icon}</span>
+          <span class="sci-panel-name">${esc(title)} <span style="font-weight:400;color:var(--t-mid);font-size:10px;">(${count} ${count===1?"study":"studies"})</span></span>
+          <span class="sci-panel-areas">${areaHtml}</span>
+          <span class="sci-panel-chevron">›</span>
+        </summary>
+        ${mechanismNote ? `<div class="sci-mechanism">${esc(mechanismNote)}</div>` : ""}
+        ${count > 0
+          ? `<div class="sci-articles">${articles.map(articleCard).join("")}</div>`
+          : `<div class="sci-empty">No high-quality studies retrieved for this query. This may reflect limited research on this specific compound combination.</div>`
+        }
+      </details>`;
+    }
 
-    // ── SECTION 3: COMPLEMENTARY ─────────────────────────────────────
-    const compHtml = complementary.length === 0
-      ? `<div class="si-empty">No complementary strains identified.</div>`
-      : complementary.map(s => `
-          <div class="si-row">
-            <div class="si-row-name">${esc(s.strain_name)}</div>
-            ${s.clusterLabel ? `<span class="si-row-cluster">${esc(s.clusterLabel)}</span>` : ""}
-            <div style="flex:1"></div>
-            <div class="si-row-meta">${esc(s.avg_thc)}% THC · ${esc(s.dominantLabel || "")}−dominant · ${s.coa_count.toLocaleString()} COAs</div>
-          </div>`).join("");
+    const terpPanels = terpeneStudies
+      .filter(g => g.articles.length > 0)
+      .map((g, i) => panel(PANEL_ICONS.terpene, `${g.terpene} — Pharmacology & Clinical Evidence`, g.articles, g.mechanismNote, g.therapeuticAreas || [], i === 0))
+      .join("");
+
+    const allPanels = [
+      terpPanels,
+      cannabinoidStudies.length  ? panel(PANEL_ICONS.cannabinoid, "Cannabinoid Interactions & Entourage Effect", cannabinoidStudies, null, ["Cannabinoid Science"])  : "",
+      indicationStudies.length   ? panel(PANEL_ICONS.indication,  "Therapeutic Indication Research",            indicationStudies,  null, ["Clinical Evidence"])    : "",
+      strainFamilyStudies.length ? panel(PANEL_ICONS.strain,      "Strain Family Research",                     strainFamilyStudies,null, ["Strain Science"])        : "",
+      safetyStudies.length       ? panel(PANEL_ICONS.safety,      "Safety, Tolerability & Drug Interactions",   safetyStudies,      null, ["Safety"])                : "",
+    ].filter(Boolean).join("");
+
+    if (!allPanels) return "";
+
+    const allArts = [
+      ...terpeneStudies.flatMap(g=>g.articles),
+      ...cannabinoidStudies, ...indicationStudies, ...strainFamilyStudies, ...safetyStudies,
+    ];
+    const highQuality = allArts.filter(a => (a.quality?.tier||0) >= 3).length;
 
     return `
-      <div class="si-sec">
-        <div class="si-header">
-          <span class="si-title">Strain Match</span>
-          <span class="si-sub">${totalStrains.toLocaleString()} ${esc(formFactor)} strains in database${inputClusterLabel ? " · " + esc(inputClusterLabel) + " profile" : ""}</span>
+    <div class="sci-wrap">
+      <div class="sci-masthead">
+        <div class="sci-masthead-left">
+          <div class="sci-masthead-title">Scientific Evidence Layer</div>
+          <div class="sci-masthead-sub">Peer-reviewed literature auto-matched to this chemical profile<br>Source: PubMed / NCBI National Library of Medicine · ${queriesRun} queries executed</div>
         </div>
-        ${matchHtml}
+        <div class="sci-masthead-right">
+          <div class="sci-masthead-count">${totalArticles}</div>
+          <div class="sci-masthead-count-label">citations${highQuality > 0 ? `\n${highQuality} clinical/review` : ""}</div>
+        </div>
       </div>
-
-      <div class="si-sec">
-        <div class="si-header">
-          <span class="si-title">Substitute Strains</span>
-          <span class="si-sub">Similar terpene fingerprint · could replace this product</span>
-        </div>
-        <div class="si-rows">${subsHtml}</div>
+      <div class="sci-body">
+        ${allPanels}
+        <div class="sci-disclaimer">Evidence summaries are provided for informational purposes only and do not constitute medical advice. Citations are automatically retrieved and matched based on chemical profile similarity. Study quality indicators (Meta-Analysis, Systematic Review, Clinical Trial, Preclinical) are inferred from publication titles. Always consult current clinical guidelines and a qualified healthcare professional.</div>
       </div>
-
-      <div class="si-sec">
-        <div class="si-header">
-          <span class="si-title">Complementary Strains</span>
-          <span class="si-sub">Different profile · therapeutically compatible</span>
-        </div>
-        <div class="si-rows">${compHtml}</div>
-      </div>`;
+    </div>`;
   })()}
 
   <!-- TERPENE FINGERPRINT -->
@@ -2163,99 +2175,6 @@ details.sci-panel[open] .sci-panel-chevron { transform:rotate(90deg); }
 
 </div>
 
-<!-- SCIENTIFIC EVIDENCE -->
-  ${(() => {
-    if (sciLoading) return `<div class="sci-loading">⏳ Scientific context is loading — refresh in a moment to view citations.</div>`;
-    if (!scientificEvidence || scientificEvidence.totalArticles === 0) return "";
-
-    const { terpeneStudies=[], cannabinoidStudies=[], indicationStudies=[], strainFamilyStudies=[], safetyStudies=[], totalArticles=0, queriesRun=0 } = scientificEvidence;
-
-    const BADGE_CLASS = { gold:"sci-badge-gold", green:"sci-badge-green", blue:"sci-badge-blue", grey:"sci-badge-grey", faint:"sci-badge-faint", default:"sci-badge-default" };
-    const PANEL_ICONS = { terpene:"🧪", cannabinoid:"⚗️", indication:"🏥", strain:"🌿", safety:"🛡️" };
-
-    function qualityBadge(a) {
-      const q = a.quality || { label:"Research Article", color:"default" };
-      return `<span class="sci-badge ${BADGE_CLASS[q.color]||'sci-badge-default'}">${esc(q.label)}</span>`;
-    }
-
-    function articleCard(a) {
-      const meta = [a.authors, a.journal, a.year].filter(Boolean).map(esc).join(" · ");
-      return `
-      <div class="sci-card">
-        <div class="sci-card-top">
-          <div class="sci-card-badge">${qualityBadge(a)}</div>
-          <div class="sci-card-body">
-            <div class="sci-card-title"><a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a></div>
-            <div class="sci-card-meta">${meta}</div>
-            <div class="sci-card-footer">
-              ${a.relevanceHint ? `<span class="sci-rel-tag">${esc(a.relevanceHint)}</span>` : ""}
-              <span class="sci-pmid">PMID&nbsp;${esc(a.pmid)}</span>
-            </div>
-          </div>
-        </div>
-      </div>`;
-    }
-
-    function panel(icon, title, articles, mechanismNote, therapeuticAreas=[], openByDefault=false) {
-      const count = articles.length;
-      const areaHtml = therapeuticAreas.map(a => `<span class="sci-area-tag">${esc(a)}</span>`).join("");
-      return `
-      <details class="sci-panel"${openByDefault ? " open" : ""}>
-        <summary class="sci-panel-summary">
-          <span class="sci-panel-icon">${icon}</span>
-          <span class="sci-panel-name">${esc(title)} <span style="font-weight:400;color:var(--t-mid);font-size:10px;">(${count} ${count===1?"study":"studies"})</span></span>
-          <span class="sci-panel-areas">${areaHtml}</span>
-          <span class="sci-panel-chevron">›</span>
-        </summary>
-        ${mechanismNote ? `<div class="sci-mechanism">${esc(mechanismNote)}</div>` : ""}
-        ${count > 0
-          ? `<div class="sci-articles">${articles.map(articleCard).join("")}</div>`
-          : `<div class="sci-empty">No high-quality studies retrieved for this query. This may reflect limited research on this specific compound combination.</div>`
-        }
-      </details>`;
-    }
-
-    const terpPanels = terpeneStudies
-      .filter(g => g.articles.length > 0)
-      .map((g, i) => panel(PANEL_ICONS.terpene, `${g.terpene} — Pharmacology & Clinical Evidence`, g.articles, g.mechanismNote, g.therapeuticAreas || [], i === 0))
-      .join("");
-
-    const allPanels = [
-      terpPanels,
-      cannabinoidStudies.length  ? panel(PANEL_ICONS.cannabinoid, "Cannabinoid Interactions & Entourage Effect", cannabinoidStudies, null, ["Cannabinoid Science"])  : "",
-      indicationStudies.length   ? panel(PANEL_ICONS.indication,  "Therapeutic Indication Research",            indicationStudies,  null, ["Clinical Evidence"])    : "",
-      strainFamilyStudies.length ? panel(PANEL_ICONS.strain,      "Strain Family Research",                     strainFamilyStudies,null, ["Strain Science"])        : "",
-      safetyStudies.length       ? panel(PANEL_ICONS.safety,      "Safety, Tolerability & Drug Interactions",   safetyStudies,      null, ["Safety"])                : "",
-    ].filter(Boolean).join("");
-
-    if (!allPanels) return "";
-
-    // Count high-quality studies for the header stat
-    const allArts = [
-      ...terpeneStudies.flatMap(g=>g.articles),
-      ...cannabinoidStudies, ...indicationStudies, ...strainFamilyStudies, ...safetyStudies,
-    ];
-    const highQuality = allArts.filter(a => (a.quality?.tier||0) >= 3).length;
-
-    return `
-    <div class="sci-wrap">
-      <div class="sci-masthead">
-        <div class="sci-masthead-left">
-          <div class="sci-masthead-title">Scientific Evidence Layer</div>
-          <div class="sci-masthead-sub">Peer-reviewed literature auto-matched to this chemical profile<br>Source: PubMed / NCBI National Library of Medicine · ${queriesRun} queries executed</div>
-        </div>
-        <div class="sci-masthead-right">
-          <div class="sci-masthead-count">${totalArticles}</div>
-          <div class="sci-masthead-count-label">citations${highQuality > 0 ? `\n${highQuality} clinical/review` : ""}</div>
-        </div>
-      </div>
-      <div class="sci-body">
-        ${allPanels}
-        <div class="sci-disclaimer">Evidence summaries are provided for informational purposes only and do not constitute medical advice. Citations are automatically retrieved and matched based on chemical profile similarity. Study quality indicators (Meta-Analysis, Systematic Review, Clinical Trial, Preclinical) are inferred from publication titles. Always consult current clinical guidelines and a qualified healthcare professional.</div>
-      </div>
-    </div>`;
-  })()}
-
 <!-- ACTION BUTTONS -->
 <div class="ractions">
   <a class="rbtn rbtn-p" href="/" onclick="window.location='/'; return false;" style="cursor:pointer;">↗ &nbsp; Analyse New COA</a>
@@ -2473,7 +2392,7 @@ app.get("/report/:id", async (req, res) => {
       const totalTerps = parseFloat(chemistry.total_terpenes) || 0;
       const topTerps   = (chemistry.top_terpenes || []).length;
       console.log(`🔬 [sci] report ${req.params.id} — totalTerps=${totalTerps} topTerps=${topTerps} thc=${chemistry.thc_total}`);
-      const sciTimeout = new Promise(r => setTimeout(() => r("timeout"), 10_000));
+      const sciTimeout = new Promise(r => setTimeout(() => r("timeout"), 25_000));
       const result = await Promise.race([
         buildScientificEvidence({ chemistry, intelligence: storedIntel }).catch(err => {
           console.error("🔬 [sci] buildScientificEvidence threw:", err.message);
