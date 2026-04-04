@@ -125,8 +125,6 @@ body {
   max-width:1220px; width:100%; margin:0 auto;
 }
 
-/* ── Left column ── */
-.hero-left { }
 
 .hero-eyebrow {
   font-family: 'Nunito', sans-serif;
@@ -301,13 +299,7 @@ body {
   position:relative; user-select:none; -webkit-user-select:none;
 }
 .hub-drop:hover { border-color:var(--mint); background:rgba(142,207,176,.08); transform:translateY(-2px); }
-/* File input is off-screen — triggered via .click() from JS, cannot intercept pointer events */
-.hub-drop input[type="file"],
-.upload-drop input[type="file"] {
-  position:fixed; top:-200vh; left:-200vw;
-  width:1px; height:1px; opacity:0;
-  pointer-events:none;
-}
+/* File inputs are display:none siblings — triggered via .click() from JS */
 .hub-drop-icon { font-size:38px; display:block; margin-bottom:13px; }
 .hub-drop-title { font-size:16px; font-weight:700; color:var(--white); margin-bottom:6px; }
 .hub-drop-sub { font-size:12px; color:rgba(255,255,255,.5); margin-bottom:22px; }
@@ -901,13 +893,15 @@ body {
           <div class="hub-badge">Free · No account</div>
         </div>
         <div class="hub-body">
-          <!-- Drop zone — file input sits invisibly over the entire area -->
+          <!-- Hidden file input — triggered by JS, no overlay -->
+          <input type="file" id="hubFileInput" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff" multiple style="display:none;">
+
+          <!-- Drop zone — click triggers file picker via JS -->
           <div class="hub-drop" id="hubDrop">
-            <input type="file" id="hubFileInput" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff" multiple tabindex="-1">
             <span class="hub-drop-icon" id="hubIcon">📄</span>
             <div class="hub-drop-title" id="hubTitle">Click or drop your COA files here</div>
             <div class="hub-drop-sub" id="hubSub">Single file or multiple pages · PDF, PNG, JPG, TIFF</div>
-            <div class="hub-formats" style="margin-top:8px;position:relative;z-index:3;">Drop all pages at once · up to 10 files</div>
+            <div class="hub-formats" style="margin-top:8px;">Drop all pages at once · up to 10 files</div>
           </div>
 
           <!-- File list (populated by JS) -->
@@ -923,7 +917,7 @@ body {
           </div>
 
           <!-- Analyse button -->
-          <button class="hub-btn" id="hubBtn" onclick="hubHandleUpload()" disabled
+          <button class="hub-btn" id="hubBtn" onclick="hubHandleUpload()"
             style="width:100%;margin-top:14px;cursor:not-allowed;opacity:0.45;pointer-events:none;">
             ⬆ &nbsp; Analyse Free
           </button>
@@ -1486,9 +1480,11 @@ body {
       <div class="free-cta-box reveal rd2">
         <div class="free-cta-title">Analyse your COA</div>
         <div class="free-cta-sub">Transform raw chemistry into <strong>complete intelligence</strong> in under 15 seconds.</div>
-        <!-- Drop zone — input overlays entire area invisibly -->
+        <!-- Hidden file input — triggered by JS, no overlay -->
+        <input type="file" id="ctaFileInput" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff" multiple style="display:none;">
+
+        <!-- Drop zone — click triggers file picker via JS -->
         <div class="upload-drop" id="ctaDrop">
-          <input type="file" id="ctaFileInput" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff" multiple tabindex="-1">
           <span class="upload-drop-icon" id="ctaIcon">📄</span>
           <div class="upload-drop-text" id="ctaTitle">Click or drop your COA files here</div>
           <div class="upload-drop-sub" id="ctaSub">Single file or multiple pages · PDF, PNG, JPG, TIFF</div>
@@ -1507,7 +1503,7 @@ body {
         </div>
 
         <!-- Analyse button -->
-        <button id="ctaBtn" onclick="ctaHandleUpload()" disabled
+        <button id="ctaBtn" onclick="ctaHandleUpload()"
           style="width:100%;margin-top:16px;padding:15px 24px;background:var(--mint);color:var(--navy-deep);font-family:'Nunito',sans-serif;font-size:13px;font-weight:800;letter-spacing:2px;text-transform:uppercase;border:none;border-radius:30px;cursor:not-allowed;opacity:0.45;pointer-events:none;transition:all .25s;">
           ⬆ &nbsp; Analyse Free
         </button>
