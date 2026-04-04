@@ -301,17 +301,10 @@ body {
   position:relative; user-select:none; -webkit-user-select:none;
 }
 .hub-drop:hover { border-color:var(--mint); background:rgba(142,207,176,.08); transform:translateY(-2px); }
-/* The invisible full-coverage file input sits on top of the whole drop zone */
+/* File input is hidden — drop zone click triggers it via JS */
 .hub-drop input[type="file"],
 .upload-drop input[type="file"] {
-  position:absolute; inset:0; width:100%; height:100%;
-  opacity:0; cursor:pointer; z-index:2;
-}
-/* Interactive elements inside the drop zone must sit above the invisible file input (z-index:2) */
-#hubFileListWrap, #ctaFileListWrap,
-.hub-btn, #ctaBtn,
-.file-item-remove, .file-list-clear, .add-more-btn {
-  position:relative; z-index:3;
+  display:none;
 }
 .hub-drop-icon { font-size:38px; display:block; margin-bottom:13px; }
 .hub-drop-title { font-size:16px; font-weight:700; color:var(--white); margin-bottom:6px; }
@@ -1629,11 +1622,10 @@ function makeUploadZone(cfg) {
   var statusEl   = document.getElementById(cfg.statusId);
 
   // ── File picker ────────────────────────────────────────
-  // The input sits over the drop zone (position:absolute, opacity:0, inset:0)
-  // so clicking anywhere on the zone hits the input directly — no .click() needed.
-  // Just block clicks when uploading is in progress.
+  // Drop zone click opens the file picker. Input is display:none (no overlay).
   dropZone.addEventListener('click', function (e) {
-    if (isUploading) { e.preventDefault(); e.stopPropagation(); }
+    if (isUploading) return;
+    fileInput.click();
   });
 
   fileInput.addEventListener('change', function () {
