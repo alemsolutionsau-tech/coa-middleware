@@ -909,16 +909,16 @@ body {
           <div id="hubFileListWrap" style="display:none;">
             <div class="file-list-header">
               <span class="file-list-count" id="hubFileCount">0 files</span>
-              <button class="file-list-clear" onclick="hubClearAll()">✕ Clear all</button>
+              <button class="file-list-clear" id="hubClearBtn">✕ Clear all</button>
             </div>
             <div class="file-list" id="hubFileList"></div>
-            <button class="add-more-btn" onclick="document.getElementById('hubFileInput').click()">
+            <button class="add-more-btn" id="hubAddMore">
               ＋ &nbsp; Add more files
             </button>
           </div>
 
           <!-- Analyse button -->
-          <button class="hub-btn" id="hubBtn" onclick="hubHandleUpload()"
+          <button class="hub-btn" id="hubBtn"
             style="width:100%;margin-top:14px;cursor:not-allowed;opacity:0.45;pointer-events:none;">
             ⬆ &nbsp; Analyse Free
           </button>
@@ -1495,16 +1495,16 @@ body {
         <div id="ctaFileListWrap" style="display:none;margin-top:12px;">
           <div class="file-list-header">
             <span class="file-list-count" id="ctaFileCount">0 files</span>
-            <button class="file-list-clear" onclick="ctaClearAll()">✕ Clear all</button>
+            <button class="file-list-clear" id="ctaClearBtn">✕ Clear all</button>
           </div>
           <div class="file-list" id="ctaFileList"></div>
-          <button class="add-more-btn" onclick="document.getElementById('ctaFileInput').click()" style="border-color:rgba(142,207,176,.2);color:rgba(255,255,255,.4);">
+          <button class="add-more-btn" id="ctaAddMore" style="border-color:rgba(142,207,176,.2);color:rgba(255,255,255,.4);">
             ＋ &nbsp; Add more files
           </button>
         </div>
 
         <!-- Analyse button -->
-        <button id="ctaBtn" onclick="ctaHandleUpload()"
+        <button id="ctaBtn"
           style="width:100%;margin-top:16px;padding:15px 24px;background:var(--mint);color:var(--navy-deep);font-family:'Nunito',sans-serif;font-size:13px;font-weight:800;letter-spacing:2px;text-transform:uppercase;border:none;border-radius:30px;cursor:not-allowed;opacity:0.45;pointer-events:none;transition:all .25s;">
           ⬆ &nbsp; Analyse Free
         </button>
@@ -1719,19 +1719,41 @@ function makeUploadZone(cfg) {
     files.forEach(function (f, i) {
       var item = document.createElement('div');
       item.className = 'file-item';
-      item.innerHTML =
-        '<span class="file-item-icon">' + fileIcon(f.type) + '</span>' +
-        '<div class="file-item-info">' +
-          '<div class="file-item-name" title="' + f.name + '">' + f.name + '</div>' +
-          '<div class="file-item-size">' + formatSize(f.size) + ' &nbsp;·&nbsp; Page ' + (i + 1) + '</div>' +
-        '</div>' +
-        '<span class="file-item-badge">' + fileTypeBadge(f.type) + '</span>' +
-        '<button class="file-item-remove" title="Remove" onclick="(function(){removeFileAt_' + cfg.inputId + '(' + i + ')})()">×</button>';
+
+      var icon = document.createElement('span');
+      icon.className = 'file-item-icon';
+      icon.textContent = fileIcon(f.type);
+
+      var info = document.createElement('div');
+      info.className = 'file-item-info';
+      var name = document.createElement('div');
+      name.className = 'file-item-name';
+      name.title = f.name;
+      name.textContent = f.name;
+      var size = document.createElement('div');
+      size.className = 'file-item-size';
+      size.textContent = formatSize(f.size) + ' · Page ' + (i + 1);
+      info.appendChild(name);
+      info.appendChild(size);
+
+      var badge = document.createElement('span');
+      badge.className = 'file-item-badge';
+      badge.textContent = fileTypeBadge(f.type);
+
+      var removeBtn = document.createElement('button');
+      removeBtn.className = 'file-item-remove';
+      removeBtn.title = 'Remove';
+      removeBtn.textContent = '×';
+      (function(idx) {
+        removeBtn.addEventListener('click', function() { removeFile(idx); });
+      }(i));
+
+      item.appendChild(icon);
+      item.appendChild(info);
+      item.appendChild(badge);
+      item.appendChild(removeBtn);
       fileListEl.appendChild(item);
     });
-
-    // Expose per-zone remove function
-    window['removeFileAt_' + cfg.inputId] = removeFile;
   }
 
   // ── Button state ────────────────────────────────────────
@@ -1827,6 +1849,14 @@ makeUploadZone({
   clearFnName:  'ctaClearAll',
   uploadFnName: 'ctaHandleUpload',
 });
+
+// ── Wire static buttons via addEventListener (no onclick= attributes) ──────
+document.getElementById('hubBtn').addEventListener('click', function() { hubHandleUpload(); });
+document.getElementById('hubClearBtn').addEventListener('click', function() { hubClearAll(); });
+document.getElementById('hubAddMore').addEventListener('click', function() { document.getElementById('hubFileInput').click(); });
+document.getElementById('ctaBtn').addEventListener('click', function() { ctaHandleUpload(); });
+document.getElementById('ctaClearBtn').addEventListener('click', function() { ctaClearAll(); });
+document.getElementById('ctaAddMore').addEventListener('click', function() { document.getElementById('ctaFileInput').click(); });
 
 // ── Scroll reveal ──────────────────────────────────────────
 var obs = new IntersectionObserver(function (entries) {
