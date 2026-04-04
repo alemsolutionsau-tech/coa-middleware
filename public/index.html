@@ -301,10 +301,12 @@ body {
   position:relative; user-select:none; -webkit-user-select:none;
 }
 .hub-drop:hover { border-color:var(--mint); background:rgba(142,207,176,.08); transform:translateY(-2px); }
-/* File input is hidden — drop zone click triggers it via JS */
+/* File input is off-screen — triggered via .click() from JS, cannot intercept pointer events */
 .hub-drop input[type="file"],
 .upload-drop input[type="file"] {
-  display:none;
+  position:fixed; top:-200vh; left:-200vw;
+  width:1px; height:1px; opacity:0;
+  pointer-events:none;
 }
 .hub-drop-icon { font-size:38px; display:block; margin-bottom:13px; }
 .hub-drop-title { font-size:16px; font-weight:700; color:var(--white); margin-bottom:6px; }
