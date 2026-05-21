@@ -2759,7 +2759,8 @@ app.get("/report/:id", requireReportToken, async (req, res) => {
         .catch(e  => console.warn("⚠️  [writeback] failed:", e.message));
     }
 
-    return res.send(renderReportHTML(row?.report_json || {}, { documentId: row.id, benchmark, strainIntel, scientificEvidence, sciLoading }));
+    const reportToken = generateReportToken(row.id);
+    return res.send(renderReportHTML(row?.report_json || {}, { documentId: row.id, reportToken, benchmark, strainIntel, scientificEvidence, sciLoading }));
   } catch (error) {
     console.error("ERROR /report/:id", error.message);
     return res.status(404).send(`<!DOCTYPE html>

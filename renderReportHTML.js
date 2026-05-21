@@ -1486,7 +1486,7 @@ ${(pestPass && metalsPass && microPass && mycoPass) ? `
   <div class="footer-tagline">Upload your COA. Understand your chemistry.</div>
   <div class="footer-btns">
     <a class="btn-primary" href="/">Analyse New COA</a>
-    ${options.documentId ? `<a class="btn-outline" href="/pdf/${esc(String(options.documentId))}" target="_blank">Export PDF</a>` : ""}
+    ${options.documentId ? `<a class="btn-outline" href="/pdf/${esc(String(options.documentId))}${options.reportToken ? `?t=${esc(String(options.reportToken))}` : ''}" target="_blank">Export PDF</a>` : ""}
   </div>
   ${options.documentId ? `<div class="footer-report-id">Report ID: ${esc(String(options.documentId))}</div>` : ""}
 </div>
