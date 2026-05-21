@@ -2453,7 +2453,7 @@ details.sci-panel[open] .sci-panel-chevron { transform:rotate(90deg); }
 <!-- ACTION BUTTONS -->
 <div class="ractions">
   <a class="rbtn rbtn-p" href="/" onclick="window.location='/'; return false;" style="cursor:pointer;">↗ &nbsp; Analyse New COA</a>
-  ${options.documentId ? `<a class="rbtn rbtn-s" href="/pdf/${esc(options.documentId)}" target="_blank">⬇ &nbsp; Export PDF</a>` : ""}
+  ${options.documentId ? `<a class="rbtn rbtn-s" href="/pdf/${esc(options.documentId)}${options.reportToken ? `?t=${esc(options.reportToken)}` : ''}" target="_blank">⬇ &nbsp; Export PDF</a>` : ""}
 </div>
 <p class="page-foot">Powered by <a href="https://alem.solutions">alem.solutions</a> &nbsp;·&nbsp; Chemical Intelligence</p>
 
